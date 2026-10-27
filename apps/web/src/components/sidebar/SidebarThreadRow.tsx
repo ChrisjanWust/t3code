@@ -24,6 +24,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentMachineKind,
   type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import type { TimestampFormat } from "@t3tools/contracts/settings";
@@ -171,6 +172,10 @@ function WorkingDurationLabel(props: { startedMs: number }) {
   return (
     <span className="tabular-nums">{formatWorkingDurationLabel(nowMs - props.startedMs)}</span>
   );
+}
+
+function worktreeTabCountLabel(count: number): string {
+  return count === 0 ? "No open tabs" : `${count} ${count === 1 ? "tab" : "tabs"}`;
 }
 
 function terminalProcessLabel(count: number): string {
@@ -440,13 +445,15 @@ const SIDEBAR_SORTABLE_DRAG_ENABLED = { draggable: false } as const;
 // sidebar body is new on every sidebar render, which rebuilt the bag and
 // re-rendered every memoized row with it.
 export function SortableThreadRow(
-  props: Omit<SidebarThreadRowProps, "sortable"> & {
+  props: Omit<SidebarThreadRowProps, "sortable" | "statusThread"> & {
     sortableId: string;
     sortableDisabled: boolean;
     contextDrag: boolean;
+    /** A worktree row shows the status of its most urgent open tab. */
+    worktreeStatusThreadId?: ThreadId | null | undefined;
   },
 ) {
-  const { sortableId, sortableDisabled, contextDrag, ...rowProps } = props;
+  const { sortableId, sortableDisabled, contextDrag, worktreeStatusThreadId, ...rowProps } = props;
   const canOperateThread = useEnvironmentScope(
     rowProps.thread.environmentId,
     AuthOrchestrationOperateScope,
@@ -473,8 +480,21 @@ export function SortableThreadRow(
   const thread =
     useThreadShell(scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id)) ??
     rowProps.thread;
+  const statusThread = useThreadShell(
+    worktreeStatusThreadId == null
+      ? null
+      : scopeThreadRef(rowProps.thread.environmentId, worktreeStatusThreadId),
+  );
   // Keyed by variant so a card/slim switch remounts the row.
-  return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
+  return (
+    <SidebarThreadRow
+      key={rowProps.variant}
+      {...rowProps}
+      thread={thread}
+      statusThread={statusThread}
+      sortable={bag}
+    />
+  );
 }
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
@@ -512,6 +532,10 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
+  /** Set on worktree rows: the row is named for the worktree and counts its open tabs. */
+  worktreeLabel?: string | undefined;
+  worktreeTabCount?: number | undefined;
+  statusThread?: SidebarThreadSummary | null | undefined;
   variant: "card" | "slim";
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
@@ -681,8 +705,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
 
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const status = resolveSidebarThreadStatus(thread);
+  const isWorktreeRow = props.worktreeLabel !== undefined;
+  const rowNoun = isWorktreeRow ? "worktree" : "thread";
+  const unsettleLabel = isWorktreeRow ? "Reopen worktree" : "Un-settle thread";
+  const statusThread = props.statusThread ?? thread;
+  const statusThreadKey = scopedThreadKey(
+    scopeThreadRef(statusThread.environmentId, statusThread.id),
+  );
+  const localStatusVisitedAt = useUiStateStore(
+    (state) => state.threadLastVisitedAtById[statusThreadKey],
+  );
+  const statusVisitedAt = resolveThreadLastVisitedAt(
+    statusThread.lastVisitedAt,
+    localStatusVisitedAt,
+  );
+  const isUnread = hasUnseenCompletion({ ...statusThread, lastVisitedAt: statusVisitedAt });
+  const status = resolveSidebarThreadStatus(statusThread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -699,7 +737,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const topStatus =
     status === "working"
       ? {
-          label: thread.goal?.status === "active" ? "Goal" : "Working",
+          label: statusThread.goal?.status === "active" ? "Goal" : "Working",
           icon: "working" as const,
           className: "text-info-foreground",
         }
@@ -816,6 +854,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   };
   const handleDoubleClick = (event: ReactMouseEvent) => {
     if (
+      isWorktreeRow ||
       !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope) ||
       isRenaming ||
       event.metaKey ||
@@ -962,8 +1001,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     ) : null;
 
+  const displayTitle = props.worktreeLabel ?? thread.title;
   const accessibility = resolveSidebarRowAccessibility({
-    title: thread.title,
+    title: displayTitle,
     statusLabel: topStatus?.label ?? null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
@@ -1005,12 +1045,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ),
         isRegeneratingTitle && "opacity-55",
       )}
-      dir={textDirection(thread.title)}
+      dir={textDirection(displayTitle)}
     >
-      {thread.title}
+      {displayTitle}
     </span>
   );
-  const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
+  const accessibleTitle = isRenaming ? null : <span className="sr-only">{displayTitle}</span>;
 
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
@@ -1065,7 +1105,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           render={
             <button
               type="button"
-              aria-label="Unpin thread"
+              aria-label={`Unpin ${rowNoun}`}
               onClick={handleUnpinClick}
               className="group/unpin inline-flex cursor-pointer items-center rounded-sm text-muted-foreground/65 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             />
@@ -1080,7 +1120,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             className="hidden size-3 shrink-0 group-hover/unpin:block group-focus-visible/unpin:block"
           />
         </TooltipTrigger>
-        <TooltipPopup>Unpin thread</TooltipPopup>
+        <TooltipPopup>{`Unpin ${rowNoun}`}</TooltipPopup>
       </Tooltip>
     ) : (
       <PinIcon
@@ -1196,7 +1236,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   !props.snoozeSupported ? null : (
                     <button
                       type="button"
-                      aria-label="Wake thread now"
+                      aria-label={`Wake ${rowNoun} now`}
                       onClick={handleUnsnoozeClick}
                       onPointerDown={handleActionPointerDown}
                       className={cn(
@@ -1213,7 +1253,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       render={
                         <button
                           type="button"
-                          aria-label="Un-settle thread"
+                          aria-label={unsettleLabel}
                           onClick={handleUnsettleClick}
                           onPointerDown={handleActionPointerDown}
                           className={cn(
@@ -1225,12 +1265,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     >
                       <Undo2Icon className="mb-px size-3.5" />
                     </TooltipTrigger>
-                    <TooltipPopup side="top">Un-settle thread</TooltipPopup>
+                    <TooltipPopup side="top">{unsettleLabel}</TooltipPopup>
                   </Tooltip>
                 ) : (
                   <button
                     type="button"
-                    aria-label="Settle thread"
+                    aria-label={`Settle ${rowNoun}`}
                     onClick={handleSettleClick}
                     onPointerDown={handleActionPointerDown}
                     className={cn(
@@ -1255,6 +1295,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const diff = latestRunDiff(thread);
   // Only the provider icon would remain; the New design drops the line instead of leaving it blank.
   const metaLineEmpty =
+    !isWorktreeRow &&
     !thread.branch &&
     !showsScratchMachine &&
     prBadge === null &&
@@ -1439,7 +1480,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             render={
                               <button
                                 type="button"
-                                aria-label="Settle thread"
+                                aria-label={`Settle ${rowNoun}`}
                                 onClick={handleSettleClick}
                                 onPointerDown={handleActionPointerDown}
                                 className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -1449,7 +1490,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             <CheckIcon className="size-3.5" />
                             Settle
                           </TooltipTrigger>
-                          <TooltipPopup>Settle thread</TooltipPopup>
+                          <TooltipPopup>{`Settle ${rowNoun}`}</TooltipPopup>
                         </Tooltip>
                       ) : null}
                     </span>
@@ -1480,7 +1521,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 metaLineEmpty && "redesign:hidden",
               )}
             >
-              {thread.branch ? (
+              {isWorktreeRow ? (
+                <>
+                  <ThreadWorktreeIndicator thread={thread} />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground/40 redesign:text-inherit">
+                    {worktreeTabCountLabel(props.worktreeTabCount ?? 0)}
+                  </span>
+                </>
+              ) : thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="flex min-w-0 flex-1 text-muted-foreground/40 redesign:text-inherit">

@@ -70,6 +70,27 @@ export function BetaSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          {...searchableSetting("thread-tabs")}
+          description="List worktrees in the sidebar and open each worktree's threads as tabs above the chat. On desktop, Cmd/Ctrl+T opens a tab and Cmd/Ctrl+W closes it. Uses the current sidebar."
+          resetAction={
+            settings.threadTabsEnabled !== DEFAULT_UNIFIED_SETTINGS.threadTabsEnabled ? (
+              <SettingResetButton
+                label="thread tabs"
+                onClick={() =>
+                  updateSettings({ threadTabsEnabled: DEFAULT_UNIFIED_SETTINGS.threadTabsEnabled })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.threadTabsEnabled}
+              onCheckedChange={(checked) => updateSettings({ threadTabsEnabled: Boolean(checked) })}
+              aria-label="Thread tabs"
+            />
+          }
+        />
         {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
       </SettingsSection>

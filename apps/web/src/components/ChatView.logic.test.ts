@@ -7,6 +7,9 @@ import {
   withMessageContext,
   deriveAvailableRevertTurnCounts,
   deriveWorkspaceMutationId,
+  observeProactivePanelUserChoice,
+  shouldOpenProactivePullRequest,
+  shouldOpenProactiveTurnDiff,
 } from "./ChatView.logic";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
@@ -104,6 +107,62 @@ const readySession = {
   lastError: null,
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
+
+describe("observeProactivePanelUserChoice", () => {
+  const offers = (
+    observation: ReturnType<typeof observeProactivePanelUserChoice>,
+    current: { runningTurnId: RunId | null; settledTurnId: RunId | null; targetKey: string | null },
+  ) => ({
+    diff: shouldOpenProactiveTurnDiff({
+      previousRunningTurnId: observation.runningTurnId,
+      runningTurnId: current.runningTurnId,
+      settledTurnId: current.settledTurnId,
+      turnCompleted: current.settledTurnId !== null,
+    }),
+    pullRequest: shouldOpenProactivePullRequest(observation.targetKey, current.targetKey),
+  });
+  const idleWithLink = {
+    runningTurnId: null,
+    settledTurnId: RunId.make("turn-1"),
+    targetKey: "pr-1",
+  };
+
+  it("offers a thread's finished turn and link on entry to its own panel", () => {
+    const entry = observeProactivePanelUserChoice(null, {
+      threadKey: "thread-b",
+      runningTurnId: null,
+      userActionRevision: 0,
+    });
+
+    expect(offers(entry, idleWithLink)).toEqual({ diff: true, pullRequest: true });
+  });
+
+  it("offers nothing on entry to a shared panel, only what happens after", () => {
+    const watchingA = observeProactivePanelUserChoice(null, {
+      threadKey: "thread-a",
+      runningTurnId: null,
+      userActionRevision: 3,
+      seenOnEntry: { targetKey: null },
+    });
+    const entry = observeProactivePanelUserChoice(watchingA, {
+      threadKey: "thread-b",
+      runningTurnId: null,
+      userActionRevision: 3,
+      seenOnEntry: { targetKey: "pr-1" },
+    });
+    expect(offers(entry, idleWithLink)).toEqual({ diff: false, pullRequest: false });
+
+    // The hook records each running turn it watches.
+    const watchedTurn = { ...entry, runningTurnId: RunId.make("turn-2") };
+    expect(
+      offers(watchedTurn, {
+        runningTurnId: null,
+        settledTurnId: RunId.make("turn-2"),
+        targetKey: "pr-2",
+      }),
+    ).toEqual({ diff: true, pullRequest: true });
+  });
+});
 
 describe("resolveDraftPromotionNavigationTarget", () => {
   const serverThreadRef = { environmentId, threadId };

@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 
 import type { OpenPreviewMutation } from "./browser/openFileInPreview";
 import type { ClosedView, ClosedViewEntry } from "./closedViewStore";
@@ -16,6 +16,8 @@ export interface ReopenOwnerState {
   ownerExists: boolean;
   shellLive: boolean;
   panel: ThreadRightPanelState;
+  /** A thread tab is open again once its thread is no longer settled. */
+  tabOpen?: boolean;
 }
 
 export function planNextReopen(
@@ -37,9 +39,11 @@ export function planNextReopen(
     const alreadyOpen =
       entry.kind === "panel-tab"
         ? owner.panel.isOpen && owner.panel.surfaces.some((s) => s.id === entry.surface.id)
-        : owner.panel.surfaces.some(
-            (s) => s.kind === "preview" && s.resourceId === entry.snapshot.tabId,
-          );
+        : entry.kind === "thread-tab"
+          ? owner.tabOpen === true
+          : owner.panel.surfaces.some(
+              (s) => s.kind === "preview" && s.resourceId === entry.snapshot.tabId,
+            );
     if (alreadyOpen) {
       drop.push(entry);
       continue;
@@ -92,10 +96,12 @@ export async function reopenClosedView(
   options: {
     openPreview: OpenPreviewMutation;
     workspaceAvailable: boolean;
+    reopenTab: (ref: ScopedThreadRef) => Promise<boolean>;
   },
 ): Promise<boolean> {
   const panels = useRightPanelStore.getState();
   const ref = view.threadRef;
+  if (view.kind === "thread-tab") return options.reopenTab(ref);
 
   if (view.kind === "browser") {
     const url = view.snapshot.navStatus._tag === "Idle" ? undefined : view.snapshot.navStatus.url;

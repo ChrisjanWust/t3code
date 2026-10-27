@@ -1,6 +1,7 @@
 // An in-process environment for app render scenarios: a fetch stub for its HTTP API and a
-// session that answers the shell, thread and config subscriptions from fixtures. Other RPCs
-// stay pending so nothing retries on timers. Everything above the wire is the app's own.
+// session that answers the shell, thread and config subscriptions from fixtures, and applies
+// settle commands. Other RPCs stay pending so nothing retries on timers. Everything above
+// the wire is the app's own.
 import {
   AuthStandardClientScopes,
   EnvironmentId,
@@ -17,7 +18,9 @@ import {
   TurnItemId,
   WS_METHODS,
   WsRpcGroup,
+  type ExecutionEnvironmentCapabilities,
   type OrchestrationProjectShell,
+  type OrchestrationV2Command,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2Run,
   type OrchestrationV2ShellStreamItem,
@@ -49,15 +52,16 @@ const CODEX = ProviderInstanceId.make("codex");
 const MODEL = { instanceId: CODEX, model: "gpt-5.4" };
 const AT = DateTime.makeUnsafe("2026-03-17T19:12:28.000Z");
 
-const descriptor = {
+const makeDescriptor = (capabilities: Partial<ExecutionEnvironmentCapabilities>) => ({
   environmentId: ENVIRONMENT_ID,
   label: "Render scenarios",
   platform: { os: "linux", arch: "x64" },
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true },
-};
+  capabilities: { repositoryIdentity: true, ...capabilities },
+});
+let descriptor = makeDescriptor({});
 const auth = {
   policy: "loopback-browser",
   bootstrapMethods: ["one-time-token"],
@@ -65,8 +69,12 @@ const auth = {
   sessionCookieName: "t3_session",
 };
 
-const serverConfig: ServerConfig = {
-  ...Schema.decodeUnknownSync(ServerConfig)({
+const decodeServerConfig = Schema.decodeUnknownSync(ServerConfig);
+const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
+const encodeDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor);
+
+const makeServerConfig = (): ServerConfig => ({
+  ...decodeServerConfig({
     environment: descriptor,
     auth,
     cwd: "/workspace/render",
@@ -99,7 +107,8 @@ const serverConfig: ServerConfig = {
     shellResumeCompletionMarker: true,
   }),
   keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
-};
+});
+let serverConfig = makeServerConfig();
 
 const project: OrchestrationProjectShell = {
   id: PROJECT_ID,
@@ -185,6 +194,9 @@ export interface FakeThread {
   readonly title: string;
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+  /** The project checkout when absent. */
+  readonly worktreePath?: string;
+  readonly branch?: string;
 }
 
 /** A thread of `turns` user prompts, each answered in markdown with a list and inline code. */
@@ -210,8 +222,24 @@ export function threadWithHistory(name: string, turns: number): FakeThread {
   return { id, title: `Thread ${name}`, runs, items };
 }
 
+// Keyed by thread id: what settle commands changed since the fixture was installed.
+const settlement = new Map<
+  string,
+  Pick<OrchestrationV2ThreadShell, "settledOverride" | "settledAt" | "updatedAt">
+>();
+
 function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   const latest = thread.runs.at(-1);
+  return {
+    ...baseShellOf(thread, latest),
+    ...settlement.get(thread.id),
+  };
+}
+
+function baseShellOf(
+  thread: FakeThread,
+  latest: OrchestrationV2Run | undefined,
+): OrchestrationV2ThreadShell {
   return {
     id: thread.id,
     projectId: PROJECT_ID,
@@ -220,8 +248,8 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
     modelSelection: MODEL,
     runtimeMode: "full-access",
     interactionMode: "default",
-    branch: "main",
-    worktreePath: null,
+    branch: thread.branch ?? "main",
+    worktreePath: thread.worktreePath ?? null,
     activeProviderThreadId: null,
     lineage: { rootThreadId: thread.id, parentThreadId: null, relationshipToParent: null },
     forkedFrom: null,
@@ -307,8 +335,48 @@ const json = (body: unknown, status = 200) =>
 
 // Keyed by thread id: a live thread subscription's queue, for pushing events to it.
 const threadSubscribers = new Map<string, Queue.Queue<OrchestrationV2ThreadStreamItem>>();
+const shellSubscribers = new Set<Queue.Queue<OrchestrationV2ShellStreamItem>>();
 let threads: ReadonlyArray<FakeThread> = [];
 let sequence = 1;
+let dispatched: OrchestrationV2Command[] = [];
+
+const publishShell = (thread: FakeThread) => {
+  sequence += 1;
+  const item: OrchestrationV2ShellStreamItem = {
+    kind: "thread.updated",
+    sequence,
+    location: "active",
+    thread: shellOf(thread),
+  };
+  for (const queue of shellSubscribers) Effect.runSync(Queue.offer(queue, item));
+};
+
+const shellSnapshot = (): OrchestrationV2ShellStreamItem => ({
+  kind: "snapshot",
+  snapshot: {
+    schemaVersion: 1,
+    snapshotSequence: sequence,
+    projects: [project],
+    threads: threads.map(shellOf),
+    archivedThreads: [],
+  },
+});
+
+// Settle and unsettle land as the server's projection would; other commands are only recorded.
+const applyCommand = (command: OrchestrationV2Command) => {
+  dispatched.push(command);
+  if (command.type !== "thread.settle" && command.type !== "thread.unsettle") return;
+  const thread = threads.find((candidate) => candidate.id === command.threadId);
+  if (!thread) return;
+  const now = DateTime.makeUnsafe(Date.now());
+  settlement.set(
+    thread.id,
+    command.type === "thread.settle"
+      ? { settledOverride: "settled", settledAt: command.settledAt ?? now, updatedAt: now }
+      : { settledOverride: "active", settledAt: null, updatedAt: now },
+  );
+  publishShell(thread);
+};
 
 const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>) => () => void) =>
   Stream.unwrap(
@@ -325,19 +393,18 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
 
 const handlers: Record<string, (input: never) => unknown> = {
   [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () =>
-    subscribe<OrchestrationV2ShellStreamItem>([
-      {
-        kind: "snapshot",
-        snapshot: {
-          schemaVersion: 1,
-          snapshotSequence: sequence,
-          projects: [project],
-          threads: threads.map(shellOf),
-          archivedThreads: [],
-        },
+    subscribe<OrchestrationV2ShellStreamItem>(
+      [shellSnapshot(), { kind: "synchronized" }],
+      (queue) => {
+        shellSubscribers.add(queue);
+        return () => void shellSubscribers.delete(queue);
       },
-      { kind: "synchronized" },
-    ]),
+    ),
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
+    Effect.sync(() => {
+      applyCommand(command);
+      return { sequence };
+    }),
   [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: { readonly threadId: ThreadId }) => {
     const thread = threads.find((candidate) => candidate.id === input.threadId);
     if (!thread) return Stream.never;
@@ -372,7 +439,7 @@ const client = new Proxy(handlers, {
 
 const session: EnvironmentConnectionLease["session"] = {
   client: client as unknown as WsRpcProtocolClient,
-  initialConfig: Effect.succeed(serverConfig),
+  initialConfig: Effect.sync(() => serverConfig),
   subscribeServerConfig: () =>
     subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig }]),
   ready: Effect.void,
@@ -402,13 +469,19 @@ export const fakeDriver = {
 export type FakeDriver = typeof fakeDriver;
 
 const realFetch = globalThis.fetch;
-const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
-  Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor)(descriptor),
-);
 
 /** Serves the environment's HTTP API and these threads until disposed. */
-export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Disposable {
+export function installFakeEnvironment(
+  fixtures: ReadonlyArray<FakeThread>,
+  options: { readonly capabilities?: Partial<ExecutionEnvironmentCapabilities> } = {},
+): Disposable {
   threads = fixtures;
+  descriptor = makeDescriptor(options.capabilities ?? {});
+  serverConfig = makeServerConfig();
+  const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));
+  // The app keeps its connection across mounts, so live subscriptions resync as on a reconnect.
+  sequence += 1;
+  for (const queue of shellSubscribers) Effect.runSync(Queue.offer(queue, shellSnapshot()));
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
     if (url.origin !== window.location.origin) return realFetch(input, init);
@@ -430,6 +503,8 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
     [Symbol.dispose]: () => {
       globalThis.fetch = realFetch;
       threads = [];
+      settlement.clear();
+      dispatched = [];
     },
   };
 }
@@ -456,6 +531,17 @@ export async function emitThreadEvent(
       event: { ...event, id: EventId.make(`event-${sequence}`), threadId, occurredAt: AT },
     } as OrchestrationV2ThreadStreamItem),
   );
+}
+
+/** The orchestration commands the app has sent, oldest first. */
+export function dispatchedCommands(): ReadonlyArray<OrchestrationV2Command> {
+  return dispatched;
+}
+
+/** Adds a thread the server created, such as a fork, and publishes it to the shell. */
+export function addServerThread(thread: FakeThread): void {
+  threads = [...threads, thread];
+  publishShell(thread);
 }
 
 export function runningRun(threadId: ThreadId, id: string, ordinal: number, userMessageId: string) {

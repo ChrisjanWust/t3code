@@ -543,6 +543,72 @@ describe("resolveChatShortcutCommand", () => {
     );
   });
 
+  it("gives mod+w to thread tabs even when a saved config lists the panel rule after them", () => {
+    // Startup backfill writes new defaults ahead of the user's saved rules.
+    const tabRules = DEFAULT_RESOLVED_KEYBINDINGS.filter((rule) => rule.command.startsWith("tab."));
+    const backfilled = [
+      ...tabRules,
+      ...DEFAULT_RESOLVED_KEYBINDINGS.filter((rule) => !rule.command.startsWith("tab.")),
+    ];
+    const closeKey = event({ key: "w", ctrlKey: true });
+    const resolve = (context: Record<string, boolean>) =>
+      resolveChatShortcutCommand(closeKey, backfilled, [], { platform: "Linux", context });
+
+    assert.strictEqual(resolve({ threadTabs: true, isDesktop: true }), "tab.close");
+    assert.strictEqual(
+      resolveChatShortcutCommand(event({ key: "w", metaKey: true }), backfilled, [], {
+        platform: "MacIntel",
+        context: { threadTabs: true, isDesktop: true },
+      }),
+      "tab.close",
+    );
+    assert.strictEqual(
+      resolve({ threadTabs: true, isDesktop: true, previewFocus: true }),
+      "rightPanel.close",
+    );
+    assert.strictEqual(resolve({ threadTabs: false, isDesktop: true }), "rightPanel.close");
+    assert.strictEqual(
+      resolve({ threadTabs: true, isDesktop: false, isWeb: true }),
+      "rightPanel.close",
+    );
+  });
+
+  it("cycles thread tabs with ctrl+tab on every desktop platform, even from the terminal", () => {
+    const resolve = (
+      overrides: Partial<ShortcutEventLike>,
+      platform: string,
+      context: Record<string, boolean>,
+    ) =>
+      resolveChatShortcutCommand(
+        event({ key: "Tab", code: "Tab", ...overrides }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        [],
+        { platform, context },
+      );
+    const tabs = { threadTabs: true, isDesktop: true };
+
+    for (const platform of ["MacIntel", "Linux", "Win32"]) {
+      assert.strictEqual(resolve({ ctrlKey: true }, platform, tabs), "tab.next");
+      assert.strictEqual(
+        resolve({ ctrlKey: true, shiftKey: true }, platform, tabs),
+        "tab.previous",
+      );
+    }
+    assert.strictEqual(
+      resolve({ ctrlKey: true }, "MacIntel", { ...tabs, terminalFocus: true }),
+      "tab.next",
+    );
+    assert.strictEqual(resolve({ metaKey: true }, "MacIntel", tabs), null);
+    assert.strictEqual(
+      resolve({ ctrlKey: true }, "MacIntel", { threadTabs: false, isDesktop: true }),
+      null,
+    );
+    assert.strictEqual(
+      resolve({ ctrlKey: true }, "MacIntel", { threadTabs: true, isDesktop: false, isWeb: true }),
+      null,
+    );
+  });
+
   it("keeps primary app commands ahead of conflicting active script shortcuts", () => {
     const primary = compile([{ shortcut: modShortcut("k"), command: "commandPalette.toggle" }]);
     const active = compile([{ shortcut: modShortcut("k"), command: "script.setup.run" }]);

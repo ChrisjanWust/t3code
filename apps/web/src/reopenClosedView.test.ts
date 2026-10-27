@@ -54,7 +54,7 @@ describe("reopenClosedView", () => {
           revealRequestId: 1,
         },
       },
-      { openPreview, workspaceAvailable: true },
+      { openPreview, workspaceAvailable: true, reopenTab: async () => false },
     );
     expect(reopened).toBe(true);
     const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
@@ -67,6 +67,7 @@ describe("reopenClosedView", () => {
     const options = {
       openPreview: vi.fn(),
       workspaceAvailable: false,
+      reopenTab: async () => false,
     };
     for (const surface of [
       { kind: "files", id: "files" },
@@ -91,7 +92,7 @@ describe("reopenClosedView", () => {
     const openPreview = vi.fn(async () => AsyncResult.success({ ...snapshot, tabId: "new-tab" }));
     const result = await reopenClosedView(
       { kind: "browser", threadRef, snapshot },
-      { openPreview, workspaceAvailable: false },
+      { openPreview, workspaceAvailable: false, reopenTab: async () => false },
     );
     expect(result).toBe(true);
     expect(openPreview).toHaveBeenCalledWith({
@@ -116,12 +117,51 @@ describe("reopenClosedView", () => {
       {
         openPreview: async () => AsyncResult.failure(Cause.fail(new Error("offline"))),
         workspaceAvailable: false,
+        reopenTab: async () => false,
       },
     );
     expect(result).toBe(false);
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).surfaces,
     ).toEqual([]);
+  });
+});
+
+describe("reopenClosedView thread tabs", () => {
+  it("reopens a closed thread tab through its thread, leaving the panel alone", async () => {
+    const reopenTab = vi.fn(async () => true);
+    const openPreview = vi.fn();
+    expect(
+      await reopenClosedView(
+        { kind: "thread-tab", threadRef },
+        { openPreview, workspaceAvailable: true, reopenTab },
+      ),
+    ).toBe(true);
+    expect(reopenTab).toHaveBeenCalledWith(threadRef);
+    expect(openPreview).not.toHaveBeenCalled();
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef).surfaces,
+    ).toEqual([]);
+  });
+
+  it("drops a closed tab that was reopened another way", () => {
+    const tabEntries: ClosedViewEntry[] = [
+      { id: "reopened", kind: "thread-tab", threadRef },
+      { id: "closed", kind: "thread-tab", threadRef },
+    ];
+    const owner = {
+      environmentKnown: true,
+      catalogReady: true,
+      ownerExists: true,
+      shellLive: true,
+      panel: { isOpen: false, activeSurfaceId: null, surfaces: [] },
+    };
+    const plan = planNextReopen(tabEntries, (entry) => ({
+      ...owner,
+      tabOpen: entry.id === "reopened",
+    }));
+    expect(plan.drop.map((entry) => entry.id)).toEqual(["reopened"]);
+    expect(plan.restore?.id).toBe("closed");
   });
 });
 

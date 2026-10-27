@@ -363,6 +363,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "thread-tabs",
+    title: "Thread tabs",
+    to: "/settings/beta",
+    searchTerms: ["beta tabs worktree sidebar new tab close tab history paseo"],
+  },
+  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/beta",

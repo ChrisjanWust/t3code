@@ -12,7 +12,12 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
-import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
+import {
+  isSurfaceOwnedBy,
+  type RightPanelSurface,
+  surfaceOwnerRef,
+  useRightPanelStore,
+} from "../../rightPanelStore";
 import {
   PersistentThreadTerminalPanel,
   type PersistentThreadTerminalPanelProps,
@@ -22,6 +27,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { WorktreeTabsPanel } from "../threadTabs/WorktreeTabsPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -84,23 +90,28 @@ export function RightPanelSurfaceContent(props: {
         <Suspense fallback={null}>
           <PreviewPanel
             mode="embedded"
-            threadRef={threadRef}
+            threadRef={surfaceOwnerRef(surface, threadRef)}
             tabId={surface.resourceId}
             configuredUrls={props.configuredPreviewUrls}
             visible={visible}
+            floatable={isSurfaceOwnedBy(surface, threadRef)}
             onSendAnnotation={props.onSendAnnotation}
           />
         </Suspense>
       );
-    case "terminal":
+    case "terminal": {
+      const owner = surfaceOwnerRef(surface, threadRef);
       return (
         <PersistentThreadTerminalPanel
           {...props.terminal}
+          // The launch context is the shown thread's; another tab's terminal keeps its own.
+          {...(isSurfaceOwnedBy(surface, threadRef) ? {} : { launchContext: null })}
           visible={visible}
-          threadRef={threadRef}
+          threadRef={owner}
           surface={surface}
         />
       );
+    }
     case "diff":
       return (
         <Suspense fallback={null}>
@@ -165,6 +176,8 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "tabs":
+      return <WorktreeTabsPanel threadRef={threadRef} />;
     case "device":
       return (
         <Suspense fallback={null}>

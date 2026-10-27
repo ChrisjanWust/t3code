@@ -8,7 +8,7 @@ import {
   previewThreadRefsAtom,
   type ThreadPreviewState,
 } from "../../previewStateStore";
-import { useRightPanelStore } from "../../rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { readEnvironmentSupportsServerBrowser } from "../../state/entities";
 
@@ -25,11 +25,12 @@ export function revealServerTabs(
   for (const session of sessions) {
     const force = session.revealRequest?.force === true;
     if (!options.autoShowFloatingPreview && !force) continue;
-    const surface = useRightPanelStore
-      .getState()
-      .byThreadKey[scopedThreadKey(threadRef)]?.surfaces.find(
-        (surface) => surface.kind === "preview" && surface.resourceId === session.tabId,
-      );
+    const surface = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      threadRef,
+    ).surfaces.find(
+      (surface) => surface.kind === "preview" && surface.resourceId === session.tabId,
+    );
     if (surface && force) {
       useRightPanelStore.getState().activateSurface(threadRef, surface.id);
     } else if (!surface) {

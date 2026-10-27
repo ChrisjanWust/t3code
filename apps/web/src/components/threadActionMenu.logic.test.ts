@@ -26,6 +26,27 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it("offers a worktree row its lifecycle and leaves thread-only actions to its tabs", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      scope: "worktree",
+      isSettled: true,
+      canShareWithGuest: true,
+    });
+    expect(items.map((item) => [item.id, item.label])).toEqual([
+      ["new-thread-on-branch", "New tab"],
+      ["pin", "Pin worktree"],
+      ["unsettle", "Reopen worktree"],
+      ["snooze", "Snooze"],
+      ["copy", "Copy"],
+      ["project-settings", "Project settings"],
+      ["archive", "Archive worktree"],
+      ["delete", "Delete"],
+    ]);
+    const copy = items.find((item) => item.id === "copy");
+    expect(copy?.children?.map((child) => child.id)).toEqual(["copy-path"]);
+  });
+
   it.each([false, true])(
     "disables both lifecycle directions without permission (reversed: %s)",
     (reversed) => {

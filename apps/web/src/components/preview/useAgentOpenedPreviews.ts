@@ -1,12 +1,11 @@
 import type { DeviceServiceState, ScopedThreadRef } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useEffect, useRef } from "react";
 import { useClientSettings } from "../../hooks/useSettings";
 import {
   usePreviewMiniPlayerStore,
   type PreviewMiniPlayerState,
 } from "../../previewMiniPlayerStore";
-import { useRightPanelStore } from "../../rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
@@ -55,14 +54,15 @@ export function useAgentOpenedPreviews(input: {
         usePreviewMiniPlayerStore.getState().open(threadRef, { kind: "device", ...target });
         continue;
       }
-      const existing = useRightPanelStore
-        .getState()
-        .byThreadKey[scopedThreadKey(threadRef)]?.surfaces.some(
-          (surface) =>
-            surface.kind === "device" &&
-            surface.target?.hostId === session.hostId &&
-            surface.target.deviceId === session.deviceId,
-        );
+      const existing = selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        threadRef,
+      ).surfaces.some(
+        (surface) =>
+          surface.kind === "device" &&
+          surface.target?.hostId === session.hostId &&
+          surface.target.deviceId === session.deviceId,
+      );
       if (existing) continue;
       useRightPanelStore.getState().openDevice(threadRef, target, true);
     }

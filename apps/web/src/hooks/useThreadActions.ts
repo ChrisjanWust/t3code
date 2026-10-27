@@ -711,7 +711,7 @@ export function useThreadActions() {
     return result;
   };
 
-  const settleThread = async (target: ScopedThreadRef) => {
+  const settleThread = async (target: ScopedThreadRef, opts: { settledAt?: string } = {}) => {
     if (!readEnvironmentSupportsSettlement(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
@@ -734,7 +734,10 @@ export function useThreadActions() {
     const action = ThreadUndo.begin("settle", scopedThreadKey(target));
     const result = await settleThreadMutation({
       environmentId: target.environmentId,
-      input: { threadId: target.threadId },
+      input: {
+        threadId: target.threadId,
+        ...(opts.settledAt === undefined ? {} : { settledAt: opts.settledAt }),
+      },
     });
     if (result._tag !== "Success") {
       action.finish();

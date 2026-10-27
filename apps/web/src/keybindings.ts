@@ -188,12 +188,22 @@ export function resolveShortcutCommand(
   return null;
 }
 
+const THREAD_TAB_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(["tab.new", "tab.close"]);
+
 export function resolveChatShortcutCommand(
   event: ShortcutEventLike,
   primaryKeybindings: ResolvedKeybindingsConfig,
   activeKeybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): KeybindingCommand | null {
+  // Startup backfill puts new defaults before saved rules, so tab rules must outrank
+  // the panel's mod+t and mod+w by kind rather than by position.
+  const tabCommand = resolveShortcutCommand(
+    event,
+    primaryKeybindings.filter((binding) => THREAD_TAB_COMMANDS.has(binding.command)),
+    options,
+  );
+  if (tabCommand !== null) return tabCommand;
   const primaryCommand = resolveShortcutCommand(event, primaryKeybindings, options);
   if (primaryCommand !== null && projectScriptIdFromCommand(primaryCommand) === null) {
     return primaryCommand;
