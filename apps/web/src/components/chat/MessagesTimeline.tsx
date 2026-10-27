@@ -1221,7 +1221,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       >
         <div
           ref={observeLaneWidth}
-          className="@container/chat-lane chat-content-lane overflow-x-clip"
+          className="@container/chat-lane chat-content-lane"
           data-timeline-root="true"
         >
           <AudioPreviewUnmountContext value={onAudioUnmount}>

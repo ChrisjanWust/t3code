@@ -242,6 +242,8 @@ interface ChatMarkdownProps {
       `cwd`'s; without it a private repository's uploads load unauthenticated and 404. */
   sourceControlMedia?: boolean | undefined;
   headingLevelOffset?: number | undefined;
+  /** Top-level tables may grow into `--chat-markdown-table-gutter` on each side of the text. */
+  wideTables?: boolean;
 }
 
 export interface ChatMarkdownContextReference {
@@ -940,6 +942,23 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   };
 }
 
+const LONG_TABLE_WORD = /\S{19,}/;
+
+function markdownTableCellRenderer(Tag: "td" | "th") {
+  return function MarkdownTableCell({
+    node,
+    ...props
+  }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
+    // Lets index.css break a path or URL mid-word instead of sizing its column to it.
+    return (
+      <Tag
+        {...props}
+        data-long-word={LONG_TABLE_WORD.test(hastPlainTextDeep(node)) ? "" : undefined}
+      />
+    );
+  };
+}
+
 const CHAT_MARKDOWN_COMPONENTS = {
   h1: markdownHeadingRenderer(1),
   h2: markdownHeadingRenderer(2),
@@ -1506,6 +1525,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
   table: function MarkdownTableRenderer({ node: _node, ...props }) {
     return <MarkdownTable {...props} />;
   },
+  td: markdownTableCellRenderer("td"),
+  th: markdownTableCellRenderer("th"),
   details: function MarkdownDetailsRenderer({ node: _node, children, open: detailsOpen }) {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
   },
@@ -1596,6 +1617,7 @@ function ChatMarkdown({
   lineBreaks = false,
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
+  wideTables = false,
   ...props
 }: ChatMarkdownProps) {
   const {
@@ -1632,6 +1654,7 @@ function ChatMarkdown({
         className,
       )}
       data-streaming={componentState.isStreaming ? "" : undefined}
+      data-wide-tables={wideTables ? "" : undefined}
       onCopy={handleCopy}
     >
       <ChatMarkdownRendererContext value={componentState}>

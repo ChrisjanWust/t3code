@@ -12,11 +12,19 @@ import {
 import type { LegendListRef } from "@legendapp/list/react";
 import { createRef, Profiler, StrictMode, type ComponentProps, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
 
 import "~/index.css";
 
 import { act, fakeTimers, render } from "../../../test/render";
+import { ChatCanvas } from "./ChatCanvas";
 import { MessagesTimeline } from "./MessagesTimeline";
+import {
+  expectTablesStayInColumn,
+  expectTablesUseMargins,
+  expectWideTableScrolls,
+  WIDE_TABLES_MARKDOWN,
+} from "../../../test/wideMarkdownTables";
 import { makeStreamingTimelineFixture } from "../../test-fixtures";
 import { deriveTimelineEntriesFromVisibleTurnItems } from "../../session-logic";
 import { remarkThoughtPreview } from "./TimelineWorkEntryRow.logic";
@@ -992,4 +1000,37 @@ it("renders automatic compaction as one live divider that finishes with its reas
     .toBeVisible();
   expect(container.querySelectorAll('[role="separator"]')).toHaveLength(1);
   expect(container.textContent).not.toContain("Compacting before");
+});
+
+it("grows top-level assistant tables into the canvas margins and scrolls them in a narrow window", async () => {
+  const { innerWidth, innerHeight } = window;
+  onTestFinished(() => page.viewport(innerWidth, innerHeight));
+  await page.viewport(1400, 900);
+  const container = document.createElement("div");
+  container.style.cssText = "height: 900px; display: flex; flex-direction: column;";
+  await using screen = await render(
+    <ChatCanvas composerOverlayElement={null}>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <MessagesTimeline
+          {...baseProps()}
+          timelineEntries={[
+            message(WIDE_TABLES_MARKDOWN, {}, "question"),
+            message(WIDE_TABLES_MARKDOWN, { role: "assistant" }, "answer"),
+          ]}
+        />
+      </div>
+    </ChatCanvas>,
+    { container },
+  );
+  const markdown = () => screen.container.querySelector<HTMLElement>("[data-wide-tables]")!;
+  const scrollArea = () =>
+    screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
+
+  await vi.waitFor(() => expectTablesUseMargins(markdown(), scrollArea()));
+  // The user's bubble does not opt in.
+  expectTablesStayInColumn(
+    screen.container.querySelector<HTMLElement>(".chat-markdown:not([data-wide-tables])")!,
+  );
+  await page.viewport(420, 900);
+  await vi.waitFor(() => expectWideTableScrolls(markdown(), scrollArea()));
 });
