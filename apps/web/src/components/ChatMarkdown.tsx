@@ -204,7 +204,12 @@ import { MarkdownFileLink } from "./chat/MarkdownFileLink";
 import { canUseMarkdownFileShellActions } from "./chat/MarkdownFileLink.logic";
 import { handleMarkdownFragmentClick, rehypeHeadingIds } from "./chat/markdownFragments";
 import { rehypeTextDirection } from "./chat/markdownTextDirection";
-import { hastHasText, hastPlainTextDeep, plainHastText } from "./chat/markdownHast.logic";
+import {
+  hastHasText,
+  hastPlainTextDeep,
+  hastSomeText,
+  plainHastText,
+} from "./chat/markdownHast.logic";
 import {
   extractCodeBlock,
   extractFenceLanguage,
@@ -949,13 +954,10 @@ function markdownTableCellRenderer(Tag: "td" | "th") {
     node,
     ...props
   }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
-    // Lets index.css break a path or URL mid-word instead of sizing its column to it.
-    return (
-      <Tag
-        {...props}
-        data-long-word={LONG_TABLE_WORD.test(hastPlainTextDeep(node)) ? "" : undefined}
-      />
-    );
+    // Lets index.css break a path or URL mid-word instead of sizing its column to it. Text
+    // nodes are tested apart so words split by <br> don't join.
+    const longWord = hastSomeText(node, (text) => LONG_TABLE_WORD.test(text));
+    return <Tag {...props} data-long-word={longWord ? "" : undefined} />;
   };
 }
 

@@ -4,6 +4,7 @@ import { useRef, useState, type ComponentProps } from "react";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { getClientSettings } from "../../hooks/useSettings";
 import { observeResize } from "../../lib/observeResize";
+import { cn } from "../../lib/utils";
 import {
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
@@ -16,11 +17,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { reportMarkdownActionFailure } from "./markdownActionFailure";
 
 /**
- * Whether any cell is clipped in the unwrapped layout. Only then does the wrap
- * toggle change anything, so short tables hide it. Measures with the container
- * briefly unwrapped and restores it before the browser paints.
+ * Whether the wrap toggle changes anything: a cell is clipped in the unwrapped
+ * layout, or wrapping narrows a table too wide for its scroller. Short tables
+ * hide it. Measures with the container briefly toggled and restores it before
+ * the browser paints.
  */
-function tableHasClippedCells(container: HTMLElement, table: HTMLTableElement): boolean {
+function wrapChangesTable(container: HTMLElement, table: HTMLTableElement): boolean {
   const viewport = table.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
   const scrollLeft = viewport?.scrollLeft ?? 0;
   const previous = container.dataset.expanded;
@@ -31,19 +33,21 @@ function tableHasClippedCells(container: HTMLElement, table: HTMLTableElement): 
         if (cell.scrollWidth > cell.clientWidth) return true;
       }
     }
-    return false;
+    const unwrappedWidth = table.offsetWidth;
+    container.dataset.expanded = "true";
+    return table.offsetWidth < unwrappedWidth;
   } finally {
     if (previous === undefined) delete container.dataset.expanded;
     else container.dataset.expanded = previous;
-    // The unwrapped layout can be narrower and clamp a sideways scroll.
-    if (viewport && scrollLeft > 0) viewport.scrollLeft = scrollLeft;
+    // Either layout can be narrower and clamp a sideways scroll, which is negative in RTL.
+    if (viewport && scrollLeft !== 0) viewport.scrollLeft = scrollLeft;
   }
 }
 
 export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(() => getClientSettings().wordWrap);
-  const [hasClippedCells, setHasClippedCells] = useState(false);
+  const [canToggleWrap, setCanToggleWrap] = useState(false);
   const { copyToClipboard, isCopied: copied } = useCopyToClipboard<"markdown" | "csv">({
     timeout: 1200,
     onError: (cause, format) =>
@@ -57,7 +61,7 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
     containerRef.current = container;
     const table = container?.querySelector("table");
     if (!container || !table) return;
-    const measure = () => setHasClippedCells(tableHasClippedCells(container, table));
+    const measure = () => setCanToggleWrap(wrapChangesTable(container, table));
     measure();
     // A streamed cell can grow until it clips while the table keeps its size, and a
     // narrower column can clip a cell without this component rendering.
@@ -85,7 +89,12 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
   return (
     <div
       ref={attachContainer}
-      className="chat-markdown-table-container flex"
+      // An RTL table hugs the right edge. dir on the row would also flip the scroller, whose
+      // Base UI scroll fades assume LTR.
+      className={cn(
+        "chat-markdown-table-container flex",
+        props.dir === "rtl" && "flex-row-reverse",
+      )}
       data-expanded={expanded ? "true" : "false"}
     >
       <div className="min-w-0">
@@ -93,7 +102,7 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
           <table {...props}>{children}</table>
         </ScrollArea>
         <div className="mt-0.5 -mx-1 flex items-center justify-between select-none">
-          {hasClippedCells ? (
+          {canToggleWrap ? (
             <Tooltip>
               <TooltipTrigger
                 render={
