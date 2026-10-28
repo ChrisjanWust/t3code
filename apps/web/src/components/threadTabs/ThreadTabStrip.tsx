@@ -215,7 +215,7 @@ export function ThreadTabStrip(props: {
   const historyOpen = useRightPanelStore(
     (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- The thread.settle shortcut lives in the chat; while the strip is mounted, settling the open thread closes its tab.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the tab strip's settle handler in the module-level settleAndAdvance registry, so settling closes the tab
   useEffect(
     () => registerSettleAndAdvance((threadRef) => closeTab(scopedThreadKey(threadRef))),
     [closeTab],
