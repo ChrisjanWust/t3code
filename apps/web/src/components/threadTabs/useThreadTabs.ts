@@ -234,7 +234,10 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     if (!tab || isBlankLastTab(tabs)) return false;
     const isRoute = key === routeKey;
     if (tab.kind === "draft") {
-      const discard = () => discardComposerDraft(DraftId.make(tab.draftId));
+      // A blank draft stays as the project's reusable one; a typed draft is discarded with undo.
+      const discard = () => {
+        if (tab.hasContent) discardComposerDraft(DraftId.make(tab.draftId));
+      };
       // Discarding the open draft first would send its route away mid-navigation.
       if (isRoute) void leaveTab(tabs, key).then(discard);
       else discard();

@@ -246,3 +246,22 @@ it("closes the last tab like a browser, leaving a blank tab with nothing to clos
   await expect.element(tab("New thread")).toBeVisible();
   expect(tabTitles()).toEqual(["New thread"]);
 });
+
+it("closes a new tab back to the tab on its left", async () => {
+  using _environment = setup();
+  const { screen, router } = await mountApp("tab-a");
+  await using _screen = screen;
+  await expect.element(tab("Thread tab-c")).toBeVisible();
+
+  await userEvent.click(page.getByRole("button", { name: "New tab" }));
+  await expect.element(tab("New thread")).toHaveAttribute("aria-selected", "true");
+  // Typing and clearing leaves a stored draft with no content, as choosing a model does.
+  await userEvent.click(page.getByTestId("composer-editor"));
+  await userEvent.keyboard("x{Backspace}");
+  await userEvent.click(page.getByRole("button", { name: "Close New thread" }));
+
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-c`));
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]),
+  );
+});
