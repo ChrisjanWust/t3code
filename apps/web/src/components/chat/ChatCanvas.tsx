@@ -62,6 +62,8 @@ export function ChatCanvas({
     const findBar =
       detailsCardTopInset > 0 ? element.querySelector<HTMLElement>("[data-thread-find-bar]") : null;
     const measure = () => {
+      // A canvas hidden with display: none reports 0; keep its last real layout.
+      if (element.clientWidth === 0) return;
       const canvasBounds = element.getBoundingClientRect();
       const findBarBounds = findBar?.getBoundingClientRect();
       const styles = getComputedStyle(probe);
@@ -136,6 +138,7 @@ export function ChatCanvas({
             "--chat-timeline-gutter": `${measurements.timelineGutter}px`,
             "--chat-lane-inset-start": `${layout.chat.insetStart}px`,
             "--chat-lane-inset-end": `${layout.chat.insetEnd}px`,
+            "--chat-markdown-table-gutter": `${layout.tableGutter}px`,
           } as CSSProperties
         }
       >
