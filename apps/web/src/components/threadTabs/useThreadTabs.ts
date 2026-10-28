@@ -10,6 +10,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { useClosedViewStore } from "../../closedViewStore";
 import {
@@ -51,7 +52,7 @@ export interface ThreadTabLocation {
   readonly worktreeKey: string;
   /** Its new worktree has no path yet, so a new tab has nowhere to open. */
   readonly creatingWorktree: boolean;
-  /** The open route's tab: its thread, a subagent's ancestor, or its draft. */
+  /** The open route's thread or draft; a subagent's route shows its ancestor's tab. */
   readonly routeThreadRef: ScopedThreadRef;
   readonly routeDraftId: DraftId | null;
 }
@@ -101,9 +102,14 @@ export function resolveThreadTabLocation(input: {
   };
 }
 
+type ComposerDraftState = ReturnType<typeof useComposerDraftStore.getState>;
+
+const draftIdsWithContent = (drafts: ComposerDraftState["draftsByThreadKey"]) =>
+  Object.keys(drafts).filter((draftId) => composerDraftHasUserContent(drafts[draftId]));
+
 function readDraftTabs(
-  sessions: ReturnType<typeof useComposerDraftStore.getState>["draftThreadsByThreadKey"],
-  composers: ReturnType<typeof useComposerDraftStore.getState>["draftsByThreadKey"],
+  sessions: ComposerDraftState["draftThreadsByThreadKey"],
+  withContent: readonly string[],
 ): WorktreeTabDraft[] {
   return Object.entries(sessions).flatMap(([draftId, session]) =>
     session.promotedTo != null
@@ -114,7 +120,7 @@ function readDraftTabs(
             threadId: session.threadId,
             createdAt: session.createdAt,
             worktreeKey: draftWorktreeKey(session),
-            hasContent: composerDraftHasUserContent(composers[draftId]),
+            hasContent: withContent.includes(draftId),
           },
         ],
   );
@@ -153,9 +159,12 @@ function buildTabs(
 export function useWorktreeTabs(location: ThreadTabLocation) {
   const threads = useQuietThreadShells();
   const sessions = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
-  const composers = useComposerDraftStore((store) => store.draftsByThreadKey);
+  // Typing replaces the composer drafts; the strip only cares which of them have content.
+  const withContent = useComposerDraftStore(
+    useShallow((store) => draftIdsWithContent(store.draftsByThreadKey)),
+  );
   const now = new Date(useSnoozeWakeClock(threads)).toISOString();
-  return buildTabs(location, threads, readDraftTabs(sessions, composers), now);
+  return buildTabs(location, threads, readDraftTabs(sessions, withContent), now);
 }
 
 function readTabs(location: ThreadTabLocation) {
@@ -163,7 +172,7 @@ function readTabs(location: ThreadTabLocation) {
   return buildTabs(
     location,
     readThreadShells(),
-    readDraftTabs(drafts.draftThreadsByThreadKey, drafts.draftsByThreadKey),
+    readDraftTabs(drafts.draftThreadsByThreadKey, draftIdsWithContent(drafts.draftsByThreadKey)),
     new Date().toISOString(),
   );
 }
@@ -205,6 +214,8 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
 
   const selectTab = (key: string) => {
     if (location === null) return;
+    // A subagent's route marks its ancestor's tab active, and clicking that tab returns to it.
+    if (key === (location.routeDraftId ?? scopedThreadKey(location.routeThreadRef))) return;
     const tab = readTabs(location).tabs.find((candidate) => candidate.key === key);
     if (tab) void openTab(tab);
   };

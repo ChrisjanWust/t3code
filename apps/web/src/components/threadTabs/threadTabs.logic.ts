@@ -49,20 +49,6 @@ export function isOpenTab(thread: WorktreeThread, now: string): boolean {
   );
 }
 
-/** New tabs and forks open at the end, so the strip never reorders under the user. */
-export function resolveWorktreeTabs<T extends WorktreeThread>(
-  threads: readonly T[],
-  key: string,
-  now: string,
-): T[] {
-  return threads
-    .filter((thread) => worktreeKey(thread) === key && isOpenTab(thread, now))
-    .toSorted(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-    );
-}
-
 export type WorktreeTab<T> =
   | { readonly kind: "thread"; readonly key: string; readonly thread: T; readonly closed: boolean }
   | {
@@ -95,25 +81,21 @@ export function buildWorktreeTabs<T extends WorktreeThread>(input: {
   readonly threadKey: (thread: T) => string;
   readonly now: string;
 }): WorktreeTab<T>[] {
-  const open = new Set(resolveWorktreeTabs(input.threads, input.worktreeKey, input.now));
+  // New tabs and forks open at the end, so the strip never reorders under the user.
   const threadTabs = input.threads
-    .filter(
-      (thread) =>
-        open.has(thread) ||
-        (input.threadKey(thread) === input.routeKey &&
-          worktreeKey(thread) === input.worktreeKey &&
-          isWorktreeMember(thread)),
-    )
+    .filter((thread) => worktreeKey(thread) === input.worktreeKey && isWorktreeMember(thread))
+    .flatMap((thread) => {
+      const key = input.threadKey(thread);
+      const open = isOpenTab(thread, input.now);
+      return open || key === input.routeKey
+        ? [{ kind: "thread" as const, key, thread, closed: !open }]
+        : [];
+    })
     .toSorted(
       (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-    )
-    .map((thread) => ({
-      kind: "thread" as const,
-      key: input.threadKey(thread),
-      thread,
-      closed: !open.has(thread),
-    }));
+        left.thread.createdAt.localeCompare(right.thread.createdAt) ||
+        left.thread.id.localeCompare(right.thread.id),
+    );
   const threadIds = new Set(threadTabs.map((tab) => tab.thread.id as string));
   const draftTabs = input.drafts
     .filter(

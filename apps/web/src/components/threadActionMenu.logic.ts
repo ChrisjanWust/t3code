@@ -91,6 +91,8 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A worktree row acts on all of its threads; thread-only actions live on its tabs. */
   readonly scope?: "thread" | "worktree";
+  /** A new worktree with no path yet has nowhere to open a tab. */
+  readonly creatingWorktree?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -114,7 +116,7 @@ export function buildThreadActionMenuItems(
   const noun = worktree ? "worktree" : "thread";
   const threadOnly = <T>(entries: readonly T[]): readonly T[] => (worktree ? [] : entries);
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
-    ...(worktree || state.branch
+    ...((worktree ? !state.creatingWorktree : state.branch)
       ? [
           {
             id: "new-thread-on-branch" as const,

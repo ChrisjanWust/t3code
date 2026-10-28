@@ -187,9 +187,7 @@ function ThreadTab(props: {
             "flex min-w-0 flex-1 cursor-pointer items-center",
             tab.kind === "thread" && tab.closed && "italic",
           )}
-          onClick={() => {
-            if (!active) onSelect(tab.key);
-          }}
+          onClick={() => onSelect(tab.key)}
           onDoubleClick={startRename}
         >
           <span className="truncate" dir={textDirection(title)}>

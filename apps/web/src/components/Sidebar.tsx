@@ -619,7 +619,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       optimisticDrop !== null &&
       settlingWorktreeKey !== null &&
       worktreeKey(thread) === settlingWorktreeKey &&
-      isOpenTab(thread, preciseNow)
+      thread.settledOverride !== "settled"
     ) {
       settled.push(applySidebarThreadDrop(thread, "settled", optimisticDrop.occurredAt));
     } else {
@@ -2542,6 +2542,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               },
               snoozePresets,
               scope: worktreeMembers === undefined ? "thread" : "worktree",
+              creatingWorktree: thread.worktreePath === null && thread.creatingWorktree === true,
             }),
             position,
           ),

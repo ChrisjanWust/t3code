@@ -37,10 +37,11 @@ export function useWorktreeRowActions(membersByRowKey: {
     const others = othersOf(target);
     if (others === undefined) return actions.settleThread(target, opts);
     const settledAt = opts.settledAt ?? now();
-    const open = others.filter((thread) => isOpenTab(thread, settledAt));
+    // Snoozed threads settle too, or they would keep the worktree's row out of Settled.
+    const unsettled = others.filter((thread) => thread.settledOverride !== "settled");
     const [lead, ...rest] = await Promise.all([
       actions.settleThread(target, { settledAt }),
-      ...open.map((thread) => actions.settleThread(refOf(thread), { settledAt })),
+      ...unsettled.map((thread) => actions.settleThread(refOf(thread), { settledAt })),
     ]);
     return firstFailure(rest, lead!);
   };
@@ -118,19 +119,43 @@ export function useWorktreeRowActions(membersByRowKey: {
     return result;
   };
 
-  // Older pins on the worktree's other threads would otherwise hold the row in place.
-  const reorderPinnedThread: ThreadActions["reorderPinnedThread"] = async (target, orderKey) => {
-    const result = await actions.reorderPinnedThread(target, orderKey);
+  // The worktree's other threads sorting before the moved one would otherwise hold the row in place.
+  const reorderWithWorktree = async <R extends { readonly _tag: string }>(
+    reorder: (target: ScopedThreadRef, orderKey: string) => Promise<R>,
+    sortsBefore: (thread: SidebarThreadSummary, orderKey: string) => boolean,
+    target: ScopedThreadRef,
+    orderKey: string,
+  ): Promise<R> => {
+    const result = await reorder(target, orderKey);
     const others = othersOf(target);
     if (others === undefined || result._tag === "Failure") return result;
     const after = pinOrderKeyBetween(orderKey, null);
     if (after === null) return result;
     const rest = await Promise.all(
       others
-        .filter((thread) => thread.pinOrderKey != null && thread.pinOrderKey <= orderKey)
-        .map((thread) => actions.reorderPinnedThread(refOf(thread), after)),
+        .filter((thread) => sortsBefore(thread, orderKey))
+        .map((thread) => reorder(refOf(thread), after)),
     );
     return firstFailure(rest, result);
+  };
+  const reorderPinnedThread: ThreadActions["reorderPinnedThread"] = (target, orderKey) =>
+    reorderWithWorktree(
+      actions.reorderPinnedThread,
+      (thread, key) => thread.pinOrderKey != null && thread.pinOrderKey <= key,
+      target,
+      orderKey,
+    );
+  // Unordered active threads sort first.
+  const reorderActiveThread: ThreadActions["reorderActiveThread"] = (target, orderKey) => {
+    const current = now();
+    return reorderWithWorktree(
+      actions.reorderActiveThread,
+      (thread, key) =>
+        isOpenTab(thread, current) &&
+        (thread.activeOrderKey == null || thread.activeOrderKey <= key),
+      target,
+      orderKey,
+    );
   };
 
   // One at a time, so only the last thread off a worktree offers to delete it.
@@ -159,6 +184,7 @@ export function useWorktreeRowActions(membersByRowKey: {
     unpinThread,
     confirmAndUnpinThread,
     reorderPinnedThread,
+    reorderActiveThread,
     archiveThread,
     deleteThread,
   };

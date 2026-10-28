@@ -10,7 +10,6 @@ import {
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
-  resolveWorktreeTabs,
   worktreeKey,
   worktreeLabel,
 } from "./threadTabs.logic";
@@ -46,9 +45,19 @@ const FEATURE = worktreeKey(thread("any"));
 
 type WorktreeTabDraftInput = Parameters<typeof buildWorktreeTabs>[0]["drafts"][number];
 
-describe("resolveWorktreeTabs", () => {
+const openTabIds = (threads: SidebarThreadSummary[], key: string, now: string) =>
+  buildWorktreeTabs({
+    threads,
+    drafts: [],
+    worktreeKey: key,
+    routeKey: "",
+    threadKey: (tab) => tab.id,
+    now,
+  }).map((tab) => tab.key);
+
+describe("open thread tabs", () => {
   it("lists the worktree's open threads oldest first", () => {
-    const tabs = resolveWorktreeTabs(
+    const tabs = openTabIds(
       [
         thread("forked", { createdAt: "2026-10-26T11:00:00.000Z" }),
         thread("first", { createdAt: "2026-10-26T09:00:00.000Z" }),
@@ -58,11 +67,11 @@ describe("resolveWorktreeTabs", () => {
       FEATURE,
       NOW,
     );
-    expect(tabs.map((tab) => tab.id)).toEqual(["first", "forked"]);
+    expect(tabs).toEqual(["first", "forked"]);
   });
 
   it("leaves out closed, snoozed, archived and subagent threads", () => {
-    const tabs = resolveWorktreeTabs(
+    const tabs = openTabIds(
       [
         thread("open"),
         thread("closed", { settledOverride: "settled", settledAt: NOW }),
@@ -79,7 +88,7 @@ describe("resolveWorktreeTabs", () => {
       FEATURE,
       NOW,
     );
-    expect(tabs.map((tab) => tab.id)).toEqual(["open", "woke"]);
+    expect(tabs).toEqual(["open", "woke"]);
   });
 });
 
@@ -201,9 +210,7 @@ describe("worktreeKey", () => {
       settled: [],
     });
     expect(rows.active.map((row) => row.id)).toEqual(["creating", "root"]);
-    expect(
-      resolveWorktreeTabs([root, creating], worktreeKey(root), NOW).map((tab) => tab.id),
-    ).toEqual(["root"]);
+    expect(openTabIds([root, creating], worktreeKey(root), NOW)).toEqual(["root"]);
     expect(worktreeLabel(creating)).toBe("New worktree");
     expect(worktreeKey({ ...creating, worktreePath: "/repo/.t3/worktrees/feature" })).toBe(FEATURE);
   });
