@@ -1119,6 +1119,7 @@ type ShellThreadRow = {
   readonly active_run_status: string | null;
   readonly activity_run_status: string | null;
   readonly activity_run_started_at: string | null;
+  readonly creating_worktree: number;
   readonly last_error: string | null;
   readonly terminal_failure_payload_json: string | null;
   readonly blocking_run_id: string | null;
@@ -1671,6 +1672,7 @@ export function threadShellFromProjection(
     activityRunStatus: activityRun?.status ?? null,
     activityRunStartedAt:
       activityRun === null ? null : orchestrationV2RunWorkStartedAt(activityRun),
+    creatingWorktree: projection.runs.some(isCreatingWorktreeRun),
     status: latestRun?.status ?? "idle",
     ...threadErrorSummary(
       latestRootProviderFailure(latestRun, projection.turnItems),
@@ -1775,6 +1777,10 @@ function isActivityRunForShell(
   return isInterruptibleRunForShell(run) || run.status === "waiting";
 }
 
+function isCreatingWorktreeRun(run: OrchestrationV2ThreadProjection["runs"][number]): boolean {
+  return run.status === "preparing" && run.workspacePreparation?.type === "worktree";
+}
+
 type ShellThreadState = {
   readonly thread: OrchestrationV2ThreadProjection["thread"];
   readonly latestRunId: RunId | null;
@@ -1787,6 +1793,7 @@ type ShellThreadState = {
   readonly blockedOnThreadWait: boolean;
   readonly activityRunStatus: ShellActivityRunStatus | null;
   readonly activityRunStartedAt: DateTime.Utc | null;
+  readonly creatingWorktree: boolean;
   readonly lastError: string | null;
   readonly lastErrorClass: OrchestrationV2ThreadShell["lastErrorClass"];
   readonly lastErrorCode: OrchestrationV2ThreadShell["lastErrorCode"];
@@ -1942,6 +1949,7 @@ function shellFromState(input: {
     blockedOnThreadWait: input.state.blockedOnThreadWait,
     activityRunStatus: input.state.activityRunStatus,
     activityRunStartedAt: input.state.activityRunStartedAt,
+    creatingWorktree: input.state.creatingWorktree,
     status: input.state.latestRunStatus,
     lastError: input.state.lastError,
     lastErrorClass: input.state.lastErrorClass,
@@ -5825,6 +5833,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY r.ordinal DESC, r.run_id DESC
                 LIMIT 1
               ) AS activity_run_status,
+              EXISTS (
+                SELECT 1 FROM orchestration_v2_projection_runs r
+                WHERE r.thread_id = t.thread_id AND r.status = 'preparing'
+                  AND json_extract(r.payload_json, '$.workspacePreparation.type') = 'worktree'
+              ) AS creating_worktree,
               (
                 -- Mirrors orchestrationV2RunWorkStartedAt.
                 SELECT COALESCE(
@@ -6440,6 +6453,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.activity_run_status === "waiting"
               ? row.activity_run_status
               : null,
+          creatingWorktree: row.creating_worktree === 1,
           ...threadErrorSummary(
             terminalFailureItem?.type === "error" ? terminalFailureItem.failure : null,
             row.last_error,

@@ -258,21 +258,23 @@ export function ThreadTabStrip(props: {
             />
           ))}
           <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  aria-label="New tab"
-                  className="shrink-0"
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  onClick={() => newTab()}
-                />
-              }
-            >
-              <PlusIcon className="size-3.5" />
+            <TooltipTrigger render={<span className="flex shrink-0" />}>
+              <Button
+                aria-label="New tab"
+                size="icon-xs"
+                variant="ghost-muted"
+                disabled={location.creatingWorktree}
+                onClick={() => newTab()}
+              >
+                <PlusIcon className="size-3.5" />
+              </Button>
             </TooltipTrigger>
             <TooltipPopup side="bottom">
-              {newTabLabel ? `New tab (${newTabLabel})` : "New tab"}
+              {location.creatingWorktree
+                ? "New tabs open here once the worktree is ready"
+                : newTabLabel
+                  ? `New tab (${newTabLabel})`
+                  : "New tab"}
             </TooltipPopup>
           </Tooltip>
         </div>

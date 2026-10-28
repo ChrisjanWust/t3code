@@ -1,4 +1,5 @@
 import { createMemoryHistory } from "@tanstack/react-router";
+import { ThreadId } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
@@ -16,6 +17,7 @@ import {
   ENVIRONMENT_ID,
   installFakeEnvironment,
   threadWithHistory,
+  updateServerThread,
   type FakeDriver,
   type FakeThread,
 } from "../../../test/fakeEnvironment";
@@ -264,4 +266,29 @@ it("closes a new tab back to the tab on its left", async () => {
   await vi.waitFor(() =>
     expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]),
   );
+});
+
+it("keeps a thread out of the checkout's tabs while its new worktree is being created", async () => {
+  // Right after send, the server has the thread but not yet its worktree path or branch.
+  using _environment = setup([
+    { ...threadWithHistory("new-work", 1), branch: null, creatingWorktree: true },
+  ]);
+  const { screen } = await mountApp("new-work");
+  await using _screen = screen;
+
+  await expect.element(tab("Thread new-work")).toHaveAttribute("aria-selected", "true");
+  expect(tabTitles()).toEqual(["Thread new-work"]);
+  await vi.waitFor(() => expect(rowTabCount("New worktree")).toBe("1"));
+  expect(rowTabCount("main")).toBe("1");
+  await expect.element(page.getByRole("button", { name: "New tab" })).toBeDisabled();
+
+  updateServerThread(ThreadId.make("new-work"), {
+    creatingWorktree: false,
+    worktreePath: "/workspace/render-worktrees/new-work",
+    branch: "t3/new-work",
+  });
+  await vi.waitFor(() => expect(rowTabCount("t3/new-work")).toBe("1"));
+  expect(sidebarRow("New worktree").elements()).toHaveLength(0);
+  expect(tabTitles()).toEqual(["Thread new-work"]);
+  await expect.element(page.getByRole("button", { name: "New tab" })).toBeEnabled();
 });

@@ -185,6 +185,30 @@ describe("collapseToWorktreeRows", () => {
   });
 });
 
+describe("worktreeKey", () => {
+  it("keeps a thread whose worktree is being created out of the project's checkout", () => {
+    const root = thread("root", { branch: "main", worktreePath: null });
+    const creating = thread("creating", {
+      branch: null,
+      worktreePath: null,
+      creatingWorktree: true,
+    });
+    const rows = collapseToWorktreeRows({
+      pinned: [],
+      active: [creating, root],
+      working: [],
+      snoozed: [],
+      settled: [],
+    });
+    expect(rows.active.map((row) => row.id)).toEqual(["creating", "root"]);
+    expect(
+      resolveWorktreeTabs([root, creating], worktreeKey(root), NOW).map((tab) => tab.id),
+    ).toEqual(["root"]);
+    expect(worktreeLabel(creating)).toBe("New worktree");
+    expect(worktreeKey({ ...creating, worktreePath: "/repo/.t3/worktrees/feature" })).toBe(FEATURE);
+  });
+});
+
 describe("resolveWorktreeReopenSet", () => {
   it("brings back the tabs settled together last, not tabs closed earlier", () => {
     const together = "2026-10-26T11:30:00.000Z";

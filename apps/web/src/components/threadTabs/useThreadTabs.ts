@@ -49,6 +49,8 @@ export interface ThreadTabLocation {
   readonly branch: string | null;
   readonly envMode: DraftThreadEnvMode;
   readonly worktreeKey: string;
+  /** Its new worktree has no path yet, so a new tab has nowhere to open. */
+  readonly creatingWorktree: boolean;
   /** The open route's tab: its thread, a subagent's ancestor, or its draft. */
   readonly routeThreadRef: ScopedThreadRef;
   readonly routeDraftId: DraftId | null;
@@ -79,6 +81,7 @@ export function resolveThreadTabLocation(input: {
       envMode: draft.envMode,
       // A draft that will create its worktree has a strip of its own.
       worktreeKey: draftWorktreeKey(draft) ?? JSON.stringify(["draft", input.routeDraftId]),
+      creatingWorktree: false,
       routeThreadRef,
       routeDraftId,
     };
@@ -90,8 +93,9 @@ export function resolveThreadTabLocation(input: {
     projectId: shell.projectId,
     worktreePath: shell.worktreePath,
     branch: shell.branch,
-    envMode: shell.worktreePath === null ? "local" : "worktree",
+    envMode: shell.worktreePath === null && !shell.creatingWorktree ? "local" : "worktree",
     worktreeKey: worktreeKey(shell),
+    creatingWorktree: shell.worktreePath === null && shell.creatingWorktree === true,
     routeThreadRef,
     routeDraftId,
   };
@@ -188,7 +192,7 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
         });
 
   const newTab = async (options: { replace?: boolean } = {}) => {
-    if (location === null) return;
+    if (location === null || location.creatingWorktree) return;
     await handleNewThread(scopeProjectRef(location.environmentId, location.projectId), {
       // The project's checkout follows its current branch, not a past thread's.
       branch: location.worktreePath === null ? null : location.branch,

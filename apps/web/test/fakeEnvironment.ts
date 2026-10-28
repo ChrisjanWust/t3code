@@ -196,7 +196,9 @@ export interface FakeThread {
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
   /** The project checkout when absent. */
   readonly worktreePath?: string;
-  readonly branch?: string;
+  /** `main` when absent. */
+  readonly branch?: string | null;
+  readonly creatingWorktree?: boolean;
 }
 
 /** A thread of `turns` user prompts, each answered in markdown with a list and inline code. */
@@ -248,8 +250,9 @@ function baseShellOf(
     modelSelection: MODEL,
     runtimeMode: "full-access",
     interactionMode: "default",
-    branch: thread.branch ?? "main",
+    branch: thread.branch === undefined ? "main" : thread.branch,
     worktreePath: thread.worktreePath ?? null,
+    ...(thread.creatingWorktree === undefined ? {} : { creatingWorktree: thread.creatingWorktree }),
     activeProviderThreadId: null,
     lineage: { rootThreadId: thread.id, parentThreadId: null, relationshipToParent: null },
     forkedFrom: null,
@@ -542,6 +545,13 @@ export function dispatchedCommands(): ReadonlyArray<OrchestrationV2Command> {
 export function addServerThread(thread: FakeThread): void {
   threads = [...threads, thread];
   publishShell(thread);
+}
+
+/** Changes a thread as the server would, such as recording its new worktree, and publishes it. */
+export function updateServerThread(threadId: ThreadId, patch: Partial<FakeThread>): void {
+  threads = threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
+  const updated = threads.find((thread) => thread.id === threadId);
+  if (updated) publishShell(updated);
 }
 
 export function runningRun(threadId: ThreadId, id: string, ordinal: number, userMessageId: string) {

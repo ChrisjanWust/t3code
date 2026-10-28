@@ -3,7 +3,8 @@ import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { SidebarThreadSummary } from "../../types";
 import { resolveSidebarThreadStatus, type SidebarSection } from "../Sidebar.logic";
 
-type WorktreeLocation = Pick<SidebarThreadSummary, "environmentId" | "projectId" | "worktreePath">;
+type WorktreeLocation = Pick<SidebarThreadSummary, "environmentId" | "projectId" | "worktreePath"> &
+  Partial<Pick<SidebarThreadSummary, "id" | "creatingWorktree">>;
 
 type WorktreeThread = WorktreeLocation &
   Pick<
@@ -22,6 +23,10 @@ type WorktreeThread = WorktreeLocation &
 
 /** A null worktree path is the project's own checkout, which its local threads share. */
 export function worktreeKey(location: WorktreeLocation): string {
+  // A worktree still being created has no path yet; it must not join the project's checkout.
+  if (location.worktreePath === null && location.creatingWorktree === true && location.id) {
+    return JSON.stringify([location.environmentId, location.projectId, null, location.id]);
+  }
   return JSON.stringify([location.environmentId, location.projectId, location.worktreePath]);
 }
 
@@ -238,9 +243,9 @@ export function resolveWorktreeStatusThread<
 }
 
 export function worktreeLabel(
-  thread: Pick<SidebarThreadSummary, "branch" | "worktreePath" | "title">,
+  thread: Pick<SidebarThreadSummary, "branch" | "worktreePath" | "title" | "creatingWorktree">,
 ): string {
   if (thread.branch) return thread.branch;
-  if (thread.worktreePath === null) return thread.title;
+  if (thread.worktreePath === null) return thread.creatingWorktree ? "New worktree" : thread.title;
   return thread.worktreePath.split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "Worktree";
 }
