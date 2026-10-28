@@ -55,7 +55,6 @@ import {
   deriveComposerSendState,
   deriveLockedProvider,
   hasServerAcknowledgedLocalDispatch,
-  resolveDraftPromotionNavigationTarget,
   waitForRevertedMessage,
 } from "./ChatView.logic";
 
@@ -161,51 +160,6 @@ describe("observeProactivePanelUserChoice", () => {
         targetKey: "pr-2",
       }),
     ).toEqual({ diff: true, pullRequest: true });
-  });
-});
-
-describe("resolveDraftPromotionNavigationTarget", () => {
-  const serverThreadRef = { environmentId, threadId };
-  const preparingRun = {
-    ...completedTurn,
-    status: "preparing" as const,
-    startedAt: null,
-    completedAt: null,
-  };
-
-  it("stays on the draft until the server owns the send", () => {
-    expect(
-      resolveDraftPromotionNavigationTarget({
-        serverThreadRef,
-        serverThread: makeThread({ latestRun: preparingRun }),
-        backgroundSubmissionPending: false,
-      }),
-    ).toBeNull();
-    expect(
-      resolveDraftPromotionNavigationTarget({
-        serverThreadRef,
-        serverThread: makeThread(),
-        backgroundSubmissionPending: false,
-      }),
-    ).toBeNull();
-  });
-
-  it("promotes a persisted send while its worktree is still preparing", () => {
-    const serverThread = makeThread({ latestRun: preparingRun, latestUserMessageAt: now });
-    expect(
-      resolveDraftPromotionNavigationTarget({
-        serverThreadRef,
-        serverThread,
-        backgroundSubmissionPending: false,
-      }),
-    ).toBe(serverThreadRef);
-    expect(
-      resolveDraftPromotionNavigationTarget({
-        serverThreadRef,
-        serverThread,
-        backgroundSubmissionPending: true,
-      }),
-    ).toBeNull();
   });
 });
 

@@ -459,24 +459,6 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
   return { entries: input.nextEntries, displayThreadKey: input.activeThreadKey };
 }
 
-export function resolveDraftPromotionNavigationTarget(input: {
-  serverThreadRef: ScopedThreadRef | null;
-  serverThread: Pick<Thread, "latestRun" | "latestUserMessageAt"> | null | undefined;
-  backgroundSubmissionPending: boolean;
-}): ScopedThreadRef | null {
-  if (input.backgroundSubmissionPending) {
-    return null;
-  }
-  const latestRun = input.serverThread?.latestRun ?? null;
-  const runStarted = latestRun?.startedAt != null;
-  const startupStopped =
-    latestRun?.status === "failed" ||
-    latestRun?.status === "interrupted" ||
-    latestRun?.status === "cancelled";
-  const messagePersisted = input.serverThread?.latestUserMessageAt != null;
-  return runStarted || startupStopped || messagePersisted ? input.serverThreadRef : null;
-}
-
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<unknown>,
@@ -695,13 +677,6 @@ export function resolveTerminalWorktreePath(input: {
   return input.threadWorktreePath;
 }
 
-export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
-  if (!previewUrl || typeof URL === "undefined" || !previewUrl.startsWith("blob:")) {
-    return;
-  }
-  URL.revokeObjectURL(previewUrl);
-}
-
 export async function resolveFileAttachmentUrl(input: {
   attachment: ChatFileAttachment;
   environmentId: EnvironmentId;
@@ -759,18 +734,6 @@ export async function prepareRevertedMessageAttachments(input: {
       return new File([await response.blob()], attachment.name, { type: attachment.mimeType });
     }),
   );
-}
-
-export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
-  if (message.role !== "user" || !message.attachments) {
-    return;
-  }
-  for (const attachment of message.attachments) {
-    if (!isImageAttachment(attachment)) {
-      continue;
-    }
-    revokeBlobPreviewUrl(attachment.previewUrl);
-  }
 }
 
 export function timelineHasEphemeralPreviewUrls(
@@ -958,7 +921,7 @@ export function recallCheckoutIsRepo(
     : sessionCheckoutIsRepo.get(checkoutIsRepoKey(environmentId, cwd));
 }
 
-export function threadHasStarted(thread: Thread | null | undefined): boolean {
+function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(thread && (thread.latestRun !== null || thread.itemCount > 0 || thread.runtime));
 }
 
