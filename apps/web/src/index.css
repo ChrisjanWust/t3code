@@ -1287,7 +1287,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 /* Modified files get a muted blue so added and deleted files lead. Built from the info token,
-   which themes do not override, so it stays blue in every theme. */
+   which themes only re-light, so it stays blue in every theme. */
 :root {
   --diff-modified-icon: color-mix(in srgb, var(--info-foreground) 50%, var(--muted-foreground));
 

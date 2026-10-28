@@ -682,38 +682,27 @@ const INFO_FOREGROUND_VARIABLE = "--app-theme-info-foreground";
 // index.css paints --info-foreground as blue-700 in light and blue-400 in dark.
 const STANDARD_INFO_FOREGROUND = { light: "#1447e6", dark: "#51a2ff" } as const;
 
-function readableTextTarget(colors: ThemeColors, surfaceValues: ReadonlyArray<string>) {
+function paintThemeColor(value: string, backdrop: ThemeRgbColor): ThemeRgbColor {
   // CSS paints surfaces from their unrounded OKLCH, so measure them unrounded.
-  const parsedCanvas = parseThemeColor(colors.canvas);
-  const canvas = parsedCanvas ? themeOklchToRgb(parsedCanvas.color, false) : THEME_WHITE_FOREGROUND;
-  const onCanvas = (value: string) => {
-    const parsed = parseThemeColor(value);
-    return parsed
-      ? mixThemeRgbColors(canvas, themeOklchToRgb(parsed.color, false), parsed.alpha)
-      : canvas;
-  };
+  const parsed = parseThemeColor(value);
+  return parsed
+    ? mixThemeRgbColors(backdrop, themeOklchToRgb(parsed.color, false), parsed.alpha)
+    : backdrop;
+}
+
+export function contextChipVariables(colors: ThemeColors): Readonly<Record<string, string>> {
+  const canvas = paintThemeColor(colors.canvas, THEME_WHITE_FOREGROUND);
+  const onCanvas = (value: string) => paintThemeColor(value, canvas);
   const isDark = (color: ThemeRgbColor) => themeRelativeLuminance(color) < 0.179;
   const messageMatchesCanvas = isDark(onCanvas(colors.messageSurface)) === isDark(canvas);
-  const surfaces = [canvas, ...surfaceValues.map(onCanvas)];
+  const surfaces = [canvas, onCanvas(colors.surface), onCanvas(colors.surfaceRaised)];
   if (messageMatchesCanvas) surfaces.push(onCanvas(colors.messageSurface));
   const contrastOnSurfaces = (color: ThemeRgbColor) =>
     Math.min(...surfaces.map((surface) => themeContrastRatio(color, surface)));
   const blackContrast = contrastOnSurfaces(THEME_BLACK_FOREGROUND);
   const whiteContrast = contrastOnSurfaces(THEME_WHITE_FOREGROUND);
-  return {
-    surfaces,
-    messageMatchesCanvas,
-    direction: blackContrast >= whiteContrast ? ("darker" as const) : ("lighter" as const),
-    maxContrast: Math.max(blackContrast, whiteContrast),
-  };
-}
-
-export function contextChipVariables(colors: ThemeColors): Readonly<Record<string, string>> {
-  const { surfaces, messageMatchesCanvas, direction, maxContrast } = readableTextTarget(colors, [
-    colors.surface,
-    colors.surfaceRaised,
-  ]);
-  const minContrast = Math.min(CONTEXT_CHIP_CONTRAST, maxContrast);
+  const direction = blackContrast >= whiteContrast ? "darker" : "lighter";
+  const minContrast = Math.min(CONTEXT_CHIP_CONTRAST, Math.max(blackContrast, whiteContrast));
   const accents: Array<[string, string]> = [
     ...(Object.entries(CONTEXT_CHIP_ACCENTS) as Array<[ContextChipAccentKind, string]>).map(
       ([kind, accent]): [string, string] => [contextChipColorVariable(kind), accent],
@@ -734,21 +723,28 @@ export function contextChipVariables(colors: ThemeColors): Readonly<Record<strin
 
 /** The standard info blue, lightened or darkened until it reads on the theme's chat and sidebar surfaces. */
 export function themeInfoForeground(colors: ThemeColors): string {
-  const { surfaces, direction, maxContrast } = readableTextTarget(colors, [
-    colors.surface,
-    colors.surfaceRaised,
-    colors.sidebar,
-    colors.sidebarRowHover,
-    colors.sidebarRowActive,
-    colors.sidebarRowSelected,
-  ]);
-  const base = parseThemeColor(
-    STANDARD_INFO_FOREGROUND[direction === "lighter" ? "dark" : "light"],
-  )!;
-  const minContrast = Math.min(INFO_FOREGROUND_CONTRAST, maxContrast);
-  return themeRgbToHexColor(
-    themeOklchToRgb(solveOklchLightness(base.color, surfaces, minContrast, direction)),
+  const canvas = paintThemeColor(colors.canvas, THEME_WHITE_FOREGROUND);
+  const sidebar = paintThemeColor(colors.sidebar, canvas);
+  const dark = themeRelativeLuminance(canvas) < 0.179;
+  const extreme = dark ? THEME_WHITE_FOREGROUND : THEME_BLACK_FOREGROUND;
+  // A surface of the opposite shade (a light sidebar on a dark canvas) cannot share one solve.
+  const surfaces = [
+    ...[colors.surface, colors.surfaceRaised, colors.surfaceOverlay, colors.messageSurface].map(
+      (value) => paintThemeColor(value, canvas),
+    ),
+    sidebar,
+    ...[colors.sidebarRowHover, colors.sidebarRowActive, colors.sidebarRowSelected].map((value) =>
+      paintThemeColor(value, sidebar),
+    ),
+  ].filter((surface) => themeContrastRatio(extreme, surface) >= INFO_FOREGROUND_CONTRAST);
+  const base = parseThemeColor(STANDARD_INFO_FOREGROUND[dark ? "dark" : "light"])!;
+  const solved = solveOklchLightness(
+    base.color,
+    [canvas, ...surfaces],
+    INFO_FOREGROUND_CONTRAST,
+    dark ? "lighter" : "darker",
   );
+  return themeRgbToHexColor(themeOklchToRgb(solved));
 }
 
 function applyDerivedThemeVariables(root: HTMLElement, colors: ThemeColors): void {
