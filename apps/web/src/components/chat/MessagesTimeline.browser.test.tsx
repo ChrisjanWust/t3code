@@ -18,6 +18,7 @@ import "~/index.css";
 
 import { act, fakeTimers, render } from "../../../test/render";
 import { ChatCanvas } from "./ChatCanvas";
+import { createChatCanvasStore } from "./canvasStore";
 import { MessagesTimeline } from "./MessagesTimeline";
 import {
   expectTablesStayInColumn,
@@ -1009,7 +1010,12 @@ it("grows top-level assistant tables into the canvas margins and scrolls them in
   const container = document.createElement("div");
   container.style.cssText = "height: 900px; display: flex; flex-direction: column;";
   await using screen = await render(
-    <ChatCanvas composerOverlayElement={null}>
+    <ChatCanvas
+      store={createChatCanvasStore()}
+      threadRef={null}
+      preview={null}
+      composerOverlayElement={null}
+    >
       <div className="relative flex min-h-0 flex-1 flex-col">
         <MessagesTimeline
           {...baseProps()}

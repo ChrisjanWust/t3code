@@ -447,6 +447,7 @@ const session: EnvironmentConnectionLease["session"] = {
     subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig }]),
   ready: Effect.void,
   probe: Effect.void,
+  inboundFrames: Effect.succeed(0),
   closed: Effect.never,
 };
 
@@ -468,6 +469,7 @@ export const fakeDriver = {
     }),
   checkRoute: () => Effect.succeed<RouteCheck>("answered"),
   preflight: () => Effect.succeed(true),
+  checkHost: () => Effect.succeed<RouteCheck>("unchecked"),
 };
 export type FakeDriver = typeof fakeDriver;
 
