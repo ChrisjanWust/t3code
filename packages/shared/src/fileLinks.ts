@@ -5,7 +5,8 @@ import {
   stripSlashPrefixedWindowsDrive,
 } from "./path.ts";
 
-const POSITION_SUFFIX_CAPTURE_PATTERN = /:(\d+)(?::(\d+))?$/;
+// Editors take a single position, so a `:12-20` range opens at its first line.
+const POSITION_SUFFIX_CAPTURE_PATTERN = /:(\d+)(?::(\d+)|-\d+)?$/;
 
 const POSITION_HASH_PATTERN = /^#L(\d+)(?:C(\d+))?$/i;
 
