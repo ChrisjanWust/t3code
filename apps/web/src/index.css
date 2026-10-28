@@ -1327,8 +1327,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 /* Theme files are expressed in app color roles and mapped to the existing
    semantic surface tokens here. Keep this block after the sidebar-version
    compatibility overrides so both navigation implementations receive the
-   same palette. Success, info, provider, and channel identity colors remain
-   independent; error, warning, and update roles are themeable below. */
+   same palette. Success, provider, and channel identity colors remain
+   independent; error, warning, and update roles are themeable below. Info keeps
+   its blue, re-lit by themePalette.ts to read on the theme's surfaces. */
 /* The non-empty marker adds enough specificity to outrank the generated root
    dark variant without reintroducing raw `.dark` selectors. */
 html[data-theme-id]:not([data-theme-id=""]) {
@@ -1378,6 +1379,7 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --update: var(--app-theme-update);
   --update-foreground: var(--app-theme-update-foreground);
   --update-surface: var(--app-theme-update-surface);
+  --info-foreground: var(--app-theme-info-foreground);
   --border: var(--app-theme-border);
   --input: var(--app-theme-input);
   --ring: var(--app-theme-focus);

@@ -22,6 +22,7 @@ import {
   serializeThemeFile,
   T3_CHAT_THEME,
   GROVE_THEME,
+  themeInfoForeground,
   updateCustomTheme,
   updateThemeColorFamily,
   CUSTOM_THEMES_STORAGE_KEY,
@@ -668,6 +669,38 @@ describe("context chip colors", () => {
       ]) {
         expect(paintedContrastRatio(invalid!, surface, colors.canvas)).toBeGreaterThanOrEqual(5);
       }
+    }
+  });
+
+  it("keeps info text blue and readable on every chat and sidebar surface", () => {
+    const brown = {
+      ...getStandardThemeColors("dark"),
+      canvas: "#4b423b",
+      surface: "#4b423b",
+      surfaceRaised: "#5c5044",
+      messageSurface: "#866b52",
+      sidebar: "#5c5044",
+      sidebarRowHover: "#5c5146",
+      sidebarRowActive: "#77604a",
+      sidebarRowSelected: "#77604a",
+    };
+    for (const colors of [...palettes, brown]) {
+      const info = themeInfoForeground(colors);
+      for (const surface of [
+        colors.canvas,
+        colors.surface,
+        colors.surfaceRaised,
+        colors.messageSurface,
+        colors.sidebar,
+        colors.sidebarRowHover,
+        colors.sidebarRowActive,
+        colors.sidebarRowSelected,
+      ]) {
+        expect(paintedContrastRatio(info, surface, colors.canvas)).toBeGreaterThanOrEqual(3);
+      }
+      const hue = toOklch(info)!.h!;
+      expect(hue).toBeGreaterThan(240);
+      expect(hue).toBeLessThan(275);
     }
   });
 
