@@ -195,5 +195,8 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
-  return { chat, frame, overlapsChat, overlapsDetailsCard };
+  // Wide tables grow evenly past both lane edges, short of the padding, the card, and the player.
+  const freeRight = Math.min(laneRight, frame ? frame.x - GAP : laneRight) - chat.left - chat.width;
+  const tableGutter = Math.max(0, Math.floor(Math.min(chat.left - padding, freeRight)));
+  return { chat, frame, overlapsChat, overlapsDetailsCard, tableGutter };
 }

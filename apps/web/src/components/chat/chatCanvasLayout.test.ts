@@ -118,6 +118,25 @@ describe("chat canvas layout", () => {
     // Equal space on both sides of the chat.
     expect(layout(true)).toMatchObject({ left: (1052 - 736) / 2, width: 736 });
   });
+  it("gives wide tables the free space beside the chat, evenly and short of what sits there", () => {
+    const layout = (input: Partial<Parameters<typeof resolveChatCanvasLayout>[0]> = {}) =>
+      resolveChatCanvasLayout({
+        container: { width: 1600, height: 900 },
+        maxChatWidth: 736,
+        preview: null,
+        ...input,
+      });
+    // (1600 - 736) / 2 on each side, less the 48px padding.
+    expect(layout().tableGutter).toBe(384);
+    expect(layout({ container: { width: 800, height: 900 } }).tableGutter).toBe(0);
+    const besideCard = layout({ detailsCard: { left: 1300, right: 1588, bottom: 400 } });
+    expect(besideCard.tableGutter).toBe(1300 - 32 - besideCard.chat.left - 736);
+    const besidePlayer = layout({ preview });
+    expect(besidePlayer.overlapsChat).toBe(false);
+    expect(besidePlayer.tableGutter).toBe(
+      besidePlayer.frame!.x - 12 - besidePlayer.chat.left - besidePlayer.chat.width,
+    );
+  });
   it("keeps the chat canvas-centered when it clears the details card", () => {
     const result = resolveChatCanvasLayout({
       container: { width: 2200, height: 988 },
