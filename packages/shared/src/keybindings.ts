@@ -157,6 +157,19 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
+  // The tabbed layout gives mod+t and mod+w to thread tabs unless the right panel has focus.
+  {
+    key: "mod+t",
+    command: "tab.new",
+    when: "threadTabs && isDesktop && !previewFocus && !terminalFocus",
+  },
+  {
+    key: "mod+w",
+    command: "tab.close",
+    when: "threadTabs && isDesktop && !previewFocus && !terminalFocus",
+  },
+  { key: "ctrl+tab", command: "tab.next", when: "threadTabs && isDesktop" },
+  { key: "ctrl+shift+tab", command: "tab.previous", when: "threadTabs && isDesktop" },
   { key: "mod+shift+t", command: "view.reopenClosed" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },

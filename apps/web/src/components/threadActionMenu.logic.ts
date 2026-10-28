@@ -89,6 +89,10 @@ export interface ThreadActionMenuState {
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;
+  /** A worktree row acts on all of its threads; thread-only actions live on its tabs. */
+  readonly scope?: "thread" | "worktree";
+  /** A new worktree with no path yet has nowhere to open a tab. */
+  readonly creatingWorktree?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -108,12 +112,15 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  const worktree = state.scope === "worktree";
+  const noun = worktree ? "worktree" : "thread";
+  const threadOnly = <T>(entries: readonly T[]): readonly T[] => (worktree ? [] : entries);
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
-    ...(state.branch
+    ...((worktree ? !state.creatingWorktree : state.branch)
       ? [
           {
             id: "new-thread-on-branch" as const,
-            label: `New thread on ${state.branch}`,
+            label: worktree ? "New tab" : `New thread on ${state.branch}`,
             icon: "message-square-plus",
           },
         ]
@@ -121,21 +128,25 @@ export function buildThreadActionMenuItems(
     ...(state.supports.pinning
       ? [
           state.isPinned
-            ? { id: "unpin" as const, label: "Unpin thread", icon: "pin-off" }
-            : { id: "pin" as const, label: "Pin thread", icon: "pin" },
+            ? { id: "unpin" as const, label: `Unpin ${noun}`, icon: "pin-off" }
+            : { id: "pin" as const, label: `Pin ${noun}`, icon: "pin" },
         ]
       : []),
     ...(state.supports.settlement
       ? [
           state.isSettled
-            ? { id: "unsettle" as const, label: "Un-settle thread", icon: "circle-check" }
-            : { id: "settle" as const, label: "Settle thread", icon: "circle-check" },
+            ? {
+                id: "unsettle" as const,
+                label: worktree ? "Reopen worktree" : "Un-settle thread",
+                icon: "circle-check",
+              }
+            : { id: "settle" as const, label: `Settle ${noun}`, icon: "circle-check" },
         ]
       : []),
     ...(state.supports.snooze
       ? [
           state.isSnoozed
-            ? { id: "unsnooze" as const, label: "Wake thread", icon: "clock" }
+            ? { id: "unsnooze" as const, label: `Wake ${noun}`, icon: "clock" }
             : {
                 id: "snooze" as const,
                 label: "Snooze",
@@ -151,8 +162,10 @@ export function buildThreadActionMenuItems(
               },
         ]
       : []),
-    { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
-    ...(state.supports.titleRegeneration
+    ...threadOnly([
+      { id: "rename" as const, label: "Rename thread", icon: "pencil", separatorBefore: true },
+    ]),
+    ...(!worktree && state.supports.titleRegeneration
       ? [
           {
             id: "regenerate-title" as const,
@@ -162,8 +175,8 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
-    ...(state.canShareWithGuest
+    ...threadOnly([{ id: "mark-unread" as const, label: "Mark unread", icon: "mail-open" }]),
+    ...(!worktree && state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
       : []),
     ...(state.projectFilter
@@ -174,10 +187,11 @@ export function buildThreadActionMenuItems(
               ? "Show all projects"
               : `Filter by ${state.projectFilter.label}`,
             icon: "folder-tree",
+            ...(worktree ? { separatorBefore: true } : {}),
           },
         ]
       : []),
-    ...(state.supports.autoSettleOptOut
+    ...(!worktree && state.supports.autoSettleOptOut
       ? [
           {
             id: "auto-settle" as const,
@@ -208,13 +222,13 @@ export function buildThreadActionMenuItems(
         ...(state.branch
           ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
           : []),
-        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+        ...threadOnly([{ id: "copy-thread-id" as const, label: "Thread ID", icon: "hash" }]),
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },
     {
       id: "archive",
-      label: "Archive thread",
+      label: `Archive ${noun}`,
       icon: "archive",
       disabled: state.isRunning,
       separatorBefore: true,

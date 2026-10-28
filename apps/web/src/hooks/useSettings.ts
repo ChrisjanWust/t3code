@@ -421,6 +421,15 @@ export function useLegacySidebarEnabled(): boolean {
   return settingsHydrated && legacySidebarEnabled;
 }
 
+/** Worktree rows and thread tabs need the current sidebar, so the legacy one turns them off. */
+export function useThreadTabsEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const enabled = useClientSettings(
+    (settings) => settings.threadTabsEnabled && !settings.legacySidebarEnabled,
+  );
+  return settingsHydrated && enabled;
+}
+
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,

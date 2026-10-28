@@ -99,6 +99,8 @@ interface Props {
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
+  /** The floating browser belongs to the shown thread, so another tab's browser stays docked. */
+  floatable?: boolean;
   onSendAnnotation?: (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -143,6 +145,7 @@ export function PreviewView({
   tabId: requestedTabId,
   configuredUrls,
   visible,
+  floatable = true,
   onSendAnnotation,
 }: Props) {
   const urlInputRef = useRef<HTMLInputElement | null>(null);
@@ -866,7 +869,7 @@ export function PreviewView({
         captureDisabled={!desktopOverlay || isUnreachable}
         recording={recordingRuntimeTabId !== null}
         onPictureInPicture={
-          tabId && (isServerTab || previewBridge) ? handlePictureInPicture : undefined
+          floatable && tabId && (isServerTab || previewBridge) ? handlePictureInPicture : undefined
         }
         pictureInPicture={miniPlayerTabId === tabId}
         pictureInPictureDisabled={

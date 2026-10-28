@@ -32,6 +32,7 @@ import { modelSelectionCommandType } from "@t3tools/shared/model";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { getInitialServerConfig, request } from "../rpc/client.ts";
@@ -86,7 +87,10 @@ export interface ThreadCommandInput extends CommandMetadata {
 export type DeleteThreadInput = ThreadCommandInput;
 export type ArchiveThreadInput = ThreadCommandInput;
 export type UnarchiveThreadInput = ThreadCommandInput;
-export type SettleThreadInput = ThreadCommandInput;
+export interface SettleThreadInput extends ThreadCommandInput {
+  /** Threads settled together share it, so the group can be reopened together. */
+  readonly settledAt?: string;
+}
 
 export interface UnsettleThreadInput extends ThreadCommandInput {
   readonly reason: "user";
@@ -417,7 +421,6 @@ function simpleThreadCommand(
     | "thread.delete"
     | "thread.archive"
     | "thread.unarchive"
-    | "thread.settle"
     | "thread.pin"
     | "thread.unpin"
     | "thread.guest-share.close",
@@ -488,7 +491,12 @@ export const unarchiveThread = Effect.fn("EnvironmentCommands.unarchiveThread")(
 export const settleThread = Effect.fn("EnvironmentCommands.settleThread")(function* (
   input: SettleThreadInput,
 ) {
-  return yield* simpleThreadCommand("thread.settle", input);
+  return yield* dispatch({
+    type: "thread.settle",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    ...(input.settledAt === undefined ? {} : { settledAt: DateTime.makeUnsafe(input.settledAt) }),
+  });
 });
 
 export const pinThread = Effect.fn("EnvironmentCommands.pinThread")(function* (

@@ -563,7 +563,8 @@ export const make = Effect.gen(function* () {
       return sweepThread(threadId).pipe(FiberSet.run(threadSweeps), Effect.asVoid);
     });
 
-  // Skip settle scripts in shared checkouts where other threads may still work.
+  // The settle script never runs in the project checkout, and runs in a worktree only once its
+  // last thread settles, since the others may still be working there.
   const cleanUpSettledThread = Effect.fn("ThreadSettlementServiceV2.cleanUpSettledThread")(
     function* (threadId: ThreadId) {
       const settled = yield* projections.getThread(threadId);
@@ -571,11 +572,21 @@ export const make = Effect.gen(function* () {
       yield* terminals.closeIdle({ threadId });
       const worktreePath = settled.worktreePath;
       if (worktreePath === null || !(yield* fileSystem.exists(worktreePath))) return;
-      // Recheck after closing and worktree I/O; re-engaged threads must not be cleaned up.
-      const thread = yield* projections.getThread(threadId);
-      if (thread.settledOverride !== "settled") return;
-      const settledAtMs = toMillis(thread.settledAt);
+      // Read after closing and worktree I/O; re-engaged threads must not be cleaned up.
+      const { threads } = yield* projections.getShellSnapshot({ location: "active", worktreePath });
+      const settledAtMsOf = (thread: (typeof threads)[number]) =>
+        thread.settledOverride === "settled" ? toMillis(thread.settledAt) : null;
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (thread === undefined) return;
+      const settledAtMs = settledAtMsOf(thread);
       if (settledAtMs === null || settleActionRunAt.get(threadId) === settledAtMs) return;
+      // Subagents are rarely settled, so they never hold the script back, and trigger it only
+      // in a checkout no top-level thread uses, such as an isolated delegated task's.
+      const topLevel = threads.filter(
+        (candidate) => candidate.lineage.relationshipToParent !== "subagent",
+      );
+      if (topLevel.length > 0 && !topLevel.includes(thread)) return;
+      if (topLevel.some((candidate) => settledAtMsOf(candidate) === null)) return;
       const run = yield* projectScripts.runForThread({
         threadId,
         projectId: thread.projectId,
@@ -583,7 +594,13 @@ export const make = Effect.gen(function* () {
         trigger: "settle",
         observeCompletion: {},
       });
-      settleActionRunAt.set(threadId, settledAtMs);
+      // One run covers every settlement in the worktree, so the rest of a group settle skips it.
+      for (const candidate of threads) {
+        const candidateSettledAtMs = settledAtMsOf(candidate);
+        if (candidateSettledAtMs !== null) {
+          settleActionRunAt.set(candidate.id, candidateSettledAtMs);
+        }
+      }
       if (run.status === "started" && run.completion) {
         yield* run.completion.pipe(Effect.forkDetach);
       }

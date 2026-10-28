@@ -145,6 +145,8 @@ export interface EnvironmentThreadShell {
   readonly interactionMode: OrchestrationV2ThreadShell["interactionMode"];
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  /** The first run is still creating this thread's new worktree, so `worktreePath` is not yet known. */
+  readonly creatingWorktree?: boolean;
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
   readonly forkedFrom: OrchestrationV2ThreadShell["forkedFrom"];
   readonly activeProviderThreadId: OrchestrationV2ThreadShell["activeProviderThreadId"];
@@ -293,6 +295,7 @@ export function presentThreadShell(
     interactionMode: thread.interactionMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    creatingWorktree: thread.creatingWorktree ?? false,
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,

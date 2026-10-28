@@ -171,15 +171,25 @@ interface ProactivePanelObservation {
 
 export function observeProactivePanelUserChoice(
   previous: ProactivePanelObservation | null,
-  input: { threadKey: string; runningTurnId: RunId | null; userActionRevision: number },
+  input: {
+    threadKey: string;
+    runningTurnId: RunId | null;
+    userActionRevision: number;
+    /** A panel shared by several threads treats what a thread already has on entry as seen. */
+    seenOnEntry?: { targetKey: string | null };
+  },
 ): ProactivePanelObservation {
   const sameThread = previous?.threadKey === input.threadKey;
   const newTurn =
     sameThread && input.runningTurnId !== null && input.runningTurnId !== previous.userActionTurnId;
   return {
     threadKey: input.threadKey,
-    runningTurnId: sameThread ? previous.runningTurnId : undefined,
-    targetKey: sameThread ? previous.targetKey : undefined,
+    runningTurnId: sameThread
+      ? previous.runningTurnId
+      : input.seenOnEntry
+        ? input.runningTurnId
+        : undefined,
+    targetKey: sameThread ? previous.targetKey : input.seenOnEntry?.targetKey,
     userActionTurnId: input.runningTurnId ?? (sameThread ? previous.userActionTurnId : null),
     userActionRevision:
       !sameThread || newTurn ? input.userActionRevision : previous.userActionRevision,

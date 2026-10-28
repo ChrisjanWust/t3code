@@ -672,6 +672,29 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
           ? Effect.succeed(thread)
           : Effect.die(new Error(`Unexpected thread read: ${threadId}`));
       },
+      getShellSnapshot: (shellOptions) =>
+        Effect.succeed({
+          schemaVersion: 1,
+          snapshotSequence: 1,
+          threads: (options.currentThreads ?? [])
+            .filter(
+              (thread) =>
+                thread.archivedAt === null &&
+                thread.deletedAt === null &&
+                thread.worktreePath === shellOptions?.worktreePath,
+            )
+            .map((thread) =>
+              shell({
+                id: thread.id,
+                projectId: thread.projectId,
+                worktreePath: thread.worktreePath,
+                lineage: thread.lineage,
+                settledOverride: thread.settledOverride,
+                settledAt: thread.settledAt,
+              }),
+            ),
+          archivedThreads: [],
+        }),
     }),
     Layer.mock(Orchestrator.OrchestratorV2)({
       streamDomainEvents: Stream.fromPubSub(domainEvents),
@@ -1316,6 +1339,75 @@ describe("ThreadSettlementServiceV2 terminals", () => {
           assert.strictEqual(run.threadId, worktree.id);
           assert.strictEqual(run.worktreePath, "/worktrees/thread");
           assert.strictEqual(run.trigger, "settle");
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("runs a worktree's settle script only when its last open thread settles", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const first = appThread("first-tab", "settled", "/worktrees/shared");
+        const second = appThread("second-tab", "active", "/worktrees/shared");
+        // Subagents share their parent's checkout and are rarely settled, so they never hold it.
+        const subagent: OrchestrationV2AppThread = {
+          ...appThread("second-tab-subagent", "active", "/worktrees/shared"),
+          lineage: {
+            parentThreadId: second.id,
+            relationshipToParent: "subagent",
+            rootThreadId: second.id,
+          },
+        };
+        const marker = appThread("marker-thread", "settled", "/worktrees/marker");
+        const currentThreads = [first, second, subagent, marker];
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([]),
+          currentThreads,
+          existingWorktreePaths: ["/worktrees/shared", "/worktrees/marker"],
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishEvent(settledEvent(first));
+          yield* fixture.publishEvent(settledEvent(marker));
+          assert.strictEqual((yield* Queue.take(fixture.scriptRuns)).threadId, marker.id);
+          assert.deepStrictEqual(yield* Queue.take(fixture.closedIdle), { threadId: first.id });
+
+          const settledSecond = appThread("second-tab", "settled", "/worktrees/shared");
+          currentThreads[1] = settledSecond;
+          yield* fixture.publishEvent(settledEvent(settledSecond));
+          const run = yield* Queue.take(fixture.scriptRuns);
+          assert.strictEqual(run.threadId, settledSecond.id);
+          assert.strictEqual(run.worktreePath, "/worktrees/shared");
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("runs the settle script once when a whole worktree settles together", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const group = ["tab-a", "tab-b", "tab-c"].map((id) =>
+          appThread(id, "settled", "/worktrees/group"),
+        );
+        const marker = appThread("marker-thread", "settled", "/worktrees/marker");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([]),
+          currentThreads: [...group, marker],
+          existingWorktreePaths: ["/worktrees/group", "/worktrees/marker"],
+        });
+
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          for (const thread of group) yield* fixture.publishEvent(settledEvent(thread));
+          yield* fixture.publishEvent(settledEvent(marker));
+          assert.strictEqual(
+            (yield* Queue.take(fixture.scriptRuns)).worktreePath,
+            "/worktrees/group",
+          );
+          assert.strictEqual((yield* Queue.take(fixture.scriptRuns)).threadId, marker.id);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),

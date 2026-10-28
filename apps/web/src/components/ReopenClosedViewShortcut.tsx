@@ -35,6 +35,7 @@ import { previewEnvironment } from "../state/preview";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentShell } from "../state/shell";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import {
   buildDraftThreadRouteParams,
@@ -75,6 +76,7 @@ export function ReopenClosedViewShortcut() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const hasHistory = useClosedViewStore((state) => state.entries.length > 0);
   const openPreview = useAtomCommand(previewEnvironment.open);
+  const { unsettleThread } = useThreadActions();
   const pending = useRef(Promise.resolve());
 
   const reopenNext = useEffectEvent(async () => {
@@ -97,6 +99,7 @@ export function ReopenClosedViewShortcut() {
         environmentKnown: catalog.entries.has(ref.environmentId),
         catalogReady: catalog.isReady,
         ownerExists: readThreadShell(ref) !== null || drafts.getDraftThreadByRef(ref) !== null,
+        tabOpen: readThreadShell(ref)?.settledOverride !== "settled",
         shellLive:
           appAtomRegistry.get(environmentShell.stateValueAtom(ref.environmentId)).status === "live",
         panel,
@@ -110,7 +113,13 @@ export function ReopenClosedViewShortcut() {
     const thread = globalPullRequests ? null : readThreadShell(ref);
     const owner = thread ?? drafts.getDraftThreadByRef(ref);
     const project = owner ? readProject(scopeProjectRef(ref.environmentId, owner.projectId)) : null;
-    if (!(await reopenClosedView(restore, { openPreview, workspaceAvailable: project !== null }))) {
+    if (
+      !(await reopenClosedView(restore, {
+        openPreview,
+        workspaceAvailable: project !== null,
+        reopenTab: async (tabThreadRef) => (await unsettleThread(tabThreadRef))._tag === "Success",
+      }))
+    ) {
       useClosedViewStore.getState().defer(restore.id);
       return;
     }

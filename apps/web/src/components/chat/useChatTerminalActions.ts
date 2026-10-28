@@ -23,7 +23,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { MAX_TERMINALS_PER_GROUP } from "../../types";
-import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
+import { type RightPanelSurface, surfaceOwnerRef, useRightPanelStore } from "../../rightPanelStore";
 import { isPreviewSupportedInRuntime } from "../../previewStateStore";
 import { openUrlInPreview } from "../../browser/openFileInPreview";
 import { resolveDiscoveredServerUrl } from "../../browser/browserTargetResolver";
@@ -68,6 +68,7 @@ interface ChatTerminalActionsInput {
   readonly runningTerminalIds: ReadonlyArray<string>;
   readonly activeServerOrderedTerminalIds: ReadonlyArray<string>;
   readonly activeTerminalLabelsById: ReadonlyMap<string, string>;
+  readonly panelTerminalLabelsById: ReadonlyMap<string, string>;
   readonly panelTerminalIds: ReadonlySet<string>;
   readonly canReuseTerminal: boolean;
   readonly gitCwd: string | null;
@@ -92,6 +93,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     runningTerminalIds,
     activeServerOrderedTerminalIds,
     activeTerminalLabelsById,
+    panelTerminalLabelsById,
     panelTerminalIds,
     canReuseTerminal,
     gitCwd,
@@ -114,6 +116,11 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   const storeNewTerminal = useTerminalUiStateStore((s) => s.newTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((s) => s.closeTerminal);
   const terminalActions = useThreadTerminalActions(activeThreadRef);
+  // A worktree's tabs share a panel, so its active terminal can be another tab's session.
+  const panelTerminalOwner = activeThreadRef
+    ? surfaceOwnerRef(activeRightPanelSurface, activeThreadRef)
+    : null;
+  const panelTerminalActions = useThreadTerminalActions(panelTerminalOwner);
 
   const activeTerminalGroup =
     terminalUiState.terminalGroups.find(
@@ -331,20 +338,21 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
       !activeThreadRef ||
+      !panelTerminalOwner ||
       activeRightPanelSurface?.kind !== "terminal" ||
       activeRightPanelSurface.terminalIds.length >= MAX_TERMINALS_PER_GROUP
     ) {
       return;
     }
     const surfaceId = activeRightPanelSurface.id;
-    const launched = terminalActions.launchTerminal({
+    const launched = panelTerminalActions.launchTerminal({
       place: (terminalId) =>
         useRightPanelStore
           .getState()
           .splitTerminal(activeThreadRef, surfaceId, terminalId, direction),
     });
     if (!launched) return;
-    focusTerminal(activeThreadRef, launched.terminalId);
+    focusTerminal(panelTerminalOwner, launched.terminalId);
     void launched.result;
   };
   const splitPanelTerminalStable = useStableCallback(splitPanelTerminal);
@@ -353,22 +361,24 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   };
   const splitPanelTerminalVerticalStable = useStableCallback(splitPanelTerminalVertical);
   const activatePanelTerminal = (terminalId: string) => {
-    if (!activeThreadRef || activeRightPanelSurface?.kind !== "terminal") return;
+    if (!activeThreadRef || !panelTerminalOwner || activeRightPanelSurface?.kind !== "terminal")
+      return;
     useRightPanelStore
       .getState()
       .activateTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
-    focusTerminal(activeThreadRef, terminalId);
+    focusTerminal(panelTerminalOwner, terminalId);
   };
   const activatePanelTerminalStable = useStableCallback(activatePanelTerminal);
   const closePanelTerminal = (terminalId: string) => {
     if (
       !hasTerminalWriteAccess() ||
       !activeThreadRef ||
+      !panelTerminalOwner ||
       activeRightPanelSurface?.kind !== "terminal"
     )
       return;
-    terminalActions.closeTerminalSession(terminalId);
-    storeCloseTerminal(activeThreadRef, terminalId);
+    panelTerminalActions.closeTerminalSession(terminalId);
+    storeCloseTerminal(panelTerminalOwner, terminalId);
     useRightPanelStore
       .getState()
       .closeTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
@@ -389,7 +399,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   const requestCloseTerminalStable = useStableCallback(requestCloseTerminal);
   const requestClosePanelTerminal = (terminalId: string) => {
     if (!hasTerminalWriteAccess()) return;
-    const label = activeTerminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
+    const label = panelTerminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
     void confirmTerminalClose([label]).then((confirmed) => {
       if (confirmed && readEnvironmentScope(environmentId, AuthTerminalOperateScope)) {
         closePanelTerminal(terminalId);
