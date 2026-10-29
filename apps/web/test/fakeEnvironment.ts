@@ -467,7 +467,6 @@ export const fakeDriver = {
       },
       session,
     }),
-  checkRoute: () => Effect.succeed<RouteCheck>("answered"),
   preflight: () => Effect.succeed(true),
   checkHost: () => Effect.succeed<RouteCheck>("unchecked"),
 };
