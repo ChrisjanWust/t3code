@@ -6,8 +6,10 @@ import {
   type ProjectIconOverride,
   ProjectId,
   type ProjectScript,
+  type ProjectWorktreeTitle,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -45,7 +47,33 @@ export interface ProjectDeleteCommand {
   readonly projectId: ProjectId;
 }
 
-export type ProjectCommand = ProjectCreateCommand | ProjectMetaUpdateCommand | ProjectDeleteCommand;
+export type ProjectWorktreeTitleChange =
+  | { readonly type: "manual"; readonly title: string | null }
+  | {
+      readonly type: "generated";
+      readonly title: string;
+      readonly sourceThreadIds: ReadonlyArray<ThreadId>;
+      /** The entry's `updatedAt` when generation started; any change since makes this stale. */
+      readonly basis: string | null;
+      /** Only an explicit regenerate replaces a manual title. */
+      readonly replaceManual: boolean;
+    };
+
+export interface ProjectWorktreeTitleUpdateCommand {
+  readonly type: "project.worktree-title.update";
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  readonly change: ProjectWorktreeTitleChange;
+  /** Worktrees no thread references anymore. */
+  readonly prunePaths?: ReadonlyArray<string>;
+}
+
+export type ProjectCommand =
+  | ProjectCreateCommand
+  | ProjectMetaUpdateCommand
+  | ProjectDeleteCommand
+  | ProjectWorktreeTitleUpdateCommand;
 
 export class ProjectCommandInvariantError extends Schema.TaggedError<ProjectCommandInvariantError>()(
   "ProjectCommandInvariantError",
@@ -83,10 +111,23 @@ export class ProjectWorkspaceConflictError extends Schema.TaggedError<ProjectWor
   }
 }
 
+export class ProjectWorktreeTitleStaleError extends Schema.TaggedError<ProjectWorktreeTitleStaleError>()(
+  "ProjectWorktreeTitleStaleError",
+  {
+    projectId: ProjectId,
+    worktreePath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `The title of worktree '${this.worktreePath}' changed while a new one was generated.`;
+  }
+}
+
 export const ProjectCommandRejection = Schema.Union([
   ProjectCommandInvariantError,
   ProjectCommandMissingProjectError,
   ProjectWorkspaceConflictError,
+  ProjectWorktreeTitleStaleError,
 ]);
 export type ProjectCommandRejection = typeof ProjectCommandRejection.Type;
 
@@ -209,6 +250,65 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           updatedAt: occurredAt,
+        },
+      });
+    }
+
+    case "project.worktree-title.update": {
+      const project = activeProject;
+      if (project === undefined) return missingProject();
+      const existing = project.worktreeTitles.find(
+        (entry) => entry.worktreePath === command.worktreePath,
+      );
+      const { change } = command;
+      let next: ProjectWorktreeTitle | null;
+      if (change.type === "manual") {
+        next = {
+          worktreePath: command.worktreePath,
+          generated: existing?.generated ?? null,
+          manual: change.title,
+          sourceThreadIds: existing?.sourceThreadIds ?? [],
+          generatedAt: existing?.generatedAt ?? null,
+          updatedAt: occurredAt,
+        };
+        if (next.manual === null && next.generated === null) next = null;
+      } else {
+        if (
+          (existing?.updatedAt ?? null) !== change.basis ||
+          (!change.replaceManual && (existing?.manual ?? null) !== null)
+        ) {
+          return Result.fail(
+            new ProjectWorktreeTitleStaleError({
+              projectId: command.projectId,
+              worktreePath: command.worktreePath,
+            }),
+          );
+        }
+        next = {
+          worktreePath: command.worktreePath,
+          generated: change.title,
+          manual: change.replaceManual ? null : (existing?.manual ?? null),
+          sourceThreadIds: change.sourceThreadIds,
+          generatedAt: occurredAt,
+          updatedAt: occurredAt,
+        };
+      }
+      const pruned = new Set(command.prunePaths);
+      pruned.delete(command.worktreePath);
+      return Result.succeed({
+        ...base,
+        type: "project.meta-updated",
+        payload: {
+          projectId: command.projectId,
+          worktreeTitles: [
+            ...project.worktreeTitles.filter(
+              (entry) =>
+                entry.worktreePath !== command.worktreePath && !pruned.has(entry.worktreePath),
+            ),
+            ...(next === null ? [] : [next]),
+          ],
+          // A title is not a project edit, so the project keeps its place in recency order.
+          updatedAt: project.updatedAt,
         },
       });
     }

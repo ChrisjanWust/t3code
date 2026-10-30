@@ -222,6 +222,23 @@ it.layer(layerTest)("ProjectService", (it) => {
         [projectId],
       );
 
+      yield* TestClock.adjust("1 minute");
+      const worktreePath = "/work/project/.t3/worktrees/pairing";
+      const titled = yield* service.updateWorktreeTitle({
+        commandId: CommandId.make("command:project:worktree-title"),
+        projectId,
+        worktreePath,
+        change: { type: "manual", title: "Pairing expiry" },
+      });
+      assert.isTrue(titled.applied);
+      const titledShell = Option.getOrThrow(yield* service.getShell(projectId));
+      assert.deepEqual(
+        titledShell.worktreeTitles?.map((title) => [title.worktreePath, title.manual]),
+        [[worktreePath, "Pairing expiry"]],
+      );
+      // A worktree title does not move the project in recency order.
+      assert.equal(titledShell.updatedAt, reset.updatedAt);
+
       const deleted = yield* service.delete({
         commandId: CommandId.make("command:project:delete"),
         projectId,
@@ -240,7 +257,13 @@ it.layer(layerTest)("ProjectService", (it) => {
       `;
       assert.deepEqual(
         changes.map((change) => change.event_type),
-        ["project.created", "project.meta-updated", "project.meta-updated", "project.deleted"],
+        [
+          "project.created",
+          "project.meta-updated",
+          "project.meta-updated",
+          "project.meta-updated",
+          "project.deleted",
+        ],
       );
     }),
   );

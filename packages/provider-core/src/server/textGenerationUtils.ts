@@ -1,4 +1,4 @@
-import { TextGenerationError } from "@t3tools/contracts";
+import { PROJECT_WORKTREE_TITLE_MAX_LENGTH, TextGenerationError } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -50,6 +50,27 @@ export function sanitizePrTitle(raw: string): string {
     return singleLine;
   }
   return "Update project changes";
+}
+
+/** Empty when the model returned nothing usable. */
+export function sanitizeWorktreeTitle(raw: string): string {
+  const title =
+    raw
+      .trim()
+      .split(/\r?\n/g)[0]
+      ?.replace(/^['"`]+|['"`]+$/g, "")
+      .replace(/[.!?;:,]+$/, "")
+      .replace(/\s+/g, " ")
+      .trim() ?? "";
+  if (title.length <= PROJECT_WORKTREE_TITLE_MAX_LENGTH) return title;
+  let truncated = "";
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
+    title,
+  )) {
+    if (truncated.length + segment.length > PROJECT_WORKTREE_TITLE_MAX_LENGTH - 1) break;
+    truncated += segment;
+  }
+  return `${truncated.trimEnd()}…`;
 }
 
 const MAX_THREAD_TITLE_CHARS = 120;

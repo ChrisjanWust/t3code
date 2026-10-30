@@ -32,12 +32,16 @@ describe("buildThreadActionMenuItems", () => {
       scope: "worktree",
       isSettled: true,
       canShareWithGuest: true,
+      worktreeTitle: { isManual: true },
     });
     expect(items.map((item) => [item.id, item.label])).toEqual([
       ["new-thread-on-branch", "New tab"],
       ["pin", "Pin worktree"],
       ["unsettle", "Reopen worktree"],
       ["snooze", "Snooze"],
+      ["rename", "Rename worktree"],
+      ["regenerate-title", "Regenerate title"],
+      ["reset-title", "Reset title"],
       ["copy", "Copy"],
       ["project-settings", "Project settings"],
       ["archive", "Archive worktree"],

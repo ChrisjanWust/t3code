@@ -63,6 +63,13 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
+export interface SetWorktreeTitleInput extends CommandMetadata {
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  /** Null clears the manual title, which brings back the generated one. */
+  readonly title: string | null;
+}
+
 export interface DeleteProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly force?: boolean;
@@ -327,6 +334,13 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly commandId: CommandId;
         readonly projectId: ProjectId;
         readonly force?: boolean;
+      }
+    | {
+        readonly type: "project.worktree-title.set";
+        readonly commandId: CommandId;
+        readonly projectId: ProjectId;
+        readonly worktreePath: string;
+        readonly title: string | null;
       },
 ) {
   return yield* request(WS_METHODS.projectsMutate, mutation);
@@ -381,6 +395,18 @@ export const deleteProject = Effect.fn("EnvironmentCommands.deleteProject")(func
     commandId: yield* allocateCommandId(input),
     projectId: input.projectId,
     ...(input.force === undefined ? {} : { force: input.force }),
+  });
+});
+
+export const setWorktreeTitle = Effect.fn("EnvironmentCommands.setWorktreeTitle")(function* (
+  input: SetWorktreeTitleInput,
+) {
+  return yield* mutateProject({
+    type: "project.worktree-title.set",
+    commandId: yield* allocateCommandId(input),
+    projectId: input.projectId,
+    worktreePath: input.worktreePath,
+    title: input.title,
   });
 });
 

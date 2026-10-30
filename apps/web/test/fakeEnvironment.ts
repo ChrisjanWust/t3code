@@ -28,6 +28,8 @@ import {
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   type OrchestrationV2TurnItem,
+  type ProjectMutation,
+  type ProjectWorktreeTitle,
 } from "@t3tools/contracts";
 import type {
   ConnectionAttemptError,
@@ -110,7 +112,7 @@ const makeServerConfig = (): ServerConfig => ({
 });
 let serverConfig = makeServerConfig();
 
-const project: OrchestrationProjectShell = {
+const baseProject: OrchestrationProjectShell = {
   id: PROJECT_ID,
   title: "render",
   workspaceRoot: "/workspace/render",
@@ -120,6 +122,7 @@ const project: OrchestrationProjectShell = {
   createdAt: "2026-03-17T19:12:28.000Z",
   updatedAt: "2026-03-17T19:12:28.000Z",
 };
+let project = baseProject;
 
 const base = (threadId: ThreadId, runId: RunId, id: string, ordinal: number) => ({
   id: TurnItemId.make(id),
@@ -342,6 +345,7 @@ const shellSubscribers = new Set<Queue.Queue<OrchestrationV2ShellStreamItem>>();
 let threads: ReadonlyArray<FakeThread> = [];
 let sequence = 1;
 let dispatched: OrchestrationV2Command[] = [];
+let projectMutations: ProjectMutation[] = [];
 
 const publishShell = (thread: FakeThread) => {
   sequence += 1;
@@ -364,6 +368,34 @@ const shellSnapshot = (): OrchestrationV2ShellStreamItem => ({
     archivedThreads: [],
   },
 });
+
+// Worktree titles land as the server's projection would; other mutations are only recorded.
+const applyProjectMutation = (mutation: ProjectMutation) => {
+  projectMutations.push(mutation);
+  if (mutation.type === "project.worktree-title.set") {
+    const existing = project.worktreeTitles?.find(
+      (entry) => entry.worktreePath === mutation.worktreePath,
+    );
+    project = {
+      ...project,
+      worktreeTitles: [
+        ...(project.worktreeTitles ?? []).filter((entry) => entry !== existing),
+        {
+          worktreePath: mutation.worktreePath,
+          generated: existing?.generated ?? null,
+          manual: mutation.title,
+          sourceThreadIds: existing?.sourceThreadIds ?? [],
+          generatedAt: existing?.generatedAt ?? null,
+          updatedAt: DateTime.formatIso(AT),
+        },
+      ],
+    };
+    sequence += 1;
+    const item: OrchestrationV2ShellStreamItem = { kind: "project.updated", sequence, project };
+    for (const queue of shellSubscribers) Effect.runSync(Queue.offer(queue, item));
+  }
+  return { ...project, deletedAt: null };
+};
 
 // Settle and unsettle land as the server's projection would; other commands are only recorded.
 const applyCommand = (command: OrchestrationV2Command) => {
@@ -408,6 +440,8 @@ const handlers: Record<string, (input: never) => unknown> = {
       applyCommand(command);
       return { sequence };
     }),
+  [WS_METHODS.projectsMutate]: (mutation: ProjectMutation) =>
+    Effect.sync(() => applyProjectMutation(mutation)),
   [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: { readonly threadId: ThreadId }) => {
     const thread = threads.find((candidate) => candidate.id === input.threadId);
     if (!thread) return Stream.never;
@@ -477,9 +511,16 @@ const realFetch = globalThis.fetch;
 /** Serves the environment's HTTP API and these threads until disposed. */
 export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
-  options: { readonly capabilities?: Partial<ExecutionEnvironmentCapabilities> } = {},
+  options: {
+    readonly capabilities?: Partial<ExecutionEnvironmentCapabilities>;
+    readonly worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>;
+  } = {},
 ): Disposable {
   threads = fixtures;
+  project =
+    options.worktreeTitles === undefined
+      ? baseProject
+      : { ...baseProject, worktreeTitles: options.worktreeTitles };
   descriptor = makeDescriptor(options.capabilities ?? {});
   serverConfig = makeServerConfig();
   const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));
@@ -509,6 +550,8 @@ export function installFakeEnvironment(
       threads = [];
       settlement.clear();
       dispatched = [];
+      projectMutations = [];
+      project = baseProject;
     },
   };
 }
@@ -535,6 +578,11 @@ export async function emitThreadEvent(
       event: { ...event, id: EventId.make(`event-${sequence}`), threadId, occurredAt: AT },
     } as OrchestrationV2ThreadStreamItem),
   );
+}
+
+/** The project mutations the app has sent, oldest first. */
+export function dispatchedProjectMutations(): ReadonlyArray<ProjectMutation> {
+  return projectMutations;
 }
 
 /** The orchestration commands the app has sent, oldest first. */

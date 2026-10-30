@@ -17,6 +17,7 @@ export type ThreadActionMenuId =
   | "unsnooze"
   | "rename"
   | "regenerate-title"
+  | "reset-title"
   | "mark-unread"
   | "share-guest"
   | "copy"
@@ -94,6 +95,8 @@ export interface ThreadActionMenuState {
   readonly scope?: "thread" | "worktree";
   /** A new worktree with no path yet has nowhere to open a tab. */
   readonly creatingWorktree?: boolean;
+  /** Set for a worktree row that can hold a title: one with a path, unlike the project checkout. */
+  readonly worktreeTitle?: { readonly isManual: boolean } | null;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -168,10 +171,17 @@ export function buildThreadActionMenuItems(
               },
         ]
       : []),
-    ...threadOnly([
-      { id: "rename" as const, label: "Rename thread", icon: "pencil", separatorBefore: true },
-    ]),
-    ...(!worktree && state.supports.titleRegeneration
+    ...(worktree && !state.worktreeTitle
+      ? []
+      : [
+          {
+            id: "rename" as const,
+            label: `Rename ${noun}`,
+            icon: "pencil",
+            separatorBefore: true,
+          },
+        ]),
+    ...((worktree ? Boolean(state.worktreeTitle) : state.supports.titleRegeneration)
       ? [
           {
             id: "regenerate-title" as const,
@@ -180,6 +190,9 @@ export function buildThreadActionMenuItems(
             disabled: state.isRegeneratingTitle,
           },
         ]
+      : []),
+    ...(worktree && state.worktreeTitle?.isManual
+      ? [{ id: "reset-title" as const, label: "Reset title" }]
       : []),
     ...threadOnly([{ id: "mark-unread" as const, label: "Mark unread", icon: "mail-open" }]),
     ...(!worktree && state.canShareWithGuest

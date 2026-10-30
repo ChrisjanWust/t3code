@@ -1,5 +1,5 @@
 import { createMemoryHistory } from "@tanstack/react-router";
-import { ThreadId } from "@t3tools/contracts";
+import { type ProjectWorktreeTitle, ThreadId } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
@@ -14,6 +14,7 @@ import { getRouter } from "~/router";
 import {
   addServerThread,
   dispatchedCommands,
+  dispatchedProjectMutations,
   ENVIRONMENT_ID,
   installFakeEnvironment,
   threadWithHistory,
@@ -51,7 +52,10 @@ const WORKTREE = {
 };
 const inWorktree = (name: string): FakeThread => ({ ...threadWithHistory(name, 2), ...WORKTREE });
 
-function setup(extra: ReadonlyArray<FakeThread> = []) {
+function setup(
+  extra: ReadonlyArray<FakeThread> = [],
+  worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>,
+) {
   // Panel state persists, and a worktree's tabs share it, so each test starts with none open.
   useRightPanelStore.setState({
     byThreadKey: {},
@@ -72,7 +76,7 @@ function setup(extra: ReadonlyArray<FakeThread> = []) {
       inWorktree("tab-c"),
       ...extra,
     ],
-    { capabilities: { threadSettlement: true } },
+    { capabilities: { threadSettlement: true }, ...(worktreeTitles ? { worktreeTitles } : {}) },
   );
 }
 
@@ -291,4 +295,40 @@ it("keeps a thread out of the checkout's tabs while its new worktree is being cr
   expect(sidebarRow("New worktree").elements()).toHaveLength(0);
   expect(tabTitles()).toEqual(["Thread new-work"]);
   await expect.element(page.getByRole("button", { name: "New tab" })).toBeEnabled();
+});
+
+it("names a worktree row by its title, and F2 renames the worktree", async () => {
+  using _environment = setup(
+    [],
+    [
+      {
+        worktreePath: WORKTREE.worktreePath,
+        generated: "Thread tab layout",
+        manual: null,
+        sourceThreadIds: [],
+        generatedAt: null,
+        updatedAt: "2026-03-17T19:12:28.000Z",
+      },
+    ],
+  );
+  const { screen } = await mountApp("tab-a");
+  await using _screen = screen;
+
+  await expect.element(sidebarRow("Thread tab layout")).toBeVisible();
+  expect(sidebarRow("feature/tabs").elements()).toHaveLength(0);
+
+  sidebarRow("Thread tab layout").element().focus();
+  await userEvent.keyboard("{F2}");
+  const input = page.getByRole("textbox", { name: "Worktree title" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Tabs and worktree rows{Enter}");
+
+  await expect.element(sidebarRow("Tabs and worktree rows")).toBeVisible();
+  expect(dispatchedProjectMutations()).toMatchObject([
+    {
+      type: "project.worktree-title.set",
+      worktreePath: WORKTREE.worktreePath,
+      title: "Tabs and worktree rows",
+    },
+  ]);
 });

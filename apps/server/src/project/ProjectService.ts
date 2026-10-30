@@ -27,6 +27,8 @@ import {
   encodeProjectCommandRejection,
   planProjectCommand,
   type ProjectCommand,
+  type ProjectCommandRejection,
+  type ProjectWorktreeTitleChange,
 } from "../orchestration-v2/ProjectCommands.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -46,6 +48,14 @@ export interface ProjectUpdateInput extends ProjectUpdatePayload {
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
+
+export interface ProjectWorktreeTitleInput {
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  readonly change: ProjectWorktreeTitleChange;
+  readonly prunePaths?: ReadonlyArray<string>;
+}
 
 export interface ProjectDeleteInput {
   readonly commandId: CommandId;
@@ -123,6 +133,10 @@ export class ProjectService extends Context.Service<
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
+    /** False when a generated title lost to a newer title change. */
+    readonly updateWorktreeTitle: (
+      input: ProjectWorktreeTitleInput,
+    ) => Effect.Effect<{ readonly applied: boolean }, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
       options?: { readonly includeDeleted?: boolean },
@@ -222,11 +236,16 @@ export const make = Effect.gen(function* () {
         ),
       );
 
-  const commit = Effect.fn("ProjectService.commit")(function* (command: ProjectCommand) {
+  const dispatchError = (projectId: ProjectId, cause: unknown) =>
+    new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
+
+  /** Commits under the project lock; a rejected command returns its rejection. */
+  const commitCommand = Effect.fn("ProjectService.commit")(function* (command: ProjectCommand) {
     const { projectId } = command;
-    const dispatchError = (cause: unknown) =>
-      new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
-    const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
+    const workspaceRoot =
+      command.type === "project.create" || command.type === "project.meta.update"
+        ? command.workspaceRoot
+        : undefined;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
       const workspaceOwner =
@@ -235,12 +254,12 @@ export const make = Effect.gen(function* () {
           : Option.getOrUndefined(
               yield* projects
                 .findActiveByWorkspaceRoot(workspaceRoot)
-                .pipe(Effect.mapError(dispatchError)),
+                .pipe(Effect.mapError((cause) => dispatchError(projectId, cause))),
             );
       const now = yield* DateTime.now;
       const eventId = yield* idAllocator.allocate
         .event({ commandId: command.commandId })
-        .pipe(Effect.mapError(dispatchError));
+        .pipe(Effect.mapError((cause) => dispatchError(projectId, cause)));
       const planned = planProjectCommand({
         command,
         state: { project, workspaceOwner },
@@ -272,30 +291,51 @@ export const make = Effect.gen(function* () {
           ? planAndCommit
           : workspaceLocks.withLock(workspaceRoot, planAndCommit),
       )
-      .pipe(Effect.mapError(dispatchError));
+      .pipe(Effect.mapError((cause) => dispatchError(projectId, cause)));
     if (receipt.projectId !== projectId || receipt.commandType !== command.type) {
       return yield* dispatchError(
+        projectId,
         `Command ${command.commandId} was already used by ${receipt.commandType} for ${receipt.projectId}.`,
       );
     }
     // Retries re-plan against their own effects; the first receipt determines the outcome.
-    if (receipt.status === "accepted") return;
+    if (receipt.status === "accepted") return undefined;
     const rejection = Option.getOrUndefined(decodeProjectCommandRejection(receipt.error));
-    switch (rejection?._tag) {
+    if (rejection === undefined) {
+      return yield* dispatchError(
+        projectId,
+        receipt.error ?? "The command was previously rejected.",
+      );
+    }
+    return rejection;
+  }, withCommandMetrics);
+
+  const rejectionError = (
+    projectId: ProjectId,
+    rejection: ProjectCommandRejection,
+  ): ProjectServiceError => {
+    switch (rejection._tag) {
       case "ProjectWorkspaceConflictError":
-        return yield* new ProjectConflictError({
+        return new ProjectConflictError({
           projectId,
           workspaceRoot: rejection.workspaceRoot,
           conflictingProjectId: rejection.conflictingProjectId,
         });
       case "ProjectCommandMissingProjectError":
-        return yield* new ProjectNotFoundError({ projectId });
+        return new ProjectNotFoundError({ projectId });
       default:
-        return yield* dispatchError(
-          rejection ?? receipt.error ?? "The command was previously rejected.",
-        );
+        return dispatchError(projectId, rejection);
     }
-  }, withCommandMetrics);
+  };
+
+  const commit = (command: ProjectCommand) =>
+    commitCommand(command).pipe(
+      Effect.flatMap((rejection) =>
+        rejection === undefined
+          ? Effect.void
+          : Effect.fail(rejectionError(command.projectId, rejection)),
+      ),
+    );
 
   const readCommitted = Effect.fn("ProjectService.readCommitted")(function* (projectId: ProjectId) {
     const row = yield* readRow(projectId, { includeDeleted: true });
@@ -519,6 +559,22 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const updateWorktreeTitle: ProjectService["Service"]["updateWorktreeTitle"] = Effect.fn(
+    "ProjectService.updateWorktreeTitle",
+  )(function* (input) {
+    const rejection = yield* commitCommand({
+      type: "project.worktree-title.update",
+      commandId: input.commandId,
+      projectId: input.projectId,
+      worktreePath: input.worktreePath,
+      change: input.change,
+      ...(input.prunePaths === undefined ? {} : { prunePaths: input.prunePaths }),
+    });
+    if (rejection === undefined) return { applied: true };
+    if (rejection._tag === "ProjectWorktreeTitleStaleError") return { applied: false };
+    return yield* rejectionError(input.projectId, rejection);
+  });
+
   const enrichShell = (shell: OrchestrationProjectShell) =>
     projectEnrichment.getAvailable(shell.workspaceRoot).pipe(
       Effect.map((enrichment) => ({
@@ -590,6 +646,7 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     delete: deleteProject,
+    updateWorktreeTitle,
     getById,
     getByWorkspaceRoot,
     snapshot,

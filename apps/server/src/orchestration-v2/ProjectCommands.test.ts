@@ -1,5 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, EventId, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  ProjectId,
+  type ProjectScript,
+  type ProjectWorktreeTitle,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
@@ -7,6 +14,7 @@ import {
   planProjectCommand,
   type ProjectCommand,
   type ProjectCommandState,
+  type ProjectWorktreeTitleChange,
 } from "./ProjectCommands.ts";
 import type { ProjectRow } from "./ProjectStore.ts";
 
@@ -23,6 +31,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   faviconPath: null,
   projectIcon: null,
   scripts: [],
+  worktreeTitles: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   deletedAt: null,
@@ -138,5 +147,106 @@ describe("planProjectCommand", () => {
         );
       }
     }
+  });
+
+  describe("worktree titles", () => {
+    const path = "/tmp/scripts/.t3/worktrees/a";
+    const plannedAt = "2026-01-01T00:00:00.000Z";
+    const entry = (overrides: Partial<ProjectWorktreeTitle> = {}): ProjectWorktreeTitle => ({
+      worktreePath: path,
+      generated: "Generated title",
+      manual: null,
+      sourceThreadIds: [ThreadId.make("thread-a")],
+      generatedAt: "2025-12-31T00:00:00.000Z",
+      updatedAt: "2025-12-31T00:00:00.000Z",
+      ...overrides,
+    });
+    const planTitle = (
+      change: ProjectWorktreeTitleChange,
+      titles: ReadonlyArray<ProjectWorktreeTitle>,
+      prunePaths?: ReadonlyArray<string>,
+    ) =>
+      plan(
+        {
+          type: "project.worktree-title.update",
+          commandId: CommandId.make("cmd-worktree-title"),
+          projectId,
+          worktreePath: path,
+          change,
+          ...(prunePaths === undefined ? {} : { prunePaths }),
+        },
+        { project: row({ worktreeTitles: titles, updatedAt: "2025-06-01T00:00:00.000Z" }) },
+      );
+    const titlesOf = (result: ReturnType<typeof plan>) =>
+      payloadOf(result).worktreeTitles as ReadonlyArray<ProjectWorktreeTitle>;
+    const generated = (
+      overrides: Partial<Extract<ProjectWorktreeTitleChange, { type: "generated" }>> = {},
+    ): ProjectWorktreeTitleChange => ({
+      type: "generated",
+      title: "New title",
+      sourceThreadIds: [ThreadId.make("thread-b")],
+      basis: entry().updatedAt,
+      replaceManual: false,
+      ...overrides,
+    });
+
+    it("keeps the generated title under a manual one and restores it when cleared", () => {
+      const renamed = titlesOf(planTitle({ type: "manual", title: "Mine" }, [entry()]));
+      assert.deepEqual(renamed, [entry({ manual: "Mine", updatedAt: plannedAt })]);
+      const cleared = titlesOf(planTitle({ type: "manual", title: null }, renamed));
+      assert.deepEqual(cleared, [entry({ updatedAt: plannedAt })]);
+      // Clearing a title nothing generated leaves no entry behind.
+      assert.deepEqual(
+        titlesOf(planTitle({ type: "manual", title: null }, [entry({ generated: null })])),
+        [],
+      );
+    });
+
+    it("drops a generated title that raced a newer change", () => {
+      for (const [change, titles] of [
+        [generated({ basis: "2025-01-01T00:00:00.000Z" }), [entry()]],
+        [generated({ basis: null }), [entry()]],
+        [generated(), [entry({ manual: "Mine" })]],
+      ] as const) {
+        assert.equal(failureOf(planTitle(change, titles))._tag, "ProjectWorktreeTitleStaleError");
+      }
+      assert.deepEqual(titlesOf(planTitle(generated({ basis: null }), [])), [
+        entry({
+          generated: "New title",
+          sourceThreadIds: [ThreadId.make("thread-b")],
+          generatedAt: plannedAt,
+          updatedAt: plannedAt,
+        }),
+      ]);
+    });
+
+    it("lets an explicit regenerate replace a manual title", () => {
+      assert.deepEqual(
+        titlesOf(planTitle(generated({ replaceManual: true }), [entry({ manual: "Mine" })])),
+        [
+          entry({
+            generated: "New title",
+            sourceThreadIds: [ThreadId.make("thread-b")],
+            generatedAt: plannedAt,
+            updatedAt: plannedAt,
+          }),
+        ],
+      );
+    });
+
+    it("prunes other worktrees and leaves the project's recency alone", () => {
+      const gone = entry({ worktreePath: "/tmp/scripts/.t3/worktrees/gone" });
+      const kept = entry({ worktreePath: "/tmp/scripts/.t3/worktrees/kept" });
+      const result = planTitle(
+        { type: "manual", title: "Mine" },
+        [gone, kept, entry()],
+        [gone.worktreePath, path],
+      );
+      assert.deepEqual(
+        titlesOf(result).map((title) => title.worktreePath),
+        [kept.worktreePath, path],
+      );
+      assert.equal(payloadOf(result).updatedAt, "2025-06-01T00:00:00.000Z");
+    });
   });
 });

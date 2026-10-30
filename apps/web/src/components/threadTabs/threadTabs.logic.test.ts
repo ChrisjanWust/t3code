@@ -289,6 +289,24 @@ describe("resolveWorktreeStatusThread", () => {
 });
 
 describe("worktreeLabel", () => {
+  it("prefers a manual title, then a generated one, over the branch", () => {
+    const titles = (manual: string | null, generated: string | null) => [
+      {
+        worktreePath: "/repo/.t3/worktrees/feature",
+        manual,
+        generated,
+        sourceThreadIds: [],
+        generatedAt: null,
+        updatedAt: "2026-10-26T10:00:00.000Z",
+      },
+    ];
+    expect(worktreeLabel(thread("a"), titles("Mine", "Generated"))).toBe("Mine");
+    expect(worktreeLabel(thread("a"), titles(null, "Generated"))).toBe("Generated");
+    expect(worktreeLabel(thread("a", { worktreePath: "/other" }), titles("Mine", null))).toBe(
+      "feature",
+    );
+  });
+
   it("names a worktree by its branch, then its folder", () => {
     expect(worktreeLabel(thread("a"))).toBe("feature");
     expect(worktreeLabel(thread("a", { branch: null }))).toBe("feature");

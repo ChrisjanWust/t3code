@@ -72,6 +72,24 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface WorktreeTitleThread {
+  readonly title: string;
+  /** The user's own messages, oldest first. */
+  readonly requests: ReadonlyArray<string>;
+}
+
+export interface WorktreeTitleGenerationInput {
+  cwd: string;
+  /** Newest first. */
+  threads: ReadonlyArray<WorktreeTitleThread>;
+  previousTitle?: string | undefined;
+  modelSelection: ModelSelection;
+}
+
+export interface WorktreeTitleGenerationResult {
+  title: string;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -113,6 +131,10 @@ export interface ProviderTextGeneration {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  readonly generateWorktreeTitle: (
+    input: WorktreeTitleGenerationInput,
+  ) => Effect.Effect<WorktreeTitleGenerationResult, TextGenerationError>;
 
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,

@@ -1,3 +1,4 @@
+import type { ProjectWorktreeTitle } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 
 import type { SidebarThreadSummary } from "../../types";
@@ -224,9 +225,23 @@ export function resolveWorktreeStatusThread<
   return best;
 }
 
+export function findWorktreeTitle(
+  worktreeTitles: ReadonlyArray<ProjectWorktreeTitle> | undefined,
+  worktreePath: string | null,
+): ProjectWorktreeTitle | undefined {
+  return worktreePath === null
+    ? undefined
+    : worktreeTitles?.find((entry) => entry.worktreePath === worktreePath);
+}
+
+/** The worktree's own title; the branch stands in until one is generated. */
 export function worktreeLabel(
   thread: Pick<SidebarThreadSummary, "branch" | "worktreePath" | "title" | "creatingWorktree">,
+  worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>,
 ): string {
+  const titled = findWorktreeTitle(worktreeTitles, thread.worktreePath);
+  const title = titled?.manual ?? titled?.generated;
+  if (title) return title;
   if (thread.branch) return thread.branch;
   if (thread.worktreePath === null) return thread.creatingWorktree ? "New worktree" : thread.title;
   return thread.worktreePath.split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "Worktree";

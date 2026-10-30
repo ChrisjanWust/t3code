@@ -613,6 +613,7 @@ type SidebarThreadRowProps = {
 
 // Mounted only while renaming, so each rename starts uncommitted.
 function ThreadRenameInput(props: {
+  label: string;
   title: string;
   onTitleChange: (title: string) => void;
   onCommit: () => void;
@@ -638,7 +639,7 @@ function ThreadRenameInput(props: {
       autoFocus
       value={props.title}
       dir="auto"
-      aria-label="Thread title"
+      aria-label={props.label}
       onChange={(event) => props.onTitleChange(event.target.value)}
       onFocus={(event) => event.currentTarget.select()}
       onKeyDown={handleKeyDown}
@@ -878,7 +879,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
     ) {
       event.preventDefault();
-      onStartRename(threadRef, thread.title);
+      onStartRename(threadRef, props.worktreeLabel ?? thread.title);
       return;
     }
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1044,9 +1045,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const title = isRenaming ? (
     <ThreadRenameInput
+      label={isWorktreeRow ? "Worktree title" : "Thread title"}
       title={renamingTitle}
       onTitleChange={onRenameTitleChange}
-      onCommit={() => onCommitRename(threadRef, renamingTitle, thread.title)}
+      onCommit={() => onCommitRename(threadRef, renamingTitle, displayTitle)}
       onCancel={onCancelRename}
     />
   ) : (
