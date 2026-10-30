@@ -1,9 +1,13 @@
 import { type ProjectMutation } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
-import { type ProjectService } from "./ProjectService.ts";
+import { ProjectNotFoundError, type ProjectService } from "./ProjectService.ts";
 
-type ProjectMutations = Pick<ProjectService["Service"], "create" | "delete" | "update">;
+type ProjectMutations = Pick<
+  ProjectService["Service"],
+  "create" | "delete" | "update" | "updateWorktreeTitle" | "getById"
+>;
 
 export const projectMutationOperation = Effect.fn("projectMutationOperation")(function* (
   projects: ProjectMutations,
@@ -49,5 +53,19 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
         projectId: mutation.projectId,
         ...(mutation.force === undefined ? {} : { force: mutation.force }),
       });
+
+    case "project.worktree-title.set": {
+      yield* projects.updateWorktreeTitle({
+        commandId: mutation.commandId,
+        projectId: mutation.projectId,
+        worktreePath: mutation.worktreePath,
+        change: { type: "manual", title: mutation.title },
+      });
+      const project = yield* projects.getById(mutation.projectId);
+      if (Option.isNone(project)) {
+        return yield* new ProjectNotFoundError({ projectId: mutation.projectId });
+      }
+      return project.value;
+    }
   }
 });

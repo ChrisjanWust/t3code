@@ -54,6 +54,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
+  PROJECT_WORKTREE_TITLE_MAX_LENGTH,
   ProjectId,
   type ScopedThreadRef,
   type ThreadId,
@@ -130,6 +131,7 @@ import {
 import {
   collapseToWorktreeRows,
   draftWorktreeKey,
+  findWorktreeTitle,
   isOpenTab,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
@@ -156,7 +158,7 @@ import {
 } from "../state/entities";
 import { environmentPresentations } from "../state/presentation";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { environmentProjects } from "../state/projects";
+import { environmentProjects, projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../state/olderSettledShelf";
 import { useThreadSearch } from "../state/queries";
@@ -942,6 +944,19 @@ function readRouteThreadKey(router: AnyRouter): string | null {
   return ref === null ? null : scopedThreadKey(ref);
 }
 
+/** A worktree row titles its worktree, which only a row with a path can hold. */
+function worktreeRowTitleTarget(
+  thread: EnvironmentThreadShell | undefined,
+  isWorktreeRow: boolean,
+) {
+  if (!isWorktreeRow || !thread?.worktreePath) return null;
+  return {
+    environmentId: thread.environmentId,
+    projectId: thread.projectId,
+    worktreePath: thread.worktreePath,
+  };
+}
+
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const {
     projects,
@@ -985,6 +1000,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const setWorktreeTitle = useOrchestrationCommand(projectEnvironment.setWorktreeTitle, {
+    reportFailure: false,
+  });
+  const regenerateWorktreeTitle = useOrchestrationCommand(
+    projectEnvironment.regenerateWorktreeTitle,
+    { reportFailure: false },
+  );
+  // Read only when a row menu opens, so a ref is enough.
+  const regeneratingWorktreeKeysRef = useRef(new Set<string>());
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -1588,11 +1612,51 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setRenamingTitle(title);
   };
   const cancelThreadRename = () => setRenamingThreadRef(null);
+  const worktreeTitleTarget = (threadRef: ScopedThreadRef) => {
+    const threadKey = scopedThreadKey(threadRef);
+    return worktreeRowTitleTarget(
+      threadByKeyRef.current.get(threadKey),
+      worktreeMembersRef.current.has(threadKey),
+    );
+  };
+  const commitWorktreeTitle = async (
+    target: NonNullable<ReturnType<typeof worktreeTitleTarget>>,
+    title: string | null,
+  ) => {
+    const result = await setWorktreeTitle({
+      environmentId: target.environmentId,
+      input: { projectId: target.projectId, worktreePath: target.worktreePath, title },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to rename worktree",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  };
   const commitThreadRename = (threadRef: ScopedThreadRef, title: string, originalTitle: string) => {
     void (async () => {
       if (!readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)) return;
       const trimmed = title.trim();
       setRenamingThreadRef(null);
+      const worktree = worktreeTitleTarget(threadRef);
+      if (worktree) {
+        if (trimmed === originalTitle) return;
+        if (trimmed.length > PROJECT_WORKTREE_TITLE_MAX_LENGTH) {
+          toastManager.add({
+            type: "warning",
+            title: `Worktree titles can be at most ${PROJECT_WORKTREE_TITLE_MAX_LENGTH} characters`,
+          });
+          return;
+        }
+        // Clearing the name goes back to the generated title.
+        await commitWorktreeTitle(worktree, trimmed.length === 0 ? null : trimmed);
+        return;
+      }
       if (trimmed.length === 0) {
         toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
         return;
@@ -2639,7 +2703,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const thread = threadByKeyRef.current.get(threadKey);
         if (!thread) return;
         const worktreeMembers = worktreeMembersRef.current.get(threadKey);
-        const worktreeName = `${worktreeMembers?.length ?? 1} threads in "${worktreeLabel(thread)}"`;
+        const worktreeTitles = projectByKey.get(
+          `${thread.environmentId}:${thread.projectId}`,
+        )?.worktreeTitles;
+        const worktreeTarget = worktreeRowTitleTarget(thread, worktreeMembers !== undefined);
+        const worktreeTitleKey = worktreeTarget === null ? null : JSON.stringify(worktreeTarget);
+        const worktreeName = `${worktreeMembers?.length ?? 1} threads in "${worktreeLabel(thread, worktreeTitles)}"`;
         const threadWorkspacePath =
           thread.worktreePath ??
           projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
@@ -2648,7 +2717,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
-        const isRegeneratingTitle = thread.titleRegeneration != null;
+        const isRegeneratingTitle =
+          worktreeMembers === undefined
+            ? thread.titleRegeneration != null
+            : worktreeTitleKey !== null &&
+              regeneratingWorktreeKeysRef.current.has(worktreeTitleKey);
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
@@ -2701,6 +2774,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               snoozePresets,
               scope: worktreeMembers === undefined ? "thread" : "worktree",
               creatingWorktree: thread.worktreePath === null && thread.creatingWorktree === true,
+              worktreeTitle:
+                worktreeTarget === null
+                  ? null
+                  : {
+                      isManual:
+                        findWorktreeTitle(worktreeTitles, thread.worktreePath)?.manual != null,
+                    },
             }),
             position,
           ),
@@ -2792,12 +2872,42 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           }
           case "rename":
+            if (worktreeMembers !== undefined) {
+              startThreadRename(threadRef, worktreeLabel(thread, worktreeTitles));
+              return;
+            }
             startThreadRename(threadRef, thread.title);
             return;
           case "share-guest":
             openGuestShareDialog(threadRef);
             return;
+          case "reset-title":
+            if (worktreeTarget) await commitWorktreeTitle(worktreeTarget, null);
+            return;
           case "regenerate-title": {
+            if (worktreeMembers !== undefined) {
+              if (worktreeTarget === null || worktreeTitleKey === null) return;
+              if (regeneratingWorktreeKeysRef.current.has(worktreeTitleKey)) return;
+              regeneratingWorktreeKeysRef.current.add(worktreeTitleKey);
+              const result = await regenerateWorktreeTitle({
+                environmentId: worktreeTarget.environmentId,
+                input: {
+                  projectId: worktreeTarget.projectId,
+                  worktreePath: worktreeTarget.worktreePath,
+                },
+              }).finally(() => regeneratingWorktreeKeysRef.current.delete(worktreeTitleKey));
+              if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                const error = squashAtomCommandFailure(result);
+                toastManager.add(
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Failed to regenerate worktree title",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                  }),
+                );
+              }
+              return;
+            }
             if (isRegeneratingTitle) return;
             const result = await updateThreadMetadata({
               environmentId: threadRef.environmentId,
@@ -3330,7 +3440,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           worktreeMembers === undefined
                             ? {}
                             : {
-                                worktreeLabel: worktreeLabel(thread),
+                                worktreeLabel: worktreeLabel(
+                                  thread,
+                                  projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
+                                    ?.worktreeTitles,
+                                ),
                                 worktreeTabCount: worktreeOpenTabs.length,
                                 worktreeStatusThreadId:
                                   resolveWorktreeStatusThread(worktreeOpenTabs, (member) =>

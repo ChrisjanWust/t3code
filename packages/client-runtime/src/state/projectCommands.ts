@@ -26,7 +26,12 @@ import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
 } from "./runtime.ts";
-import { createProject, deleteProject, updateProject } from "../operations/commands.ts";
+import {
+  createProject,
+  deleteProject,
+  setWorktreeTitle,
+  updateProject,
+} from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createFileMetadataAtoms } from "./fileMetadata.ts";
 import { resolveWorkspaceFilePath } from "@t3tools/shared/path";
@@ -34,6 +39,7 @@ import { resolveWorkspaceFilePath } from "@t3tools/shared/path";
 export type {
   CreateProjectInput,
   DeleteProjectInput,
+  SetWorktreeTitleInput,
   UpdateProjectInput,
 } from "../operations/commands.ts";
 
@@ -166,6 +172,16 @@ export function createProjectEnvironmentAtoms<R, E>(
       execute: deleteProject,
       scheduler: projectScheduler,
       concurrency: projectConcurrency,
+    }),
+    setWorktreeTitle: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:project:set-worktree-title",
+      execute: setWorktreeTitle,
+      scheduler: projectScheduler,
+      concurrency: projectConcurrency,
+    }),
+    regenerateWorktreeTitle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:regenerate-worktree-title",
+      tag: WS_METHODS.projectsRegenerateWorktreeTitle,
     }),
     // Finds or creates the environment's Scratch project and resolves once the
     // project is in the client store, since drafts key off its stored path.

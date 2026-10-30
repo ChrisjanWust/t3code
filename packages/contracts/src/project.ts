@@ -10,6 +10,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
   type UnknownUnionMember,
@@ -193,6 +194,24 @@ export const ProjectUpdatePayload = Schema.Struct({
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 
+export const PROJECT_WORKTREE_TITLE_MAX_LENGTH = 80;
+
+/** Worktrees are not records, so their project keeps each one's sidebar title by path. */
+export const ProjectWorktreeTitle = Schema.Struct({
+  worktreePath: TrimmedNonEmptyString,
+  /** Refreshed in the background while no manual title is set. */
+  generated: Schema.NullOr(TrimmedNonEmptyString),
+  manual: Schema.NullOr(TrimmedNonEmptyString),
+  /** The threads `generated` was written from; a different set makes it due a refresh. */
+  sourceThreadIds: Schema.Array(ThreadId),
+  updatedAt: IsoDateTime,
+});
+export type ProjectWorktreeTitle = typeof ProjectWorktreeTitle.Type;
+
+export const ProjectWorktreeTitleText = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_WORKTREE_TITLE_MAX_LENGTH),
+);
+
 export const ProjectMutation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("project.create"),
@@ -212,8 +231,30 @@ export const ProjectMutation = Schema.Union([
     projectId: ProjectId,
     force: Schema.optional(Schema.Boolean),
   }),
+  Schema.Struct({
+    type: Schema.Literal("project.worktree-title.set"),
+    commandId: CommandId,
+    projectId: ProjectId,
+    worktreePath: TrimmedNonEmptyString,
+    /** Null clears the manual title, which brings back the generated one. */
+    title: Schema.NullOr(ProjectWorktreeTitleText),
+  }),
 ]);
 export type ProjectMutation = typeof ProjectMutation.Type;
+
+export const ProjectRegenerateWorktreeTitleInput = Schema.Struct({
+  projectId: ProjectId,
+  worktreePath: TrimmedNonEmptyString,
+});
+export type ProjectRegenerateWorktreeTitleInput = typeof ProjectRegenerateWorktreeTitleInput.Type;
+
+export class ProjectRegenerateWorktreeTitleError extends Schema.TaggedError<ProjectRegenerateWorktreeTitleError>()(
+  "ProjectRegenerateWorktreeTitleError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
 
 export class ProjectMutationError extends Schema.TaggedError<ProjectMutationError>()(
   "ProjectMutationError",

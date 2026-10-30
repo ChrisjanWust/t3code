@@ -6,8 +6,10 @@ import {
   type ProjectIconOverride,
   ProjectId,
   type ProjectScript,
+  type ProjectWorktreeTitle,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -45,7 +47,32 @@ export interface ProjectDeleteCommand {
   readonly projectId: ProjectId;
 }
 
-export type ProjectCommand = ProjectCreateCommand | ProjectMetaUpdateCommand | ProjectDeleteCommand;
+export type ProjectWorktreeTitleChange =
+  | { readonly type: "manual"; readonly title: string | null }
+  | {
+      readonly type: "generated";
+      readonly title: string;
+      readonly sourceThreadIds: ReadonlyArray<ThreadId>;
+      /** Only an explicit regenerate replaces a manual title. */
+      readonly replaceManual: boolean;
+    };
+
+export interface ProjectWorktreeTitleUpdateCommand {
+  readonly type: "project.worktree-title.update";
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  readonly change: ProjectWorktreeTitleChange;
+}
+
+// Every project event and shell carries the whole list, so it stays bounded.
+const MAX_WORKTREE_TITLES = 100;
+
+export type ProjectCommand =
+  | ProjectCreateCommand
+  | ProjectMetaUpdateCommand
+  | ProjectDeleteCommand
+  | ProjectWorktreeTitleUpdateCommand;
 
 export class ProjectCommandInvariantError extends Schema.TaggedError<ProjectCommandInvariantError>()(
   "ProjectCommandInvariantError",
@@ -209,6 +236,43 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           updatedAt: occurredAt,
+        },
+      });
+    }
+
+    case "project.worktree-title.update": {
+      const project = activeProject;
+      if (project === undefined) return missingProject();
+      const existing = project.worktreeTitles.find(
+        (entry) => entry.worktreePath === command.worktreePath,
+      );
+      const { change } = command;
+      const next: ProjectWorktreeTitle = {
+        worktreePath: command.worktreePath,
+        generated: change.type === "generated" ? change.title : (existing?.generated ?? null),
+        manual:
+          change.type === "manual"
+            ? change.title
+            : change.replaceManual
+              ? null
+              : (existing?.manual ?? null),
+        sourceThreadIds:
+          change.type === "generated" ? change.sourceThreadIds : (existing?.sourceThreadIds ?? []),
+        updatedAt: occurredAt,
+      };
+      return Result.succeed({
+        ...base,
+        type: "project.meta-updated",
+        payload: {
+          projectId: command.projectId,
+          worktreeTitles: [
+            ...project.worktreeTitles.filter((entry) => entry !== existing),
+            ...(next.manual === null && next.generated === null ? [] : [next]),
+          ]
+            .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .slice(0, MAX_WORKTREE_TITLES),
+          // A title is not a project edit, so the project keeps its place in recency order.
+          updatedAt: project.updatedAt,
         },
       });
     }
