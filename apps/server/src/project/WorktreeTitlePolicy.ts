@@ -1,8 +1,10 @@
 import type {
   OrchestrationV2ConversationMessage,
+  OrchestrationV2Run,
   ProjectWorktreeTitle,
   ThreadId,
 } from "@t3tools/contracts";
+import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 const WORKTREE_TITLE_WINDOW_SIZE = 3;
@@ -71,21 +73,21 @@ export function isWorktreeTitleRefreshDue(input: {
 }
 
 export interface WorktreeTitleExcerpt {
-  readonly from: "user" | "agent";
+  readonly from: "user" | "assistant";
   readonly text: string;
 }
 
 const flatten = (text: string) =>
-  text
-    .replace(/\[([^\]]*)\]\([^)\s]*\)/g, "$1")
+  assistantCitationsToPlainText(text)
+    .replace(/\[([^[\]]*)\]\([^)\s]*\)/g, "$1")
     .replace(/[|*`]|-{3,}/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
 /**
- * A thread's first and latest two user requests, plus the agent's first and latest turn-final
+ * A thread's first and latest two user requests, plus the assistant's first and latest final
  * replies, which say what a vague request or link was about. Tool output and delegated or
- * scheduled messages are left out.
+ * scheduled prompts are left out.
  */
 export function worktreeTitleExcerpts(
   messages: ReadonlyArray<
@@ -94,19 +96,30 @@ export function worktreeTitleExcerpts(
       "role" | "createdBy" | "scheduledTaskId" | "streaming" | "text" | "runId"
     >
   >,
+  runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "status">>,
 ): ReadonlyArray<WorktreeTitleExcerpt> {
+  // A finished run's last reply is its answer; unfinished runs end on a progress note.
+  const finishedRuns = new Set(
+    runs.filter((run) => run.status === "completed").map((run) => run.id),
+  );
   const requests: Array<number> = [];
   const finalReplyByRun = new Map<string, number>();
   for (const [index, message] of messages.entries()) {
-    if (message.streaming || flatten(message.text) === "") continue;
-    if (
-      message.role === "user" &&
-      message.createdBy === "user" &&
-      message.scheduledTaskId === undefined &&
-      message.text.trim() !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+    const text = message.text.trim();
+    if (message.streaming || text === "") continue;
+    if (message.role === "user") {
+      if (
+        message.createdBy === "user" &&
+        message.scheduledTaskId === undefined &&
+        text !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+      ) {
+        requests.push(index);
+      }
+    } else if (
+      message.role === "assistant" &&
+      message.runId !== null &&
+      finishedRuns.has(message.runId)
     ) {
-      requests.push(index);
-    } else if (message.role === "assistant" && message.runId !== null) {
       finalReplyByRun.set(message.runId, index);
     }
   }
@@ -120,9 +133,10 @@ export function worktreeTitleExcerpts(
   return [...picked]
     .toSorted((a, b) => a - b)
     .map((index) => ({
-      from: messages[index]!.role === "user" ? "user" : "agent",
+      from: messages[index]!.role === "user" ? ("user" as const) : ("assistant" as const),
       text: flatten(messages[index]!.text),
-    }));
+    }))
+    .filter((excerpt) => excerpt.text !== "");
 }
 
 function clip(text: string, max: number): string {
@@ -144,7 +158,7 @@ export function formatWorktreeTitleContext(
       lines.push(
         excerpt.from === "user"
           ? `User: ${clip(excerpt.text, WORKTREE_TITLE_MAX_REQUEST)}`
-          : `Agent: ${clip(excerpt.text, WORKTREE_TITLE_MAX_REPLY)}`,
+          : `Assistant: ${clip(excerpt.text, WORKTREE_TITLE_MAX_REPLY)}`,
       );
     }
   }

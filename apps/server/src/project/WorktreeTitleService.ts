@@ -33,7 +33,7 @@ import {
 } from "./WorktreeTitlePolicy.ts";
 
 const WORKTREE_TITLE_INSTRUCTIONS =
-  "The text is excerpts from the most recent threads in one worktree, newest thread first: the user's requests and the agent's replies. Title the work they share in 3-9 words; when they differ, favor the newest thread. The agent's replies say what vague requests and links were about.";
+  "The text is excerpts from the most recent threads in one worktree, newest thread first: the user's requests and the assistant's replies. Title the work they share in 3-9 words; when they differ, favor the newest thread. The assistant's replies say what vague requests and links were about.";
 const WORKTREE_TITLE_MAX_LENGTH = 80;
 
 export class WorktreeTitleService extends Context.Service<
@@ -68,10 +68,10 @@ const make = Effect.gen(function* () {
   const lastAttemptAt = new Map<string, number>();
 
   const excerpts = Effect.fn("WorktreeTitleService.excerpts")(function* (threadId: ThreadId) {
-    const { messages } = yield* projections.getThreadRecords(threadId, ["messages"], {
+    const { messages, runs } = yield* projections.getThreadRecords(threadId, ["messages", "runs"], {
       messageRoles: ["user", "assistant"],
     });
-    return worktreeTitleExcerpts(messages);
+    return worktreeTitleExcerpts(messages, runs);
   });
 
   const generate = Effect.fn("WorktreeTitleService.generate")(function* (input: {
@@ -212,15 +212,15 @@ const make = Effect.gen(function* () {
     return result.value;
   });
 
-  // A run starting is the cheap signal that the user just wrote in a thread.
-  const isRunStart = (event: OrchestrationV2DomainEvent) =>
-    event.type === "run.updated" && event.payload.status === "running";
+  // Waits for a run to finish so even the first title can read the assistant's reply.
+  const isRunCompletion = (event: OrchestrationV2DomainEvent) =>
+    event.type === "run.updated" && event.payload.status === "completed";
 
   const start: WorktreeTitleService["Service"]["start"] = () =>
     forkParked(
       Stream.runForEach(engine.streamDomainEvents, (event) =>
         // Generation takes seconds; do not hold up the event stream behind it.
-        isRunStart(event) ? Effect.forkScoped(refresh(event.threadId)) : Effect.void,
+        isRunCompletion(event) ? Effect.forkScoped(refresh(event.threadId)) : Effect.void,
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Worktree title event stream failed", { cause }),
