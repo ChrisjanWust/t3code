@@ -25,10 +25,16 @@ import { forkParked } from "../serverActivation.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProjectService from "./ProjectService.ts";
 import {
+  formatWorktreeTitleContext,
   isWorktreeTitleRefreshDue,
   selectWorktreeTitleWindow,
+  WORKTREE_TITLE_COOLDOWN_MS,
   worktreeTitleRequests,
 } from "./WorktreeTitlePolicy.ts";
+
+const WORKTREE_TITLE_INSTRUCTIONS =
+  "The text is the user's own messages from the most recent threads in one worktree, newest thread first. Title the work they share in 3-9 words; when they differ, favor the newest thread.";
+const WORKTREE_TITLE_MAX_LENGTH = 80;
 
 export class WorktreeTitleService extends Context.Service<
   WorktreeTitleService,
@@ -45,6 +51,9 @@ export class WorktreeTitleService extends Context.Service<
 
 type Mode = "refresh" | "regenerate";
 
+const keyOf = (key: { readonly projectId: ProjectId; readonly worktreePath: string }) =>
+  JSON.stringify([key.projectId, key.worktreePath]);
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const engine = yield* Orchestrator.OrchestratorV2;
@@ -55,6 +64,8 @@ const make = Effect.gen(function* () {
   const textGeneration = yield* TextGeneration.TextGeneration;
   // One generation per worktree at a time; overlapping triggers would only race to the same write.
   const inFlight = new Set<string>();
+  // Failed or empty generations write nothing, so the cooldown alone would retry them on every run.
+  const lastAttemptAt = new Map<string, number>();
 
   const userRequests = Effect.fn("WorktreeTitleService.userRequests")(function* (
     threadId: ThreadId,
@@ -93,7 +104,12 @@ const make = Effect.gen(function* () {
         })),
     );
     const now = DateTime.toEpochMillis(yield* DateTime.now);
-    if (input.mode === "refresh" && !isWorktreeTitleRefreshDue({ entry, window, now })) {
+    const key = keyOf(input);
+    if (
+      input.mode === "refresh" &&
+      (!isWorktreeTitleRefreshDue({ entry, window, now }) ||
+        now - (lastAttemptAt.get(key) ?? -Infinity) < WORKTREE_TITLE_COOLDOWN_MS)
+    ) {
       return entry ?? null;
     }
     if (window.length === 0) return entry ?? null;
@@ -106,22 +122,22 @@ const make = Effect.gen(function* () {
       yield* serverSettings.getSettings,
       input.projectId,
     ).settings;
-    const { title } = yield* textGeneration.generateWorktreeTitle({
+    lastAttemptAt.set(key, now);
+    const generated = yield* textGeneration.generateThreadTitle({
       cwd: input.worktreePath,
-      threads: sources,
+      message: formatWorktreeTitleContext(sources),
       ...(input.mode === "refresh" && entry?.generated != null
         ? { previousTitle: entry.generated }
         : {}),
+      instructions: WORKTREE_TITLE_INSTRUCTIONS,
+      // Worktree context mixes several threads, so their links say little about the shared work.
+      linkedContext: "",
       modelSelection: settings.textGenerationModelSelection,
     });
+    const title = generated.title.trim().slice(0, WORKTREE_TITLE_MAX_LENGTH).trim();
     if (title.length === 0) return entry ?? null;
 
-    const livePaths = new Set(
-      (yield* projections.getThreadWorktreePaths({ includeArchived: true })).map(
-        (thread) => thread.worktreePath,
-      ),
-    );
-    const { applied } = yield* projects.updateWorktreeTitle({
+    yield* projects.updateWorktreeTitle({
       commandId: CommandId.make(`server:worktree-title:${yield* crypto.randomUUIDv4()}`),
       projectId: input.projectId,
       worktreePath: input.worktreePath,
@@ -129,14 +145,9 @@ const make = Effect.gen(function* () {
         type: "generated",
         title,
         sourceThreadIds: window.map((thread) => thread.id),
-        basis: entry?.updatedAt ?? null,
         replaceManual: input.mode === "regenerate",
       },
-      prunePaths: row.value.worktreeTitles
-        .map((candidate) => candidate.worktreePath)
-        .filter((path) => !livePaths.has(path)),
     });
-    if (!applied) return entry ?? null;
     const updated = yield* projectStore.get(input.projectId);
     return Option.isNone(updated)
       ? null
@@ -149,7 +160,7 @@ const make = Effect.gen(function* () {
     key: { readonly projectId: ProjectId; readonly worktreePath: string },
     effect: Effect.Effect<A, E, R>,
   ): Effect.Effect<Option.Option<A>, E, R> => {
-    const id = JSON.stringify([key.projectId, key.worktreePath]);
+    const id = keyOf(key);
     return Effect.suspend(() => {
       if (inFlight.has(id)) return Effect.succeedNone;
       inFlight.add(id);

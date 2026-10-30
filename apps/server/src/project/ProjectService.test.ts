@@ -224,13 +224,12 @@ it.layer(layerTest)("ProjectService", (it) => {
 
       yield* TestClock.adjust("1 minute");
       const worktreePath = "/work/project/.t3/worktrees/pairing";
-      const titled = yield* service.updateWorktreeTitle({
+      yield* service.updateWorktreeTitle({
         commandId: CommandId.make("command:project:worktree-title"),
         projectId,
         worktreePath,
         change: { type: "manual", title: "Pairing expiry" },
       });
-      assert.isTrue(titled.applied);
       const titledShell = Option.getOrThrow(yield* service.getShell(projectId));
       assert.deepEqual(
         titledShell.worktreeTitles?.map((title) => [title.worktreePath, title.manual]),

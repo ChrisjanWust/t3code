@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type ProjectWorktreeTitle, ThreadId } from "@t3tools/contracts";
+import { type ProjectWorktreeTitle, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import * as DateTime from "effect/DateTime";
 
@@ -26,11 +26,10 @@ const minutesAgoIso = (minutes: number) =>
 
 const entry = (
   overrides: Partial<ProjectWorktreeTitle> = {},
-): Pick<ProjectWorktreeTitle, "generated" | "manual" | "sourceThreadIds" | "generatedAt"> => ({
-  generated: "Current title",
+): Pick<ProjectWorktreeTitle, "manual" | "sourceThreadIds" | "updatedAt"> => ({
   manual: null,
   sourceThreadIds: [a],
-  generatedAt: minutesAgoIso(60),
+  updatedAt: minutesAgoIso(60),
   ...overrides,
 });
 
@@ -90,7 +89,7 @@ describe("isWorktreeTitleRefreshDue", () => {
     },
     {
       name: "the cooldown holds even when the earlier threads are quiet",
-      entry: entry({ generatedAt: minutesAgoIso(10) }),
+      entry: entry({ updatedAt: minutesAgoIso(10) }),
       window: [thread(b, 0), thread(a, 25)],
       due: false,
     },
@@ -116,6 +115,7 @@ describe("worktreeTitleRequests", () => {
       overrides: Partial<{
         role: "user" | "assistant" | "system";
         createdBy: "user" | "agent" | "system";
+        scheduledTaskId: ScheduledTaskId;
         streaming: boolean;
       }> = {},
     ) => ({ text, role: "user", createdBy: "user", streaming: false, ...overrides }) as const;
@@ -125,6 +125,9 @@ describe("worktreeTitleRequests", () => {
         message("Tool output and replies", { role: "assistant" }),
         message("A delegated task's brief", { createdBy: "agent" }),
         message("A scheduled wake", { createdBy: "system" }),
+        message("A scheduled task's prompt", {
+          scheduledTaskId: ScheduledTaskId.make("scheduled-task"),
+        }),
         message(ATTACHMENT_ONLY_BOOTSTRAP_PROMPT),
         message("Keep remote access working"),
       ]),

@@ -306,7 +306,6 @@ it("names a worktree row by its title, and F2 renames the worktree", async () =>
         generated: "Thread tab layout",
         manual: null,
         sourceThreadIds: [],
-        generatedAt: null,
         updatedAt: "2026-03-17T19:12:28.000Z",
       },
     ],

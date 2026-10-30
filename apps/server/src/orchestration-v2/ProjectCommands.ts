@@ -53,8 +53,6 @@ export type ProjectWorktreeTitleChange =
       readonly type: "generated";
       readonly title: string;
       readonly sourceThreadIds: ReadonlyArray<ThreadId>;
-      /** The entry's `updatedAt` when generation started; any change since makes this stale. */
-      readonly basis: string | null;
       /** Only an explicit regenerate replaces a manual title. */
       readonly replaceManual: boolean;
     };
@@ -65,9 +63,10 @@ export interface ProjectWorktreeTitleUpdateCommand {
   readonly projectId: ProjectId;
   readonly worktreePath: string;
   readonly change: ProjectWorktreeTitleChange;
-  /** Worktrees no thread references anymore. */
-  readonly prunePaths?: ReadonlyArray<string>;
 }
+
+// Every project event and shell carries the whole list, so it stays bounded.
+const MAX_WORKTREE_TITLES = 100;
 
 export type ProjectCommand =
   | ProjectCreateCommand
@@ -111,23 +110,10 @@ export class ProjectWorkspaceConflictError extends Schema.TaggedError<ProjectWor
   }
 }
 
-export class ProjectWorktreeTitleStaleError extends Schema.TaggedError<ProjectWorktreeTitleStaleError>()(
-  "ProjectWorktreeTitleStaleError",
-  {
-    projectId: ProjectId,
-    worktreePath: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `The title of worktree '${this.worktreePath}' changed while a new one was generated.`;
-  }
-}
-
 export const ProjectCommandRejection = Schema.Union([
   ProjectCommandInvariantError,
   ProjectCommandMissingProjectError,
   ProjectWorkspaceConflictError,
-  ProjectWorktreeTitleStaleError,
 ]);
 export type ProjectCommandRejection = typeof ProjectCommandRejection.Type;
 
@@ -261,52 +247,30 @@ export function planProjectCommand(input: {
         (entry) => entry.worktreePath === command.worktreePath,
       );
       const { change } = command;
-      let next: ProjectWorktreeTitle | null;
-      if (change.type === "manual") {
-        next = {
-          worktreePath: command.worktreePath,
-          generated: existing?.generated ?? null,
-          manual: change.title,
-          sourceThreadIds: existing?.sourceThreadIds ?? [],
-          generatedAt: existing?.generatedAt ?? null,
-          updatedAt: occurredAt,
-        };
-        if (next.manual === null && next.generated === null) next = null;
-      } else {
-        if (
-          (existing?.updatedAt ?? null) !== change.basis ||
-          (!change.replaceManual && (existing?.manual ?? null) !== null)
-        ) {
-          return Result.fail(
-            new ProjectWorktreeTitleStaleError({
-              projectId: command.projectId,
-              worktreePath: command.worktreePath,
-            }),
-          );
-        }
-        next = {
-          worktreePath: command.worktreePath,
-          generated: change.title,
-          manual: change.replaceManual ? null : (existing?.manual ?? null),
-          sourceThreadIds: change.sourceThreadIds,
-          generatedAt: occurredAt,
-          updatedAt: occurredAt,
-        };
-      }
-      const pruned = new Set(command.prunePaths);
-      pruned.delete(command.worktreePath);
+      const next: ProjectWorktreeTitle = {
+        worktreePath: command.worktreePath,
+        generated: change.type === "generated" ? change.title : (existing?.generated ?? null),
+        manual:
+          change.type === "manual"
+            ? change.title
+            : change.replaceManual
+              ? null
+              : (existing?.manual ?? null),
+        sourceThreadIds:
+          change.type === "generated" ? change.sourceThreadIds : (existing?.sourceThreadIds ?? []),
+        updatedAt: occurredAt,
+      };
       return Result.succeed({
         ...base,
         type: "project.meta-updated",
         payload: {
           projectId: command.projectId,
           worktreeTitles: [
-            ...project.worktreeTitles.filter(
-              (entry) =>
-                entry.worktreePath !== command.worktreePath && !pruned.has(entry.worktreePath),
-            ),
-            ...(next === null ? [] : [next]),
-          ],
+            ...project.worktreeTitles.filter((entry) => entry !== existing),
+            ...(next.manual === null && next.generated === null ? [] : [next]),
+          ]
+            .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .slice(0, MAX_WORKTREE_TITLES),
           // A title is not a project edit, so the project keeps its place in recency order.
           updatedAt: project.updatedAt,
         },

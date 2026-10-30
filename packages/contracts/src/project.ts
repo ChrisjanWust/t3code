@@ -204,7 +204,6 @@ export const ProjectWorktreeTitle = Schema.Struct({
   manual: Schema.NullOr(TrimmedNonEmptyString),
   /** The threads `generated` was written from; a different set makes it due a refresh. */
   sourceThreadIds: Schema.Array(ThreadId),
-  generatedAt: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 export type ProjectWorktreeTitle = typeof ProjectWorktreeTitle.Type;

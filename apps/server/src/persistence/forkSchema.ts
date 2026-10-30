@@ -7,13 +7,18 @@ import * as SqlClient from "effect/sql/SqlClient";
  */
 export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const columns = yield* sql<{ readonly name: string }>`
-    PRAGMA table_info(projection_projects)
-  `;
-  if (!columns.some((column) => column.name === "worktree_titles_json")) {
-    yield* sql`
-      ALTER TABLE projection_projects
-      ADD COLUMN worktree_titles_json TEXT NOT NULL DEFAULT '[]'
-    `;
-  }
+  // In a transaction, so a second process opening the same database cannot add it twice.
+  yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const columns = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(projection_projects)
+      `;
+      if (!columns.some((column) => column.name === "worktree_titles_json")) {
+        yield* sql`
+          ALTER TABLE projection_projects
+          ADD COLUMN worktree_titles_json TEXT NOT NULL DEFAULT '[]'
+        `;
+      }
+    }),
+  );
 });

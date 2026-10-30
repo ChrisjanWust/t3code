@@ -385,7 +385,6 @@ const applyProjectMutation = (mutation: ProjectMutation) => {
           generated: existing?.generated ?? null,
           manual: mutation.title,
           sourceThreadIds: existing?.sourceThreadIds ?? [],
-          generatedAt: existing?.generatedAt ?? null,
           updatedAt: DateTime.formatIso(AT),
         },
       ],

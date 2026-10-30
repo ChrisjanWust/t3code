@@ -33,8 +33,6 @@ export type {
   ReviewGuideGenerationResult,
   ThreadTitleGenerationInput,
   ThreadTitleGenerationResult,
-  WorktreeTitleGenerationInput,
-  WorktreeTitleGenerationResult,
 } from "@t3tools/provider-core/server/textGeneration";
 
 export class TextGeneration extends Context.Service<TextGeneration, ProviderTextGeneration>()(
@@ -46,7 +44,6 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
-  | "generateWorktreeTitle"
   | "generateReviewGuide";
 
 const resolveInstance = (
@@ -143,11 +140,6 @@ export const make = Effect.gen(function* () {
     generateBranchName: Effect.fn("TextGeneration.generateBranchName")(function (input) {
       return generate("generateBranchName", input.modelSelection, (service, modelSelection) =>
         service.generateBranchName({ ...input, modelSelection }),
-      );
-    }),
-    generateWorktreeTitle: Effect.fn("TextGeneration.generateWorktreeTitle")(function (input) {
-      return generate("generateWorktreeTitle", input.modelSelection, (service, modelSelection) =>
-        service.generateWorktreeTitle({ ...input, modelSelection }),
       );
     }),
     generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")(function (input) {

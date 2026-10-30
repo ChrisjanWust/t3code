@@ -7,7 +7,9 @@ import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContex
 
 const WORKTREE_TITLE_WINDOW_SIZE = 3;
 const WORKTREE_TITLE_IDLE_MS = 20 * 60_000;
-const WORKTREE_TITLE_COOLDOWN_MS = 30 * 60_000;
+export const WORKTREE_TITLE_COOLDOWN_MS = 30 * 60_000;
+const WORKTREE_TITLE_MAX_REQUEST = 400;
+const WORKTREE_TITLE_MAX_CONTEXT = 2_500;
 
 export interface WorktreeTitleCandidate {
   readonly id: ThreadId;
@@ -40,7 +42,7 @@ function sameThreads(a: ReadonlyArray<ThreadId>, b: ReadonlyArray<ThreadId>): bo
  */
 export function isWorktreeTitleRefreshDue(input: {
   readonly entry:
-    | Pick<ProjectWorktreeTitle, "generated" | "manual" | "sourceThreadIds" | "generatedAt">
+    | Pick<ProjectWorktreeTitle, "manual" | "sourceThreadIds" | "updatedAt">
     | undefined;
   readonly window: ReadonlyArray<WorktreeTitleCandidate>;
   readonly now: number;
@@ -49,7 +51,6 @@ export function isWorktreeTitleRefreshDue(input: {
   if (window.length === 0) return false;
   if (entry === undefined) return true;
   if (entry.manual !== null) return false;
-  if (entry.generated === null) return true;
   if (
     sameThreads(
       window.map((thread) => thread.id),
@@ -58,12 +59,7 @@ export function isWorktreeTitleRefreshDue(input: {
   ) {
     return false;
   }
-  if (
-    entry.generatedAt !== null &&
-    now - Date.parse(entry.generatedAt) < WORKTREE_TITLE_COOLDOWN_MS
-  ) {
-    return false;
-  }
+  if (now - Date.parse(entry.updatedAt) < WORKTREE_TITLE_COOLDOWN_MS) return false;
   const sources = new Set(entry.sourceThreadIds);
   return window.every(
     (thread) =>
@@ -76,7 +72,10 @@ export function isWorktreeTitleRefreshDue(input: {
 /** Only what the user wrote: no agent or scheduled messages, and no attachment-only placeholder. */
 export function worktreeTitleRequests(
   messages: ReadonlyArray<
-    Pick<OrchestrationV2ConversationMessage, "role" | "createdBy" | "streaming" | "text">
+    Pick<
+      OrchestrationV2ConversationMessage,
+      "role" | "createdBy" | "scheduledTaskId" | "streaming" | "text"
+    >
   >,
 ): ReadonlyArray<string> {
   return messages
@@ -84,8 +83,30 @@ export function worktreeTitleRequests(
       (message) =>
         message.role === "user" &&
         message.createdBy === "user" &&
+        message.scheduledTaskId === undefined &&
         !message.streaming &&
         message.text.trim() !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     )
     .map((message) => message.text);
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** Each thread keeps its title, first request, and latest two; newest threads claim the budget first. */
+export function formatWorktreeTitleContext(
+  threads: ReadonlyArray<{ readonly title: string; readonly requests: ReadonlyArray<string> }>,
+): string {
+  const lines: Array<string> = [];
+  for (const [index, thread] of threads.entries()) {
+    const requests = thread.requests
+      .map((request) => request.replace(/\s+/g, " ").trim())
+      .filter((request) => request.length > 0);
+    const picked = requests.length <= 3 ? requests : [requests[0]!, "…", ...requests.slice(-2)];
+    if (index > 0) lines.push("");
+    lines.push(`Thread ${index + 1}: ${JSON.stringify(thread.title)}`);
+    for (const request of picked) lines.push(`- ${clip(request, WORKTREE_TITLE_MAX_REQUEST)}`);
+  }
+  return clip(lines.join("\n"), WORKTREE_TITLE_MAX_CONTEXT);
 }

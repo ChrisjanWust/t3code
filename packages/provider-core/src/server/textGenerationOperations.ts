@@ -12,13 +12,11 @@ import {
   buildPrContentPrompt,
   buildReviewGuidePrompt,
   buildThreadTitlePrompt,
-  buildWorktreeTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-  sanitizeWorktreeTitle,
 } from "./textGenerationUtils.ts";
 
 export type Operation = keyof ProviderTextGeneration;
@@ -157,18 +155,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     };
   });
 
-  const generateWorktreeTitle: ProviderTextGeneration["generateWorktreeTitle"] = Effect.fn(
-    `${name}.generateWorktreeTitle`,
-  )(function* (input) {
-    const generated = yield* run({
-      operation: "generateWorktreeTitle",
-      cwd: input.cwd,
-      modelSelection: input.modelSelection,
-      ...buildWorktreeTitlePrompt(input),
-    });
-    return { title: sanitizeWorktreeTitle(generated.title) };
-  });
-
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = Effect.fn(
     `${name}.generateReviewGuide`,
   )(function* (input) {
@@ -186,7 +172,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
-    generateWorktreeTitle,
     generateReviewGuide,
   } satisfies ProviderTextGeneration;
 }

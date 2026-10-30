@@ -296,7 +296,6 @@ describe("worktreeLabel", () => {
         manual,
         generated,
         sourceThreadIds: [],
-        generatedAt: null,
         updatedAt: "2026-10-26T10:00:00.000Z",
       },
     ];

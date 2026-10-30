@@ -55,23 +55,21 @@ function makeHarness() {
     Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
   );
   let titles: ReadonlyArray<ProjectWorktreeTitle> = [];
-  const generateWorktreeTitle = vi.fn((_input: TextGeneration.WorktreeTitleGenerationInput) =>
+  const generateThreadTitle = vi.fn((_input: TextGeneration.ThreadTitleGenerationInput) =>
     Effect.succeed({ title: "Pairing token expiry" }),
   );
   const updateWorktreeTitle = vi.fn((input: ProjectService.ProjectWorktreeTitleInput) =>
     Effect.sync(() => {
-      if (input.change.type !== "generated") return { applied: false };
+      if (input.change.type !== "generated") return;
       titles = [
         {
           worktreePath: input.worktreePath,
           generated: input.change.title,
           manual: null,
           sourceThreadIds: input.change.sourceThreadIds,
-          generatedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
         },
       ];
-      return { applied: true };
     }),
   );
   const layerService = WorktreeTitleService.layer.pipe(
@@ -98,7 +96,7 @@ function makeHarness() {
             }),
         }),
         Layer.mock(ProjectService.ProjectService)({ updateWorktreeTitle }),
-        Layer.mock(TextGeneration.TextGeneration)({ generateWorktreeTitle }),
+        Layer.mock(TextGeneration.TextGeneration)({ generateThreadTitle }),
         layerServerSettings,
         NodeCrypto.layer,
       ),
@@ -106,7 +104,7 @@ function makeHarness() {
   );
   return {
     layer: Layer.mergeAll(layerThreadManagement, layerService),
-    generateWorktreeTitle,
+    generateThreadTitle,
     updateWorktreeTitle,
   };
 }
@@ -153,23 +151,21 @@ describe("WorktreeTitleService", () => {
         const threadId = yield* startWorktreeThread("thread:pairing", "Fix pairing token expiry");
 
         yield* service.refresh(threadId);
-        const generation = harness.generateWorktreeTitle.mock.calls[0]?.[0];
+        const generation = harness.generateThreadTitle.mock.calls[0]?.[0];
         assert.equal(generation?.cwd, worktreePath);
-        assert.deepEqual(generation?.threads, [
-          { title: "Seed title", requests: ["Fix pairing token expiry"] },
-        ]);
+        assert.equal(generation?.message, 'Thread 1: "Seed title"\n- Fix pairing token expiry');
+        assert.equal(generation?.linkedContext, "");
         assert.isUndefined(generation?.previousTitle);
         assert.deepEqual(harness.updateWorktreeTitle.mock.calls[0]![0].change, {
           type: "generated",
           title: "Pairing token expiry",
           sourceThreadIds: [threadId],
-          basis: null,
           replaceManual: false,
         });
 
         // The same threads keep their title.
         yield* service.refresh(threadId);
-        assert.equal(harness.generateWorktreeTitle.mock.calls.length, 1);
+        assert.equal(harness.generateThreadTitle.mock.calls.length, 1);
 
         const regenerated = yield* service.regenerate({ projectId, worktreePath });
         assert.equal(regenerated?.generated, "Pairing token expiry");

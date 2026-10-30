@@ -23,13 +23,11 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-  buildWorktreeTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-  sanitizeWorktreeTitle,
   toJsonSchemaObject,
 } from "@t3tools/provider-core/server/textGenerationUtils";
 
@@ -342,16 +340,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     });
     return { title: sanitizeThreadTitle(generated.title) };
   });
-  const generateWorktreeTitle: ProviderTextGeneration["generateWorktreeTitle"] = Effect.fn(
-    "MuseTextGeneration.generateWorktreeTitle",
-  )(function* (input) {
-    const generated = yield* runMuseJson({
-      operation: "generateWorktreeTitle",
-      ...buildWorktreeTitlePrompt(input),
-      modelSelection: input.modelSelection,
-    });
-    return { title: sanitizeWorktreeTitle(generated.title) };
-  });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
@@ -359,7 +347,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
-    generateWorktreeTitle,
     generateReviewGuide,
   } satisfies ProviderTextGeneration;
 });

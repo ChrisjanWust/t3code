@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { sanitizeCommitSubject, sanitizeWorktreeTitle } from "./textGenerationUtils.ts";
+import { sanitizeCommitSubject } from "./textGenerationUtils.ts";
 
 describe("sanitizeCommitSubject", () => {
   // regression: #19181 truncation split grapheme clusters at the subject limit
@@ -12,15 +12,5 @@ describe("sanitizeCommitSubject", () => {
     const prefix = "a".repeat(prefixLength);
 
     expect(sanitizeCommitSubject(`${prefix}${character} more`)).toBe(prefix);
-  });
-});
-
-describe("sanitizeWorktreeTitle", () => {
-  it.each([
-    { raw: '  "Pairing token expiry."\nExtra line', expected: "Pairing token expiry" },
-    { raw: "   ", expected: "" },
-    { raw: `${"a".repeat(78)}🚀 more`, expected: `${"a".repeat(78)}…` },
-  ])("cleans $raw", ({ raw, expected }) => {
-    expect(sanitizeWorktreeTitle(raw)).toBe(expected);
   });
 });
