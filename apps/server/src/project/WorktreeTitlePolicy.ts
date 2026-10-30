@@ -9,7 +9,8 @@ const WORKTREE_TITLE_WINDOW_SIZE = 3;
 const WORKTREE_TITLE_IDLE_MS = 20 * 60_000;
 export const WORKTREE_TITLE_COOLDOWN_MS = 30 * 60_000;
 const WORKTREE_TITLE_MAX_REQUEST = 400;
-const WORKTREE_TITLE_MAX_CONTEXT = 2_500;
+const WORKTREE_TITLE_MAX_REPLY = 600;
+const WORKTREE_TITLE_MAX_CONTEXT = 4_000;
 
 export interface WorktreeTitleCandidate {
   readonly id: ThreadId;
@@ -69,44 +70,83 @@ export function isWorktreeTitleRefreshDue(input: {
   );
 }
 
-/** Only what the user wrote: no agent or scheduled messages, and no attachment-only placeholder. */
-export function worktreeTitleRequests(
+export interface WorktreeTitleExcerpt {
+  readonly from: "user" | "agent";
+  readonly text: string;
+}
+
+const flatten = (text: string) =>
+  text
+    .replace(/\[([^\]]*)\]\([^)\s]*\)/g, "$1")
+    .replace(/[|*`]|-{3,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * A thread's first and latest two user requests, plus the agent's first and latest turn-final
+ * replies, which say what a vague request or link was about. Tool output and delegated or
+ * scheduled messages are left out.
+ */
+export function worktreeTitleExcerpts(
   messages: ReadonlyArray<
     Pick<
       OrchestrationV2ConversationMessage,
-      "role" | "createdBy" | "scheduledTaskId" | "streaming" | "text"
+      "role" | "createdBy" | "scheduledTaskId" | "streaming" | "text" | "runId"
     >
   >,
-): ReadonlyArray<string> {
-  return messages
-    .filter(
-      (message) =>
-        message.role === "user" &&
-        message.createdBy === "user" &&
-        message.scheduledTaskId === undefined &&
-        !message.streaming &&
-        message.text.trim() !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
-    )
-    .map((message) => message.text);
+): ReadonlyArray<WorktreeTitleExcerpt> {
+  const requests: Array<number> = [];
+  const finalReplyByRun = new Map<string, number>();
+  for (const [index, message] of messages.entries()) {
+    if (message.streaming || flatten(message.text) === "") continue;
+    if (
+      message.role === "user" &&
+      message.createdBy === "user" &&
+      message.scheduledTaskId === undefined &&
+      message.text.trim() !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+    ) {
+      requests.push(index);
+    } else if (message.role === "assistant" && message.runId !== null) {
+      finalReplyByRun.set(message.runId, index);
+    }
+  }
+  const replies = [...finalReplyByRun.values()].toSorted((a, b) => a - b);
+  const picked = new Set([
+    ...requests.slice(0, 1),
+    ...requests.slice(-2),
+    ...replies.slice(0, 1),
+    ...replies.slice(-1),
+  ]);
+  return [...picked]
+    .toSorted((a, b) => a - b)
+    .map((index) => ({
+      from: messages[index]!.role === "user" ? "user" : "agent",
+      text: flatten(messages[index]!.text),
+    }));
 }
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** Each thread keeps its title, first request, and latest two; newest threads claim the budget first. */
+/** Newest threads come first, so the total cap trims the oldest. */
 export function formatWorktreeTitleContext(
-  threads: ReadonlyArray<{ readonly title: string; readonly requests: ReadonlyArray<string> }>,
+  threads: ReadonlyArray<{
+    readonly title: string;
+    readonly excerpts: ReadonlyArray<WorktreeTitleExcerpt>;
+  }>,
 ): string {
   const lines: Array<string> = [];
   for (const [index, thread] of threads.entries()) {
-    const requests = thread.requests
-      .map((request) => request.replace(/\s+/g, " ").trim())
-      .filter((request) => request.length > 0);
-    const picked = requests.length <= 3 ? requests : [requests[0]!, "…", ...requests.slice(-2)];
     if (index > 0) lines.push("");
     lines.push(`Thread ${index + 1}: ${JSON.stringify(thread.title)}`);
-    for (const request of picked) lines.push(`- ${clip(request, WORKTREE_TITLE_MAX_REQUEST)}`);
+    for (const excerpt of thread.excerpts) {
+      lines.push(
+        excerpt.from === "user"
+          ? `User: ${clip(excerpt.text, WORKTREE_TITLE_MAX_REQUEST)}`
+          : `Agent: ${clip(excerpt.text, WORKTREE_TITLE_MAX_REPLY)}`,
+      );
+    }
   }
   return clip(lines.join("\n"), WORKTREE_TITLE_MAX_CONTEXT);
 }

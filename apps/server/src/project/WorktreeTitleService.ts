@@ -29,11 +29,11 @@ import {
   isWorktreeTitleRefreshDue,
   selectWorktreeTitleWindow,
   WORKTREE_TITLE_COOLDOWN_MS,
-  worktreeTitleRequests,
+  worktreeTitleExcerpts,
 } from "./WorktreeTitlePolicy.ts";
 
 const WORKTREE_TITLE_INSTRUCTIONS =
-  "The text is the user's own messages from the most recent threads in one worktree, newest thread first. Title the work they share in 3-9 words; when they differ, favor the newest thread.";
+  "The text is excerpts from the most recent threads in one worktree, newest thread first: the user's requests and the agent's replies. Title the work they share in 3-9 words; when they differ, favor the newest thread. The agent's replies say what vague requests and links were about.";
 const WORKTREE_TITLE_MAX_LENGTH = 80;
 
 export class WorktreeTitleService extends Context.Service<
@@ -67,13 +67,11 @@ const make = Effect.gen(function* () {
   // Failed or empty generations write nothing, so the cooldown alone would retry them on every run.
   const lastAttemptAt = new Map<string, number>();
 
-  const userRequests = Effect.fn("WorktreeTitleService.userRequests")(function* (
-    threadId: ThreadId,
-  ) {
+  const excerpts = Effect.fn("WorktreeTitleService.excerpts")(function* (threadId: ThreadId) {
     const { messages } = yield* projections.getThreadRecords(threadId, ["messages"], {
-      messageRoles: ["user"],
+      messageRoles: ["user", "assistant"],
     });
-    return worktreeTitleRequests(messages);
+    return worktreeTitleExcerpts(messages);
   });
 
   const generate = Effect.fn("WorktreeTitleService.generate")(function* (input: {
@@ -115,9 +113,11 @@ const make = Effect.gen(function* () {
     if (window.length === 0) return entry ?? null;
 
     const sources = yield* Effect.forEach(window, (thread) =>
-      userRequests(thread.id).pipe(Effect.map((requests) => ({ title: thread.title, requests }))),
+      excerpts(thread.id).pipe(Effect.map((excerpts) => ({ title: thread.title, excerpts }))),
     );
-    if (sources.every((source) => source.requests.length === 0)) return entry ?? null;
+    if (sources.every((source) => source.excerpts.every((excerpt) => excerpt.from !== "user"))) {
+      return entry ?? null;
+    }
     const settings = resolveProjectSettings(
       yield* serverSettings.getSettings,
       input.projectId,

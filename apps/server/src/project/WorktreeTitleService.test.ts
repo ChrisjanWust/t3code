@@ -153,7 +153,7 @@ describe("WorktreeTitleService", () => {
         yield* service.refresh(threadId);
         const generation = harness.generateThreadTitle.mock.calls[0]?.[0];
         assert.equal(generation?.cwd, worktreePath);
-        assert.equal(generation?.message, 'Thread 1: "Seed title"\n- Fix pairing token expiry');
+        assert.equal(generation?.message, 'Thread 1: "Seed title"\nUser: Fix pairing token expiry');
         assert.equal(generation?.linkedContext, "");
         assert.isUndefined(generation?.previousTitle);
         assert.deepEqual(harness.updateWorktreeTitle.mock.calls[0]![0].change, {
