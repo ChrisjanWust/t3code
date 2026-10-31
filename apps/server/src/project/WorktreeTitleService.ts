@@ -29,11 +29,11 @@ import {
   isWorktreeTitleRefreshDue,
   selectWorktreeTitleWindow,
   WORKTREE_TITLE_COOLDOWN_MS,
-  worktreeTitleRequests,
+  worktreeTitleExcerpts,
 } from "./WorktreeTitlePolicy.ts";
 
 const WORKTREE_TITLE_INSTRUCTIONS =
-  "The text is the user's own messages from the most recent threads in one worktree, newest thread first. Title the work they share in 3-9 words; when they differ, favor the newest thread.";
+  "The text is excerpts from the most recent threads in one worktree, newest thread first: the user's requests and the assistant's replies. Title the work they share in 3-9 words; when they differ, favor the newest thread. The assistant's replies say what vague requests and links were about.";
 const WORKTREE_TITLE_MAX_LENGTH = 80;
 
 export class WorktreeTitleService extends Context.Service<
@@ -67,13 +67,11 @@ const make = Effect.gen(function* () {
   // Failed or empty generations write nothing, so the cooldown alone would retry them on every run.
   const lastAttemptAt = new Map<string, number>();
 
-  const userRequests = Effect.fn("WorktreeTitleService.userRequests")(function* (
-    threadId: ThreadId,
-  ) {
-    const { messages } = yield* projections.getThreadRecords(threadId, ["messages"], {
-      messageRoles: ["user"],
+  const excerpts = Effect.fn("WorktreeTitleService.excerpts")(function* (threadId: ThreadId) {
+    const { messages, runs } = yield* projections.getThreadRecords(threadId, ["messages", "runs"], {
+      messageRoles: ["user", "assistant"],
     });
-    return worktreeTitleRequests(messages);
+    return worktreeTitleExcerpts(messages, runs);
   });
 
   const generate = Effect.fn("WorktreeTitleService.generate")(function* (input: {
@@ -115,9 +113,11 @@ const make = Effect.gen(function* () {
     if (window.length === 0) return entry ?? null;
 
     const sources = yield* Effect.forEach(window, (thread) =>
-      userRequests(thread.id).pipe(Effect.map((requests) => ({ title: thread.title, requests }))),
+      excerpts(thread.id).pipe(Effect.map((excerpts) => ({ title: thread.title, excerpts }))),
     );
-    if (sources.every((source) => source.requests.length === 0)) return entry ?? null;
+    if (sources.every((source) => source.excerpts.every((excerpt) => excerpt.from !== "user"))) {
+      return entry ?? null;
+    }
     const settings = resolveProjectSettings(
       yield* serverSettings.getSettings,
       input.projectId,
@@ -212,15 +212,15 @@ const make = Effect.gen(function* () {
     return result.value;
   });
 
-  // A run starting is the cheap signal that the user just wrote in a thread.
-  const isRunStart = (event: OrchestrationV2DomainEvent) =>
-    event.type === "run.updated" && event.payload.status === "running";
+  // Waits for a run to finish so even the first title can read the assistant's reply.
+  const isRunCompletion = (event: OrchestrationV2DomainEvent) =>
+    event.type === "run.updated" && event.payload.status === "completed";
 
   const start: WorktreeTitleService["Service"]["start"] = () =>
     forkParked(
       Stream.runForEach(engine.streamDomainEvents, (event) =>
         // Generation takes seconds; do not hold up the event stream behind it.
-        isRunStart(event) ? Effect.forkScoped(refresh(event.threadId)) : Effect.void,
+        isRunCompletion(event) ? Effect.forkScoped(refresh(event.threadId)) : Effect.void,
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Worktree title event stream failed", { cause }),

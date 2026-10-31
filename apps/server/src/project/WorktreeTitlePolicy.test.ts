@@ -1,12 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type ProjectWorktreeTitle, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
+import { type ProjectWorktreeTitle, RunId, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import * as DateTime from "effect/DateTime";
 
 import {
   isWorktreeTitleRefreshDue,
   selectWorktreeTitleWindow,
-  worktreeTitleRequests,
+  worktreeTitleExcerpts,
 } from "./WorktreeTitlePolicy.ts";
 
 const minute = 60_000;
@@ -108,8 +108,8 @@ describe("isWorktreeTitleRefreshDue", () => {
   });
 });
 
-describe("worktreeTitleRequests", () => {
-  it("keeps only the text the user wrote", () => {
+describe("worktreeTitleExcerpts", () => {
+  it("keeps the user's first and latest requests and the last reply of finished runs", () => {
     const message = (
       text: string,
       overrides: Partial<{
@@ -117,21 +117,58 @@ describe("worktreeTitleRequests", () => {
         createdBy: "user" | "agent" | "system";
         scheduledTaskId: ScheduledTaskId;
         streaming: boolean;
+        runId: RunId;
       }> = {},
-    ) => ({ text, role: "user", createdBy: "user", streaming: false, ...overrides }) as const;
+    ) =>
+      ({
+        text,
+        role: "user",
+        createdBy: "user",
+        streaming: false,
+        runId: null,
+        ...overrides,
+      }) as const;
+    const reply = (text: string, run: string) =>
+      message(text, { role: "assistant", createdBy: "agent", runId: RunId.make(run) });
+    const run = (id: string, status: "completed" | "running") => ({
+      id: RunId.make(id),
+      status,
+    });
     assert.deepEqual(
-      worktreeTitleRequests([
-        message("Fix the pairing expiry"),
-        message("Tool output and replies", { role: "assistant" }),
-        message("A delegated task's brief", { createdBy: "agent" }),
-        message("A scheduled wake", { createdBy: "system" }),
-        message("A scheduled task's prompt", {
-          scheduledTaskId: ScheduledTaskId.make("scheduled-task"),
-        }),
-        message(ATTACHMENT_ONLY_BOOTSTRAP_PROMPT),
-        message("Keep remote access working"),
-      ]),
-      ["Fix the pairing expiry", "Keep remote access working"],
+      worktreeTitleExcerpts(
+        [
+          message("https://example.slack.com/archives/C1/p1"),
+          reply("Reading the thread", "run-1"),
+          reply("It is about [vendor fallbacks](https://example.com/doc)", "run-1"),
+          message("A delegated task's brief", { createdBy: "agent" }),
+          message("A scheduled wake", { createdBy: "system" }),
+          message("A scheduled task's prompt", {
+            scheduledTaskId: ScheduledTaskId.make("scheduled-task"),
+          }),
+          message(ATTACHMENT_ONLY_BOOTSTRAP_PROMPT),
+          message("Do the items assigned to me"),
+          reply("Started both items", "run-2"),
+          message("Write the PRs"),
+          message("PR #5 has new comments", { createdBy: "agent" }),
+          reply("Checks are still pending", "run-3"),
+          message("Draft the Slack post"),
+          reply("Still writing", "run-4"),
+          message("Half-streamed", { streaming: true }),
+        ],
+        [
+          run("run-1", "completed"),
+          run("run-2", "completed"),
+          run("run-3", "completed"),
+          run("run-4", "running"),
+        ],
+      ),
+      [
+        { from: "user", text: "https://example.slack.com/archives/C1/p1" },
+        { from: "assistant", text: "It is about vendor fallbacks" },
+        { from: "user", text: "Write the PRs" },
+        { from: "assistant", text: "Checks are still pending" },
+        { from: "user", text: "Draft the Slack post" },
+      ],
     );
   });
 });
