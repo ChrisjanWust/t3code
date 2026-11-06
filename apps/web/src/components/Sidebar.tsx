@@ -1762,11 +1762,27 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       }
     })();
   };
-  // With tabs, settling the open thread closes its tab, which the tab strip owns.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(
-    () => (threadTabsEnabled ? undefined : registerSettleAndAdvance(attemptSettle)),
-    [attemptSettle, threadTabsEnabled],
+    () =>
+      registerSettleAndAdvance((threadRef) => {
+        // With tabs, settling goes through the worktree's row, so it settles every tab.
+        const threadKey = scopedThreadKey(
+          scopeThreadRef(
+            threadRef.environmentId,
+            resolveSidebarRowThreadId(threadRef.threadId, threadRef.environmentId, threads),
+          ),
+        );
+        const rowKey = worktreeRowKeyByThreadKeyRef.current.get(threadKey);
+        const row =
+          rowKey === undefined
+            ? undefined
+            : worktreeMembersRef.current
+                .get(rowKey)
+                ?.find((member) => threadShellKey(member) === rowKey);
+        attemptSettle(row ? scopeThreadRef(row.environmentId, row.id) : threadRef);
+      }),
+    [attemptSettle, threads],
   );
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
