@@ -24,6 +24,7 @@ import {
   type FakeThread,
 } from "../../../test/fakeEnvironment";
 import { render } from "../../../test/render";
+import { useThreadTabOrderStore } from "./threadTabOrderStore";
 import { startWorktreePanelSharing } from "./worktreePanelKey";
 
 vi.mock(
@@ -64,6 +65,7 @@ function setup(
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
   });
+  useThreadTabOrderStore.setState({ orderByWorktreeKey: {} });
   __setClientSettingsForTests({
     ...DEFAULT_CLIENT_SETTINGS,
     onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
@@ -132,6 +134,76 @@ it("lists the open worktree's threads as tabs, one sidebar row per worktree", as
   await vi.waitFor(() => expect(router.state.location.pathname).toMatch(/^\/draft\//));
   await expect.element(tab("New thread")).toHaveAttribute("aria-selected", "true");
   expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c", "New thread"]);
+});
+
+const tabCenter = (title: string) => {
+  const { left, width, top, height } = tab(title).element().getBoundingClientRect();
+  return { clientX: left + width / 2, clientY: top + height / 2 };
+};
+
+async function dragTab(fromTitle: string, toTitle: string) {
+  const start = tabCenter(fromTitle);
+  const end = tabCenter(toTitle);
+  const pointer = {
+    bubbles: true,
+    button: 0,
+    buttons: 1,
+    isPrimary: true,
+    pointerId: 1,
+    pointerType: "mouse",
+  };
+  tab(fromTitle)
+    .element()
+    .dispatchEvent(new PointerEvent("pointerdown", { ...pointer, ...start }));
+  document.dispatchEvent(
+    new PointerEvent("pointermove", {
+      ...pointer,
+      clientX: start.clientX + (end.clientX > start.clientX ? 10 : -10),
+      clientY: start.clientY,
+    }),
+  );
+  const target = tab(toTitle).element().closest<HTMLElement>("[data-thread-tab]")!;
+  await vi.waitFor(() => {
+    document.dispatchEvent(new PointerEvent("pointermove", { ...pointer, ...end }));
+    expect(target.style.transform).toContain("translate");
+  });
+  document.dispatchEvent(new PointerEvent("pointerup", { ...pointer, ...end, buttons: 0 }));
+}
+
+it("drags a tab either way to reorder the strip, and closing and new tabs follow", async () => {
+  using _environment = setup();
+  const { screen, router } = await mountApp("tab-b");
+  await using _screen = screen;
+  await expect.element(tab("Thread tab-c")).toBeVisible();
+
+  await dragTab("Thread tab-a", "Thread tab-c");
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
+  );
+  // Dropping is not a click: the open tab stays open.
+  expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`);
+
+  await dragTab("Thread tab-a", "Thread tab-b");
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]),
+  );
+
+  await dragTab("Thread tab-c", "Thread tab-a");
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-a", "Thread tab-b"]),
+  );
+
+  // Closing the open tab moves to its right neighbor in the dragged order.
+  await userEvent.click(tab("Thread tab-a"));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-a`));
+  await userEvent.click(page.getByRole("button", { name: "Close Thread tab-a" }));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`));
+  await vi.waitFor(() => expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b"]));
+
+  addServerThread(inWorktree("tab-fork"));
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-fork"]),
+  );
 });
 
 it("closes a tab by settling it and reopens it from the history panel", async () => {

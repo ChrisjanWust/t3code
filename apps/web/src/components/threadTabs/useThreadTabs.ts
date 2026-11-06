@@ -36,11 +36,13 @@ import {
   buildWorktreeTabs,
   draftWorktreeKey,
   isBlankLastTab,
+  moveWorktreeTab,
   resolveTabAfterClose,
   worktreeKey,
   type WorktreeTab,
   type WorktreeTabDraft,
 } from "./threadTabs.logic";
+import { useThreadTabOrderStore } from "./threadTabOrderStore";
 
 /** Where the open route lives, and so where its tab strip's tabs and new tabs belong. */
 export interface ThreadTabLocation {
@@ -142,6 +144,7 @@ function buildTabs(
   threads: ReadonlyArray<EnvironmentThreadShell>,
   drafts: readonly WorktreeTabDraft[],
   now: string,
+  order: readonly string[] | undefined,
 ) {
   const routeKey = routeTabKey(location, threads);
   const tabs = buildWorktreeTabs({
@@ -151,6 +154,7 @@ function buildTabs(
     routeKey,
     threadKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     now,
+    order,
   });
   return { tabs, routeKey };
 }
@@ -164,7 +168,8 @@ export function useWorktreeTabs(location: ThreadTabLocation) {
     useShallow((store) => draftIdsWithContent(store.draftsByThreadKey)),
   );
   const now = new Date(useSnoozeWakeClock(threads)).toISOString();
-  return buildTabs(location, threads, readDraftTabs(sessions, withContent), now);
+  const order = useThreadTabOrderStore((store) => store.orderByWorktreeKey[location.worktreeKey]);
+  return buildTabs(location, threads, readDraftTabs(sessions, withContent), now, order);
 }
 
 function readTabs(location: ThreadTabLocation) {
@@ -174,13 +179,14 @@ function readTabs(location: ThreadTabLocation) {
     readThreadShells(),
     readDraftTabs(drafts.draftThreadsByThreadKey, draftIdsWithContent(drafts.draftsByThreadKey)),
     new Date().toISOString(),
+    useThreadTabOrderStore.getState().orderByWorktreeKey[location.worktreeKey],
   );
 }
 
 const tabRef = (tab: ThreadTabItem): ScopedThreadRef | null =>
   tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
 
-/** New, close and switch for the open route's tabs, read at call time so shortcuts stay current. */
+/** New, close, switch and move for the open route's tabs, read at call time so shortcuts stay current. */
 export function useThreadTabActions(location: ThreadTabLocation | null) {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
@@ -328,5 +334,11 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     return true;
   };
 
-  return { newTab, closeTab, selectTab, selectRelativeTab };
+  const moveTab = (fromKey: string, toKey: string) => {
+    if (location === null) return;
+    const order = moveWorktreeTab(readTabs(location).tabs, fromKey, toKey);
+    if (order) useThreadTabOrderStore.getState().setOrder(location.worktreeKey, order);
+  };
+
+  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab };
 }

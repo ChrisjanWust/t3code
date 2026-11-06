@@ -6,6 +6,7 @@ import {
   collapseToWorktreeRows,
   draftWorktreeKey,
   isBlankLastTab,
+  moveWorktreeTab,
   resolveTabAfterClose,
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
@@ -140,6 +141,51 @@ describe("buildWorktreeTabs", () => {
         "blank",
       ),
     ).toEqual(["open", "blank", "typed"]);
+  });
+
+  it("follows the dragged order, with tabs it doesn't name left at the end", () => {
+    const threads = [
+      thread("a", { createdAt: "2026-10-26T09:00:00.000Z" }),
+      thread("b", { createdAt: "2026-10-26T10:00:00.000Z" }),
+      thread("c", { createdAt: "2026-10-26T11:00:00.000Z" }),
+    ];
+    const orderedKeys = (order: readonly string[]) =>
+      buildWorktreeTabs({
+        threads,
+        drafts: [draft("new", { threadId: "new-thread" })],
+        worktreeKey: FEATURE,
+        routeKey: "new",
+        threadKey: (tab) => tab.id,
+        now: NOW,
+        order,
+      }).map((tab) => tab.key);
+
+    expect(orderedKeys(["c", "a"])).toEqual(["c", "a", "b", "new"]);
+    expect(orderedKeys(["gone", "new-thread", "b"])).toEqual(["new", "b", "a", "c"]);
+  });
+
+  it("keeps a dragged draft's place once sending makes it a thread", () => {
+    const threads = [thread("a"), thread("b", { createdAt: "2026-10-26T10:30:00.000Z" })];
+    const asDraft = buildWorktreeTabs({
+      threads,
+      drafts: [draft("new", { threadId: "sent" })],
+      worktreeKey: FEATURE,
+      routeKey: "new",
+      threadKey: (tab) => tab.id,
+      now: NOW,
+    });
+    const order = moveWorktreeTab(asDraft, "new", "a")!;
+
+    const asThread = buildWorktreeTabs({
+      threads: [...threads, thread("sent", { createdAt: "2026-10-26T11:00:00.000Z" })],
+      drafts: [],
+      worktreeKey: FEATURE,
+      routeKey: "sent",
+      threadKey: (tab) => tab.id,
+      now: NOW,
+      order,
+    });
+    expect(asThread.map((tab) => tab.key)).toEqual(["sent", "a", "b"]);
   });
 
   it("leaves nothing to close when the only tab is a blank draft", () => {

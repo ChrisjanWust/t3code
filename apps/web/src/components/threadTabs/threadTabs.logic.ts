@@ -1,3 +1,4 @@
+import { arrayMove } from "@dnd-kit/sortable";
 import type { ProjectWorktreeTitle } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 
@@ -69,10 +70,27 @@ export interface WorktreeTabDraft {
   readonly hasContent: boolean;
 }
 
+// A draft keeps its thread id once sent, so ordering by it holds the tab's place.
+const tabThreadId = (tab: WorktreeTab<WorktreeThread>): string =>
+  tab.kind === "thread" ? tab.thread.id : tab.threadId;
+
+/** The strip's order after dragging one tab onto another's place, or null if nothing moved. */
+export function moveWorktreeTab(
+  tabs: readonly WorktreeTab<WorktreeThread>[],
+  fromKey: string,
+  toKey: string,
+): string[] | null {
+  const from = tabs.findIndex((tab) => tab.key === fromKey);
+  const to = tabs.findIndex((tab) => tab.key === toKey);
+  if (from === -1 || to === -1 || from === to) return null;
+  return arrayMove(tabs.map(tabThreadId), from, to);
+}
+
 /**
  * The strip shows the worktree's open threads, plus the open route when it is closed or
  * snoozed, so viewing a thread from History never hides its tab. Drafts follow: the open
- * one, and others the user has typed into.
+ * one, and others the user has typed into. Tabs the user has dragged come first, in
+ * `order`; any others stay at the end.
  */
 export function buildWorktreeTabs<T extends WorktreeThread>(input: {
   readonly threads: readonly T[];
@@ -81,6 +99,7 @@ export function buildWorktreeTabs<T extends WorktreeThread>(input: {
   readonly routeKey: string;
   readonly threadKey: (thread: T) => string;
   readonly now: string;
+  readonly order?: readonly string[] | undefined;
 }): WorktreeTab<T>[] {
   // New tabs and forks open at the end, so the strip never reorders under the user.
   const threadTabs = input.threads
@@ -114,7 +133,12 @@ export function buildWorktreeTabs<T extends WorktreeThread>(input: {
       createdAt: draft.createdAt,
       hasContent: draft.hasContent,
     }));
-  return [...threadTabs, ...draftTabs];
+  const tabs: WorktreeTab<T>[] = [...threadTabs, ...draftTabs];
+  const order = input.order;
+  if (!order) return tabs;
+  const positions = new Map(order.map((threadId, index) => [threadId, index]));
+  const position = (tab: WorktreeTab<T>) => positions.get(tabThreadId(tab)) ?? order.length;
+  return tabs.toSorted((left, right) => position(left) - position(right));
 }
 
 /** A lone blank tab is what closing the last tab leaves, so closing it again has nothing to do. */
