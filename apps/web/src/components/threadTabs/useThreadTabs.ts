@@ -38,6 +38,7 @@ import {
   isBlankLastTab,
   moveWorktreeTab,
   resolveTabAfterClose,
+  tabThreadId,
   worktreeKey,
   type WorktreeTab,
   type WorktreeTabDraft,
@@ -183,6 +184,23 @@ function readTabs(location: ThreadTabLocation) {
   );
 }
 
+/** The project's blank draft is reused with its thread id, and must not reopen in its old slot. */
+function forgetHiddenDraftPlaces(location: ThreadTabLocation) {
+  const { orderByWorktreeKey, setOrder } = useThreadTabOrderStore.getState();
+  const order = orderByWorktreeKey[location.worktreeKey];
+  if (!order) return;
+  const visible = new Set(readTabs(location).tabs.map(tabThreadId));
+  const hiddenDrafts = new Set<string>(
+    Object.values(useComposerDraftStore.getState().draftThreadsByThreadKey).flatMap((session) =>
+      session.promotedTo == null && !visible.has(session.threadId) ? [session.threadId] : [],
+    ),
+  );
+  setOrder(
+    location.worktreeKey,
+    order.filter((threadId) => !hiddenDrafts.has(threadId)),
+  );
+}
+
 const tabRef = (tab: ThreadTabItem): ScopedThreadRef | null =>
   tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
 
@@ -208,6 +226,7 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
 
   const newTab = async (options: { replace?: boolean } = {}) => {
     if (location === null || location.creatingWorktree) return;
+    forgetHiddenDraftPlaces(location);
     await handleNewThread(scopeProjectRef(location.environmentId, location.projectId), {
       // The project's checkout follows its current branch, not a past thread's.
       branch: location.worktreePath === null ? null : location.branch,

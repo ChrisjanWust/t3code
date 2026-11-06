@@ -11,6 +11,7 @@ import {
 } from "@t3tools/contracts";
 import {
   closestCenter,
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   PointerSensor,
@@ -50,6 +51,20 @@ import {
 } from "./useThreadTabs";
 
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
+
+// The modifiers stop a wide tab's center short of a narrow first tab, so target by the pointer.
+const closestTabToPointer: CollisionDetection = (args) =>
+  closestCenter(
+    args.pointerCoordinates
+      ? {
+          ...args,
+          collisionRect: {
+            ...args.collisionRect,
+            left: args.pointerCoordinates.x - args.collisionRect.width / 2,
+          },
+        }
+      : args,
+  );
 
 function preventMiddleButtonDefault(event: ReactMouseEvent) {
   if (event.button === 1) event.preventDefault();
@@ -261,7 +276,7 @@ export function ThreadTabStrip(props: {
       >
         <DndContext
           sensors={dragSensors}
-          collisionDetection={closestCenter}
+          collisionDetection={closestTabToPointer}
           modifiers={TAB_DRAG_MODIFIERS}
           onDragEnd={handleDragEnd}
         >

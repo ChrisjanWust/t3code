@@ -71,7 +71,7 @@ export interface WorktreeTabDraft {
 }
 
 // A draft keeps its thread id once sent, so ordering by it holds the tab's place.
-const tabThreadId = (tab: WorktreeTab<WorktreeThread>): string =>
+export const tabThreadId = (tab: WorktreeTab<WorktreeThread>): string =>
   tab.kind === "thread" ? tab.thread.id : tab.threadId;
 
 /** The strip's order after dragging one tab onto another's place, or null if nothing moved. */
