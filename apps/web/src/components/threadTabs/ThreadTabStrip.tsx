@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,7 +10,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { HistoryIcon, PlusIcon } from "lucide-react";
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { isElectron } from "../../env";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
@@ -18,7 +18,6 @@ import { shortcutLabelForCommand } from "../../keybindings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { cn } from "../../lib/utils";
 import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
-import { registerSettleAndAdvance } from "../../settleAndAdvance";
 import { readEnvironmentScope } from "../../state/session";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -214,11 +213,6 @@ export function ThreadTabStrip(props: {
   const closeTab = useStableCallback(tabActions.closeTab);
   const historyOpen = useRightPanelStore(
     (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
-  );
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the tab strip's settle handler in the module-level settleAndAdvance registry, so settling closes the tab
-  useEffect(
-    () => registerSettleAndAdvance((threadRef) => closeTab(scopedThreadKey(threadRef))),
-    [closeTab],
   );
   const newTabLabel = shortcutLabelForCommand(props.keybindings, "tab.new", {
     context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },

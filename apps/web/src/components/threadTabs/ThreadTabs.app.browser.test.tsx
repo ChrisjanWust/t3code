@@ -9,6 +9,7 @@ import "~/index.css";
 
 import { AppRoot } from "~/AppRoot";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
+import { isMacPlatform } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { getRouter } from "~/router";
 import {
@@ -187,6 +188,31 @@ it("settles a worktree's open tabs together and reopens the same tabs", async ()
 
   await userEvent.click(sidebarRow("feature/tabs"));
   await vi.waitFor(() => expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b"]));
+});
+
+it("settles the whole worktree from the settle shortcut, on any of its tabs", async () => {
+  using _environment = setup();
+  const { screen, router } = await mountApp("tab-b");
+  await using _screen = screen;
+  await vi.waitFor(() => expect(tabTitles()).toHaveLength(3));
+
+  await userEvent.keyboard(
+    isMacPlatform(navigator.platform)
+      ? "{Meta>}{Shift>}s{/Shift}{/Meta}"
+      : "{Control>}{Shift>}s{/Shift}{/Control}",
+  );
+
+  await vi.waitFor(() =>
+    expect(
+      settleCommands()
+        .map((command) => command.threadId)
+        .toSorted(),
+    ).toEqual(["tab-a", "tab-b", "tab-c"]),
+  );
+  expect(new Set(settleCommands().map((command) => String(command.settledAt))).size).toBe(1);
+  await vi.waitFor(() =>
+    expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/checkout`),
+  );
 });
 
 it("opens a thread the server adds to the worktree, such as a fork, as a new tab", async () => {
