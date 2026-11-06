@@ -9,6 +9,18 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import {
+  closestCenter,
+  type CollisionDetection,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { HistoryIcon, PlusIcon } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
@@ -37,6 +49,22 @@ import {
   useThreadTabActions,
   useWorktreeTabs,
 } from "./useThreadTabs";
+
+const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
+
+// The modifiers stop a wide tab's center short of a narrow first tab, so target by the pointer.
+const closestTabToPointer: CollisionDetection = (args) =>
+  closestCenter(
+    args.pointerCoordinates
+      ? {
+          ...args,
+          collisionRect: {
+            ...args.collisionRect,
+            left: args.pointerCoordinates.x - args.collisionRect.width / 2,
+          },
+        }
+      : args,
+  );
 
 function preventMiddleButtonDefault(event: ReactMouseEvent) {
   if (event.button === 1) event.preventDefault();
@@ -85,6 +113,10 @@ function ThreadTab(props: {
     tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
   const title = tabTitle(tab);
   const [renaming, setRenaming] = useState(false);
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tab.key,
+    disabled: renaming,
+  });
   const canShareWithGuest = useAtomValue(canShareWithGuestAtom(props.environmentId));
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -142,12 +174,16 @@ function ThreadTab(props: {
         event.preventDefault();
         openMenu({ x: event.clientX, y: event.clientY });
       }}
+      {...listeners}
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
         "group/tab flex h-7 max-w-52 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
         isElectron && "[-webkit-app-region:no-drag]",
-        active
+        active || isDragging
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        isDragging && "relative z-10",
       )}
     >
       {props.closable ? (
@@ -209,8 +245,14 @@ export function ThreadTabStrip(props: {
   const { location } = props;
   const { tabs, routeKey } = useWorktreeTabs(location);
   const tabActions = useThreadTabActions(location);
-  const { newTab, selectTab } = tabActions;
+  const { newTab, selectTab, moveTab } = tabActions;
   const closeTab = useStableCallback(tabActions.closeTab);
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (over) moveTab(String(active.id), String(over.id));
+  };
   const historyOpen = useRightPanelStore(
     (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
   );
@@ -232,44 +274,56 @@ export function ThreadTabStrip(props: {
         className="min-w-0 flex-1"
         data-thread-tab-list
       >
-        <div
-          role="tablist"
-          aria-label="Thread tabs"
-          className="flex h-full w-max items-center gap-1"
+        <DndContext
+          sensors={dragSensors}
+          collisionDetection={closestTabToPointer}
+          modifiers={TAB_DRAG_MODIFIERS}
+          onDragEnd={handleDragEnd}
         >
-          {tabs.map((tab) => (
-            <ThreadTab
-              key={tab.key}
-              tab={tab}
-              active={tab.key === routeKey}
-              projectCwd={props.projectCwd}
-              environmentId={location.environmentId}
-              closable={!isBlankLastTab(tabs)}
-              onSelect={selectTab}
-              onClose={closeTab}
-            />
-          ))}
-          <Tooltip>
-            <TooltipTrigger render={<span className="flex shrink-0" />}>
-              <Button
-                aria-label="New tab"
-                size="icon-xs"
-                variant="ghost-muted"
-                disabled={location.creatingWorktree}
-                onClick={() => newTab()}
-              >
-                <PlusIcon className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipPopup side="bottom">
-              {location.creatingWorktree
-                ? "New tabs open here once the worktree is ready"
-                : newTabLabel
-                  ? `New tab (${newTabLabel})`
-                  : "New tab"}
-            </TooltipPopup>
-          </Tooltip>
-        </div>
+          <div
+            role="tablist"
+            aria-label="Thread tabs"
+            className="flex h-full w-max items-center gap-1"
+          >
+            <SortableContext
+              items={tabs.map((tab) => tab.key)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {tabs.map((tab) => (
+                <ThreadTab
+                  key={tab.key}
+                  tab={tab}
+                  active={tab.key === routeKey}
+                  projectCwd={props.projectCwd}
+                  environmentId={location.environmentId}
+                  closable={!isBlankLastTab(tabs)}
+                  onSelect={selectTab}
+                  onClose={closeTab}
+                />
+              ))}
+            </SortableContext>
+            <Tooltip>
+              <TooltipTrigger render={<span className="flex shrink-0" />}>
+                <Button
+                  aria-label="New tab"
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  disabled={location.creatingWorktree}
+                  onClick={() => newTab()}
+                >
+                  <PlusIcon className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">
+                {location.creatingWorktree
+                  ? "New tabs open here once the worktree is ready"
+                  : newTabLabel
+                    ? `New tab (${newTabLabel})`
+                    : "New tab"}
+              </TooltipPopup>
+            </Tooltip>
+          </div>
+        </DndContext>
       </ScrollArea>
       <Tooltip>
         <TooltipTrigger
