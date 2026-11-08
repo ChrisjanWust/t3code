@@ -1,9 +1,14 @@
 import DocumentPages, { sanitizeDocumentHtml } from "./DocumentPages";
 import { act, render, stubGlobal, type Screen } from "../../../test/render";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
+import {
+  expectTablesUseMargins,
+  expectWideTableScrolls,
+  WIDE_TABLES_MARKDOWN,
+} from "../../../test/wideMarkdownTables";
 
 // Prepare the real worker before tests; Vite's worker transform adds a large inline source map.
 const { refresh, assetUrlState, pdfOpens, pdfWorkerUrl } = await vi.hoisted(async () => {
@@ -2901,4 +2906,28 @@ it.each([
   await expect(factory.fetch({ kind, filename: "missing" })).rejects.toThrow(
     `Unsupported PDF ${directory} asset.`,
   );
+});
+
+it("grows top-level Markdown tables into the pane margins and scrolls them in a narrow window", async () => {
+  const { innerWidth, innerHeight } = window;
+  onTestFinished(() => page.viewport(innerWidth, innerHeight));
+  await page.viewport(1400, 900);
+  const file = new Blob([WIDE_TABLES_MARKDOWN], { type: "text/markdown" });
+  const container = document.createElement("div");
+  container.style.cssText = "height: 900px; display: flex; flex-direction: column;";
+  await using screen = await render(
+    <AttachmentFilePreview
+      name="notes.md"
+      mimeType={file.type}
+      sizeBytes={file.size}
+      file={file}
+    />,
+    { container },
+  );
+  const markdown = () => screen.container.querySelector<HTMLElement>("[data-wide-tables]")!;
+  const scrollArea = () => markdown().closest<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
+
+  await vi.waitFor(() => expectTablesUseMargins(markdown(), scrollArea()));
+  await page.viewport(420, 900);
+  await vi.waitFor(() => expectWideTableScrolls(markdown(), scrollArea()));
 });

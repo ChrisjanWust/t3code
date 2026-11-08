@@ -30,6 +30,7 @@ import {
 } from "@t3tools/contracts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import * as DateTime from "effect/DateTime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
@@ -64,6 +65,13 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly archived?: boolean;
 }
 
+export interface SetWorktreeTitleInput extends CommandMetadata {
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  /** Null clears the manual title, which brings back the generated one. */
+  readonly title: string | null;
+}
+
 export interface DeleteProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly force?: boolean;
@@ -90,7 +98,10 @@ export interface DeleteThreadInput extends ThreadCommandInput {
 }
 export type ArchiveThreadInput = ThreadCommandInput;
 export type UnarchiveThreadInput = ThreadCommandInput;
-export type SettleThreadInput = ThreadCommandInput;
+export interface SettleThreadInput extends ThreadCommandInput {
+  /** Threads settled together share it, so the group can be reopened together. */
+  readonly settledAt?: string;
+}
 
 export interface UnsettleThreadInput extends ThreadCommandInput {
   readonly reason: "user";
@@ -336,6 +347,13 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly commandId: CommandId;
         readonly projectId: ProjectId;
         readonly force?: boolean;
+      }
+    | {
+        readonly type: "project.worktree-title.set";
+        readonly commandId: CommandId;
+        readonly projectId: ProjectId;
+        readonly worktreePath: string;
+        readonly title: string | null;
       },
 ) {
   return yield* request(WS_METHODS.projectsMutate, mutation);
@@ -395,6 +413,18 @@ export const deleteProject = Effect.fn("EnvironmentCommands.deleteProject")(func
   });
 });
 
+export const setWorktreeTitle = Effect.fn("EnvironmentCommands.setWorktreeTitle")(function* (
+  input: SetWorktreeTitleInput,
+) {
+  return yield* mutateProject({
+    type: "project.worktree-title.set",
+    commandId: yield* allocateCommandId(input),
+    projectId: input.projectId,
+    worktreePath: input.worktreePath,
+    title: input.title,
+  });
+});
+
 export const createThread = Effect.fn("EnvironmentCommands.createThread")(function* (
   input: CreateThreadInput,
 ) {
@@ -418,7 +448,6 @@ function simpleThreadCommand(
   type:
     | "thread.archive"
     | "thread.unarchive"
-    | "thread.settle"
     | "thread.pin"
     | "thread.unpin"
     | "thread.guest-share.close",
@@ -494,7 +523,12 @@ export const unarchiveThread = Effect.fn("EnvironmentCommands.unarchiveThread")(
 export const settleThread = Effect.fn("EnvironmentCommands.settleThread")(function* (
   input: SettleThreadInput,
 ) {
-  return yield* simpleThreadCommand("thread.settle", input);
+  return yield* dispatch({
+    type: "thread.settle",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    ...(input.settledAt === undefined ? {} : { settledAt: DateTime.makeUnsafe(input.settledAt) }),
+  });
 });
 
 export const pinThread = Effect.fn("EnvironmentCommands.pinThread")(function* (

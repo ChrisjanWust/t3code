@@ -455,6 +455,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "thread-tabs",
+    title: "Thread tabs",
+    to: "/settings/labs",
+    searchTerms: ["beta tabs worktree sidebar new tab close tab history paseo"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",

@@ -680,16 +680,23 @@ const CONTEXT_CHIP_CONTRAST = 5;
 const CONTEXT_CHIP_MESSAGE_VARIABLE = "--context-chip-message";
 const CONTEXT_CHIP_INVALID_VARIABLE = "--context-chip-invalid";
 
-export function contextChipVariables(colors: ThemeColors): Readonly<Record<string, string>> {
+// A higher target turns the blue white on mid-tone surfaces, and info text must still read as a link.
+const INFO_FOREGROUND_CONTRAST = 3;
+const INFO_FOREGROUND_VARIABLE = "--app-theme-info-foreground";
+// index.css paints --info-foreground as blue-700 in light and blue-400 in dark.
+const STANDARD_INFO_FOREGROUND = { light: "#1447e6", dark: "#51a2ff" } as const;
+
+function paintThemeColor(value: string, backdrop: ThemeRgbColor): ThemeRgbColor {
   // CSS paints surfaces from their unrounded OKLCH, so measure them unrounded.
-  const parsedCanvas = parseThemeColor(colors.canvas);
-  const canvas = parsedCanvas ? themeOklchToRgb(parsedCanvas.color, false) : THEME_WHITE_FOREGROUND;
-  const onCanvas = (value: string) => {
-    const parsed = parseThemeColor(value);
-    return parsed
-      ? mixThemeRgbColors(canvas, themeOklchToRgb(parsed.color, false), parsed.alpha)
-      : canvas;
-  };
+  const parsed = parseThemeColor(value);
+  return parsed
+    ? mixThemeRgbColors(backdrop, themeOklchToRgb(parsed.color, false), parsed.alpha)
+    : backdrop;
+}
+
+export function contextChipVariables(colors: ThemeColors): Readonly<Record<string, string>> {
+  const canvas = paintThemeColor(colors.canvas, THEME_WHITE_FOREGROUND);
+  const onCanvas = (value: string) => paintThemeColor(value, canvas);
   const isDark = (color: ThemeRgbColor) => themeRelativeLuminance(color) < 0.179;
   const messageMatchesCanvas = isDark(onCanvas(colors.messageSurface)) === isDark(canvas);
   const surfaces = [canvas, onCanvas(colors.surface), onCanvas(colors.surfaceRaised)];
@@ -718,13 +725,40 @@ export function contextChipVariables(colors: ThemeColors): Readonly<Record<strin
   return variables;
 }
 
-function applyContextChipVariables(root: HTMLElement, colors: ThemeColors): void {
+/** The standard info blue, lightened or darkened until it reads on the theme's chat and sidebar surfaces. */
+export function themeInfoForeground(colors: ThemeColors): string {
+  const canvas = paintThemeColor(colors.canvas, THEME_WHITE_FOREGROUND);
+  const sidebar = paintThemeColor(colors.sidebar, canvas);
+  const dark = themeRelativeLuminance(canvas) < 0.179;
+  const extreme = dark ? THEME_WHITE_FOREGROUND : THEME_BLACK_FOREGROUND;
+  // A surface of the opposite shade (a light sidebar on a dark canvas) cannot share one solve.
+  const surfaces = [
+    ...[colors.surface, colors.surfaceRaised, colors.surfaceOverlay, colors.messageSurface].map(
+      (value) => paintThemeColor(value, canvas),
+    ),
+    sidebar,
+    ...[colors.sidebarRowHover, colors.sidebarRowActive, colors.sidebarRowSelected].map((value) =>
+      paintThemeColor(value, sidebar),
+    ),
+  ].filter((surface) => themeContrastRatio(extreme, surface) >= INFO_FOREGROUND_CONTRAST);
+  const base = parseThemeColor(STANDARD_INFO_FOREGROUND[dark ? "dark" : "light"])!;
+  const solved = solveOklchLightness(
+    base.color,
+    [canvas, ...surfaces],
+    INFO_FOREGROUND_CONTRAST,
+    dark ? "lighter" : "darker",
+  );
+  return themeRgbToHexColor(themeOklchToRgb(solved));
+}
+
+function applyDerivedThemeVariables(root: HTMLElement, colors: ThemeColors): void {
   const variables = contextChipVariables(colors);
   root.style.removeProperty(CONTEXT_CHIP_MESSAGE_VARIABLE);
   root.style.removeProperty(CONTEXT_CHIP_INVALID_VARIABLE);
   for (const [variable, value] of Object.entries(variables)) {
     root.style.setProperty(variable, value);
   }
+  root.style.setProperty(INFO_FOREGROUND_VARIABLE, themeInfoForeground(colors));
 }
 
 const STANDARD_STATUS_COLORS = {
@@ -1611,7 +1645,7 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
   for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
-  applyContextChipVariables(root, colors);
+  applyDerivedThemeVariables(root, colors);
   setThemePreviewAppearance(appearance);
 }
 
@@ -1631,7 +1665,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
       root.style.setProperty(APP_THEME_VARIABLES[role], value);
     }
-    applyContextChipVariables(root, colors);
+    applyDerivedThemeVariables(root, colors);
     return;
   }
 
@@ -1639,7 +1673,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   for (const variable of Object.values(APP_THEME_VARIABLES)) {
     root.style.removeProperty(variable);
   }
-  applyContextChipVariables(root, getStandardPaintedThemeColors(appearance ?? "light"));
+  applyDerivedThemeVariables(root, getStandardPaintedThemeColors(appearance ?? "light"));
 }
 
 export function resolveThemeAppearance(

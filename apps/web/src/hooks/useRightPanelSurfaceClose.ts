@@ -12,10 +12,11 @@ import { useThreadTerminalActions } from "../components/terminal/useThreadTermin
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { focusPanelTerminalAfterClose } from "../lib/terminalFocus";
 import { readLocalApi } from "../localApi";
-import { setActivePreviewTab, useThreadPreviewState } from "../previewStateStore";
+import { readThreadPreviewState, setActivePreviewTab } from "../previewStateStore";
 import {
   selectActiveRightPanelSurface,
   selectThreadRightPanelState,
+  surfaceOwnerRef,
   useRightPanelStore,
   type RightPanelSurface,
 } from "../rightPanelStore";
@@ -44,7 +45,6 @@ export function useRightPanelSurfaceClose(input: {
     threadRef?.environmentId ?? null,
     AuthPreviewOperateScope,
   );
-  const previewState = useThreadPreviewState(threadRef);
   const terminalActions = useThreadTerminalActions(threadRef);
   const storeCloseTerminal = useTerminalUiStateStore((state) => state.closeTerminal);
   const surfaces = useRightPanelStore(
@@ -52,22 +52,23 @@ export function useRightPanelSurfaceClose(input: {
   );
 
   const releaseSurfaceResources = (ref: ScopedThreadRef, surface: RightPanelSurface) => {
+    const owner = surfaceOwnerRef(surface, ref);
     // Without preview access, server state remains until an authorized close or restart.
     if (canOperatePreview && surface.kind === "preview" && surface.resourceId) {
       void closePreviewSession({
         closePreview,
-        snapshot: previewState.sessions[surface.resourceId] ?? null,
+        snapshot: readThreadPreviewState(owner).sessions[surface.resourceId] ?? null,
         tabId: surface.resourceId,
-        threadRef: ref,
+        threadRef: owner,
       });
     }
     if (
       surface.kind === "terminal" &&
-      readEnvironmentScope(ref.environmentId, AuthTerminalOperateScope)
+      readEnvironmentScope(owner.environmentId, AuthTerminalOperateScope)
     ) {
       for (const terminalId of surface.terminalIds) {
-        storeCloseTerminal(ref, terminalId);
-        terminalActions.closeTerminalSession(terminalId, ref);
+        storeCloseTerminal(owner, terminalId);
+        terminalActions.closeTerminalSession(terminalId, owner);
       }
     }
     if (
@@ -90,7 +91,14 @@ export function useRightPanelSurfaceClose(input: {
     toClose: readonly RightPanelSurface[],
     closeSurfaces: () => void,
   ) => {
-    const message = agentControlledBrowserCloseConfirmation(toClose, previewState.desktopByTabId);
+    if (!threadRef) return;
+    const desktopByTabId = Object.assign(
+      {},
+      ...toClose.map(
+        (surface) => readThreadPreviewState(surfaceOwnerRef(surface, threadRef)).desktopByTabId,
+      ),
+    );
+    const message = agentControlledBrowserCloseConfirmation(toClose, desktopByTabId);
     if (!message) {
       closeSurfaces();
       return;
@@ -123,7 +131,10 @@ export function useRightPanelSurfaceClose(input: {
       threadRef,
     );
     if (nextActiveSurface?.kind === "preview" && nextActiveSurface.resourceId) {
-      setActivePreviewTab(threadRef, nextActiveSurface.resourceId);
+      setActivePreviewTab(
+        surfaceOwnerRef(nextActiveSurface, threadRef),
+        nextActiveSurface.resourceId,
+      );
     }
     focusPanelTerminalAfterClose(threadRef, activeId);
   };

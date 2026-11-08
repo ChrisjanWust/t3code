@@ -20,6 +20,7 @@ vi.mock("../components/ChatView.logic", () => ({
 }));
 vi.mock("../previewStateStore", () => ({
   useThreadPreviewState: () => ({ sessions: {}, desktopByTabId: {} }),
+  readThreadPreviewState: () => ({ sessions: {}, desktopByTabId: {} }),
   setActivePreviewTab: () => {},
   beginPreviewSessionClose: () => {},
   cancelPreviewSessionClose: () => {},

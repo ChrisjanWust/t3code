@@ -307,6 +307,22 @@ it.layer(layerTest)("ProjectService", (it) => {
         [projectId],
       );
 
+      yield* TestClock.adjust("1 minute");
+      const worktreePath = "/work/project/.t3/worktrees/pairing";
+      yield* service.updateWorktreeTitle({
+        commandId: CommandId.make("command:project:worktree-title"),
+        projectId,
+        worktreePath,
+        change: { type: "manual", title: "Pairing expiry" },
+      });
+      const titledShell = Option.getOrThrow(yield* service.getShell(projectId));
+      assert.deepEqual(
+        titledShell.worktreeTitles?.map((title) => [title.worktreePath, title.manual]),
+        [[worktreePath, "Pairing expiry"]],
+      );
+      // A worktree title does not move the project in recency order.
+      assert.equal(titledShell.updatedAt, reset.updatedAt);
+
       const deleted = yield* service.delete({
         commandId: CommandId.make("command:project:delete"),
         projectId,
@@ -325,7 +341,13 @@ it.layer(layerTest)("ProjectService", (it) => {
       `;
       assert.deepEqual(
         changes.map((change) => change.event_type),
-        ["project.created", "project.meta-updated", "project.meta-updated", "project.deleted"],
+        [
+          "project.created",
+          "project.meta-updated",
+          "project.meta-updated",
+          "project.meta-updated",
+          "project.deleted",
+        ],
       );
     }),
   );
@@ -543,6 +565,12 @@ it.layer(layerTest)("ProjectService", (it) => {
         title: "Delete retry",
         workspaceRoot: "/work/delete-retry",
       });
+      // Settle create's background enrichment so it cannot land between the two deletes.
+      yield* waitForProject(
+        service,
+        projectId,
+        (project) => project.repositoryIdentity !== null && project.faviconPath !== null,
+      );
       const input = { commandId: CommandId.make("command:delete-retry:delete"), projectId };
       const deleted = yield* service.delete(input);
       assert.deepEqual(yield* service.delete(input), deleted);

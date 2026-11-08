@@ -1278,7 +1278,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 /* Modified files get a muted blue so added and deleted files lead. Built from the info token,
-   which themes do not override, so it stays blue in every theme. */
+   which themes only re-light, so it stays blue in every theme. */
 :root {
   --diff-modified-icon: color-mix(in srgb, var(--info-foreground) 50%, var(--muted-foreground));
 
@@ -1318,8 +1318,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 /* Theme files are expressed in app color roles and mapped to the existing
    semantic surface tokens here. Keep this block after the sidebar-version
    compatibility overrides so both navigation implementations receive the
-   same palette. Success, info, provider, and channel identity colors remain
-   independent; error, warning, and update roles are themeable below. */
+   same palette. Success, provider, and channel identity colors remain
+   independent; error, warning, and update roles are themeable below. Info keeps
+   its blue, re-lit by themePalette.ts to read on the theme's surfaces. */
 /* The non-empty marker adds enough specificity to outrank the generated root
    dark variant without reintroducing raw `.dark` selectors. */
 html[data-theme-id]:not([data-theme-id=""]) {
@@ -1368,6 +1369,7 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --warning-surface: var(--app-theme-warning-surface);
   --update: var(--app-theme-update);
   --update-foreground: var(--app-theme-update-foreground);
+  --info-foreground: var(--app-theme-info-foreground);
   --border: var(--app-theme-border);
   --input: var(--app-theme-input);
   --ring: var(--app-theme-focus);
@@ -2218,12 +2220,12 @@ code {
 }
 
 /* Diagnostics-style tables: row separators only, and a scroll-fade container
-   for horizontal overflow. Cells wrap and the table fits its lane. The root
-   chat-markdown wrapping rules (overflow-wrap: anywhere) would let columns
-   shrink to single characters, so restore word-boundary wrapping: the min
-   column width is the longest word, and only wider content scrolls. */
+   for horizontal overflow. Auto layout sizes each column between its longest
+   word and its unwrapped line. The root chat-markdown wrapping rules
+   (overflow-wrap: anywhere) would let columns shrink to single characters, so
+   restore word-boundary wrapping: the min column width is the longest word,
+   and only wider content scrolls. */
 .chat-markdown table {
-  width: 100%;
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;
@@ -2259,15 +2261,38 @@ code {
   border-bottom: 1px solid color-mix(in srgb, var(--contrast-border) 60%, transparent);
 }
 
-/* Caps a long path, URL, or chip at 24rem; text past the cap wraps. */
-.chat-markdown :is(th, td) {
-  max-width: 24rem;
-  overflow-wrap: break-word;
+/* A path or URL breaks mid-word instead of holding its column wider than ~18
+   characters. */
+.chat-markdown [data-long-word] {
+  box-sizing: content-box;
+  min-width: 18ch;
+  overflow-wrap: anywhere;
 }
 
-/* Formula cells keep their natural width and scroll with the table. */
-.chat-markdown :is(th, td):has([data-markdown-math]) {
-  max-width: none;
+/* Surfaces that opt in set --chat-markdown-table-gutter to the free space
+   beside the text column. A top-level table grows into it evenly on both
+   sides; the capped leading spacer keeps a narrow table aligned with the text. */
+.chat-markdown[data-wide-tables] > .chat-markdown-table-container {
+  margin-inline: calc(-1 * var(--chat-markdown-table-gutter, 0px));
+}
+
+.chat-markdown[data-wide-tables] > .chat-markdown-table-container::before,
+.chat-markdown[data-wide-tables] > .chat-markdown-table-container::after {
+  content: "";
+  flex: 1 1 0;
+}
+
+.chat-markdown[data-wide-tables] > .chat-markdown-table-container::before {
+  max-width: var(--chat-markdown-table-gutter, 0px);
+}
+
+/* A Markdown document centered in a pane that is an inline-size container;
+   its tables may widen as far as the document's own padding. */
+.chat-markdown-document {
+  --chat-markdown-table-gutter: max(0px, (100cqw - var(--container-4xl)) / 2);
+  max-width: var(--container-4xl);
+  margin-inline: auto;
+  padding: 1.25rem 1.5rem;
 }
 
 :root {

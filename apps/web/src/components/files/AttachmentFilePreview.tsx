@@ -296,11 +296,12 @@ export function AttachmentFilePreview(props: {
         <MermaidFilePreview text={content.text} />
       </Suspense>
     ) : kind === "markdown" && rendered ? (
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="@container min-h-0 flex-1">
         <ChatMarkdown
           text={maskMarkdownFrontmatter(content.text)}
           cwd={undefined}
-          className="mx-auto max-w-4xl px-6 py-5"
+          className="chat-markdown-document"
+          wideTables
         />
       </ScrollArea>
     ) : (

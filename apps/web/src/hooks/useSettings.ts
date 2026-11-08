@@ -422,6 +422,18 @@ export function useBoringSidebarEnabled(): boolean {
   );
 }
 
+/** Worktree rows and thread tabs need the default sidebar, so the boring one turns them off. */
+export function useThreadTabsEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const enabled = useClientSettings(
+    (settings) =>
+      settings.threadTabsEnabled &&
+      !settings.boringSidebarEnabled &&
+      !settings.legacySidebarEnabled,
+  );
+  return settingsHydrated && enabled;
+}
+
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,

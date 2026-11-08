@@ -27,6 +27,7 @@ import {
   encodeProjectCommandRejection,
   planProjectCommand,
   type ProjectCommand,
+  type ProjectWorktreeTitleChange,
 } from "../orchestration-v2/ProjectCommands.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -46,6 +47,13 @@ export interface ProjectUpdateInput extends ProjectUpdatePayload {
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
+
+export interface ProjectWorktreeTitleInput {
+  readonly commandId: CommandId;
+  readonly projectId: ProjectId;
+  readonly worktreePath: string;
+  readonly change: ProjectWorktreeTitleChange;
+}
 
 export interface ProjectDeleteInput {
   readonly commandId: CommandId;
@@ -134,6 +142,9 @@ export class ProjectService extends Context.Service<
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
+    readonly updateWorktreeTitle: (
+      input: ProjectWorktreeTitleInput,
+    ) => Effect.Effect<void, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
       options?: { readonly includeDeleted?: boolean },
@@ -239,7 +250,10 @@ export const make = Effect.gen(function* () {
     const { projectId } = command;
     const dispatchError = (cause: unknown) =>
       new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
-    const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
+    const workspaceRoot =
+      command.type === "project.create" || command.type === "project.meta.update"
+        ? command.workspaceRoot
+        : undefined;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
       const workspaceOwner =
@@ -534,6 +548,9 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const updateWorktreeTitle: ProjectService["Service"]["updateWorktreeTitle"] = (input) =>
+    commit({ type: "project.worktree-title.update", ...input });
+
   const enrichShell = (shell: OrchestrationProjectShell) =>
     projectEnrichment.getAvailable(shell.workspaceRoot).pipe(
       Effect.map((enrichment) => ({
@@ -609,6 +626,7 @@ export const make = Effect.gen(function* () {
     bootstrap,
     update,
     delete: deleteProject,
+    updateWorktreeTitle,
     getById,
     getByWorkspaceRoot,
     snapshot,

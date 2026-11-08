@@ -130,6 +130,18 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
+### Name worktrees
+
+With **Settings → Labs → Thread tabs** on, each sidebar row is a worktree. A new worktree gets a
+short title from its first message, written by the model in **Settings → Threads → Text
+generation**. As you start threads in it, the title follows the work, but slowly: it changes
+only after the threads it was written from have been quiet for 20 minutes, at most once every 30
+minutes, and only when the subject has actually moved.
+
+To name a worktree yourself, choose **Rename worktree** from its menu or press F2. Your name stays
+until you clear it, which brings back the generated title, or choose **Reset title**.
+**Regenerate title** writes a fresh title right away and replaces your name.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed
@@ -171,6 +183,9 @@ when the thread settles** enabled in Settings > Projects > Actions. You can also
 `"stopOnSettle": true` on a `t3.json` action and import it there. Start the command through
 that action so T3 can stop its terminal and child processes. Commands started through an
 agent's own shell tools are managed by the provider.
+
+With **Settings → Labs → Thread tabs** on, the `thread.settle` shortcut settles the whole
+worktree, as its sidebar row's **Settle** button does. Closing a tab settles only that tab.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a

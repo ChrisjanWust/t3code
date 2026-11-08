@@ -27,16 +27,18 @@ export function hastPlainTextDeep(node: unknown): string {
   return node.children.map(hastPlainTextDeep).join("");
 }
 
-export function hastHasText(node: unknown): boolean {
+export function hastSomeText(node: unknown, predicate: (text: string) => boolean): boolean {
   if (!node || typeof node !== "object") return false;
-  if (
-    "type" in node &&
-    node.type === "text" &&
-    "value" in node &&
-    typeof node.value === "string" &&
-    node.value.trim().length > 0
-  ) {
-    return true;
+  if ("type" in node && node.type === "text" && "value" in node && typeof node.value === "string") {
+    return predicate(node.value);
   }
-  return "children" in node && Array.isArray(node.children) && node.children.some(hastHasText);
+  return (
+    "children" in node &&
+    Array.isArray(node.children) &&
+    node.children.some((child) => hastSomeText(child, predicate))
+  );
+}
+
+export function hastHasText(node: unknown): boolean {
+  return hastSomeText(node, (text) => text.trim().length > 0);
 }

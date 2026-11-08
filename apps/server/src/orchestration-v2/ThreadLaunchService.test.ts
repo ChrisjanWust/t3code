@@ -187,6 +187,7 @@ function makeHarness(options: HarnessOptions = {}) {
       bootstrap: () => Effect.die("unused"),
       update: () => Effect.die("unused"),
       delete: () => Effect.die("unused"),
+      updateWorktreeTitle: () => Effect.die("unused"),
       listPage: () => Effect.die("unused"),
       getById: (id) =>
         Effect.succeed(
@@ -255,6 +256,7 @@ function makeHarness(options: HarnessOptions = {}) {
               faviconPath: null,
               projectIcon: null,
               scripts: project.scripts,
+              worktreeTitles: [],
               pinnedAt: null,
               archivedAt: null,
               createdAt: project.createdAt,

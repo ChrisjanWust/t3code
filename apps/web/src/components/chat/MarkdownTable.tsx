@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide";
 import { useRef, type ComponentProps } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { cn } from "../../lib/utils";
 import {
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
@@ -34,37 +35,46 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
   };
 
   return (
-    <div ref={containerRef} className="chat-markdown-table-container">
-      <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
-        <table {...props}>{children}</table>
-      </ScrollArea>
-      {/* Stays within the row's px-1: the chat lane clips sideways overflow. */}
-      <div className="mt-0.5 -mx-1 flex items-center justify-end select-none">
-        <Menu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <MenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost-muted"
-                      size="icon-xs"
-                      aria-label={copyLabel}
-                    />
-                  }
-                />
-              }
-            >
-              <MorphIcon className="size-3" icon={copied ? Check : Copy} />
-            </TooltipTrigger>
-            <TooltipPopup side="top">{copyLabel}</TooltipPopup>
-          </Tooltip>
-          <MenuPopup align="end">
-            <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
-            <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
-          </MenuPopup>
-        </Menu>
+    <div
+      ref={containerRef}
+      // An RTL table hugs the right edge. dir on the row would also flip the scroller, whose
+      // Base UI scroll fades assume LTR.
+      className={cn(
+        "chat-markdown-table-container flex",
+        props.dir === "rtl" && "flex-row-reverse",
+      )}
+    >
+      <div className="min-w-0">
+        <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
+          <table {...props}>{children}</table>
+        </ScrollArea>
+        <div className="mt-0.5 -mx-1 flex items-center justify-end select-none">
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost-muted"
+                        size="icon-xs"
+                        aria-label={copyLabel}
+                      />
+                    }
+                  />
+                }
+              >
+                <MorphIcon className="size-3" icon={copied ? Check : Copy} />
+              </TooltipTrigger>
+              <TooltipPopup side="top">{copyLabel}</TooltipPopup>
+            </Tooltip>
+            <MenuPopup align="end">
+              <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
+              <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
       </div>
     </div>
   );

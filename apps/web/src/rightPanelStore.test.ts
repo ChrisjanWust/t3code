@@ -7,12 +7,14 @@ import { reopenClosedView } from "./reopenClosedView";
 import {
   hostRightPanel,
   migratePersistedRightPanelState,
+  panelTerminalIdsOwnedBy,
   pullRequestSurface,
   pullRequestSurfaceId,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
+  setRightPanelKeyResolver,
   useRightPanelStore,
 } from "./rightPanelStore";
 
@@ -29,6 +31,14 @@ beforeEach(() => {
   });
 });
 
+const refOutside = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-C"));
+
+/** A and B share one panel, as tabs of one worktree do; C keeps its own. */
+function shareWorktreePanel(): Disposable {
+  setRightPanelKeyResolver((ref) => (ref.threadId === refOutside.threadId ? null : "worktree:1"));
+  return { [Symbol.dispose]: () => setRightPanelKeyResolver(null) };
+}
+
 async function reloadRightPanelStore() {
   const { storage, name } = useRightPanelStore.persist.getOptions();
   const persisted = await storage!.getItem(name!);
@@ -38,6 +48,67 @@ async function reloadRightPanelStore() {
   await useRightPanelStore.persist.rehydrate();
   expect(useRightPanelStore.persist.hasHydrated()).toBe(true);
 }
+
+describe("shared worktree panels", () => {
+  it("keeps the open file when switching to another tab of the worktree", () => {
+    using _shared = shareWorktreePanel();
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "src/app.ts");
+    store.openFile(refA, "src/other.ts");
+    store.activateSurface(refA, "file:src/app.ts");
+
+    const byThreadKey = () => useRightPanelStore.getState().byThreadKey;
+    expect(selectActiveRightPanelSurface(byThreadKey(), refB)?.id).toBe("file:src/app.ts");
+    expect(selectThreadRightPanelState(byThreadKey(), refOutside).isOpen).toBe(false);
+
+    store.removeThread(refA);
+    expect(selectActiveRightPanelSurface(byThreadKey(), refB)?.id).toBe("file:src/app.ts");
+  });
+
+  it("keeps each thread's browsers and terminals as that thread's", () => {
+    using _shared = shareWorktreePanel();
+    const store = useRightPanelStore.getState();
+    store.openBrowser(refA, "tab-a");
+    store.openTerminal(refA, "term-1");
+    store.openTerminal(refB, "term-2");
+
+    store.reconcileBrowserSurfaces(refB, ["tab-b"]);
+    store.reconcileBrowserSurfaces(refA, ["tab-a"]);
+
+    const surfaces = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      refB,
+    ).surfaces;
+    expect(
+      surfaces.map((surface) => [
+        surface.id,
+        "owner" in surface ? surface.owner?.threadId : undefined,
+      ]),
+    ).toEqual([
+      ["browser:tab-a", refA.threadId],
+      ["terminal:term-1", refA.threadId],
+      ["terminal:term-2", refB.threadId],
+      ["browser:tab-b", refB.threadId],
+    ]);
+    expect([...panelTerminalIdsOwnedBy(surfaces, refA)]).toEqual(["term-1"]);
+    expect([...panelTerminalIdsOwnedBy(surfaces, refB)]).toEqual(["term-2"]);
+  });
+
+  it("remembers a closed tab against the thread that closed it", () => {
+    using _shared = shareWorktreePanel();
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "src/app.ts");
+    store.closeSurface(refB, "file:src/app.ts");
+
+    expect(
+      useClosedViewStore
+        .getState()
+        .entries.map((entry) =>
+          entry.kind === "panel-tab" ? [entry.threadRef.threadId, entry.surface.id] : null,
+        ),
+    ).toEqual([[refB.threadId, "file:src/app.ts"]]);
+  });
+});
 
 describe("rightPanelStore", () => {
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
@@ -1055,6 +1126,7 @@ describe("rightPanelStore", () => {
       store.closeSurface(ref, active!.id);
       await reopenClosedView(useClosedViewStore.getState().entries[0]!, {
         workspaceAvailable: true,
+        reopenTab: async () => false,
         openPreview: () => {
           throw new Error("A PR tab must not create a browser session");
         },
@@ -1123,6 +1195,7 @@ describe("rightPanelStore", () => {
       id: "terminal:term-1",
       kind: "terminal",
       resourceId: "term-1",
+      owner: refA,
       terminalIds: ["term-1", "term-2"],
       activeTerminalId: "term-2",
     });
@@ -1133,6 +1206,7 @@ describe("rightPanelStore", () => {
       id: "terminal:term-1",
       kind: "terminal",
       resourceId: "term-1",
+      owner: refA,
       terminalIds: ["term-2"],
       activeTerminalId: "term-2",
     });
@@ -1169,7 +1243,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "browser:tab-a",
-      surfaces: [{ id: "browser:tab-a", kind: "preview", resourceId: "tab-a" }],
+      surfaces: [{ id: "browser:tab-a", kind: "preview", resourceId: "tab-a", owner: refA }],
     });
   });
 

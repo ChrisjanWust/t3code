@@ -953,7 +953,7 @@ function RenderedMarkdownSurface({
   useFileSaveSession(saveTarget, onPendingChange);
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    <ScrollArea className="@container min-h-0 flex-1">
       <FileMarkdownPreview
         text={contents}
         cwd={cwd}

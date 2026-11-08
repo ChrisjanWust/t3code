@@ -15,9 +15,11 @@ import {
 import { useDiffPanelStore } from "../../diffPanelStore";
 import { type ThreadPanelPresentation } from "../../rightPanelLayout";
 import {
+  isSurfaceOwnedBy,
   selectActiveRightPanel,
   selectThreadPanelOpen,
   type RightPanelSurface,
+  surfaceOwnerRef,
   useRightPanelStore,
 } from "../../rightPanelStore";
 import { requestWorkspaceContentFocus, requestWorkspaceFocus } from "../../lib/workspaceFocus";
@@ -168,7 +170,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const openFileSurfaceStable = useStableCallback(openFileSurface);
   const closePreviewPanel = () => {
     if (activeThreadRef) {
-      if (activeRightPanelSurface?.kind === "preview" && activeRightPanelSurface.resourceId) {
+      if (
+        activeRightPanelSurface?.kind === "preview" &&
+        activeRightPanelSurface.resourceId &&
+        isSurfaceOwnedBy(activeRightPanelSurface, activeThreadRef)
+      ) {
         usePreviewMiniPlayerStore
           .getState()
           .open(activeThreadRef, browserMiniPlayerSource(activeRightPanelSurface.resourceId));
@@ -208,10 +214,10 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     });
     useRightPanelStore.getState().activateSurface(activeThreadRef, surface.id);
     if (surface.kind === "preview" && surface.resourceId) {
-      setActivePreviewTab(activeThreadRef, surface.resourceId);
+      setActivePreviewTab(surfaceOwnerRef(surface, activeThreadRef), surface.resourceId);
     }
     if (surface.kind === "terminal") {
-      focusTerminal(activeThreadRef, surface.activeTerminalId);
+      focusTerminal(surfaceOwnerRef(surface, activeThreadRef), surface.activeTerminalId);
     }
     if (surface.kind === "diff" && !diffOpen) {
       onDiffPanelOpen?.();

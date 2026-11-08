@@ -32,6 +32,8 @@ describe("mutateProjectWithClone", () => {
         {
           create: () => Effect.die("unused"),
           update: () => Effect.die("unused"),
+          updateWorktreeTitle: () => Effect.die("unused"),
+          getById: () => Effect.die("unused"),
           delete: () => Effect.fail(rejected),
         },
         { discard: () => Effect.die("must not discard a project that still exists") },
@@ -50,6 +52,8 @@ describe("mutateProjectWithClone", () => {
       const projects = {
         create: () => Effect.die("unused"),
         update: () => Effect.die("unused"),
+        updateWorktreeTitle: () => Effect.die("unused"),
+        getById: () => Effect.die("unused"),
         // The delete event is already durable while its post-commit cleanup runs.
         delete: () =>
           Deferred.succeed(committed, undefined).pipe(

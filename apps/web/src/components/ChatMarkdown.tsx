@@ -210,7 +210,12 @@ import { canUseMarkdownFileShellActions } from "./chat/MarkdownFileLink.logic";
 import { rehypeChipPunctuation } from "./chat/markdownChipPunctuation";
 import { handleMarkdownFragmentClick, rehypeHeadingIds } from "./chat/markdownFragments";
 import { rehypeTextDirection } from "./chat/markdownTextDirection";
-import { hastHasText, hastPlainTextDeep, plainHastText } from "./chat/markdownHast.logic";
+import {
+  hastHasText,
+  hastPlainTextDeep,
+  hastSomeText,
+  plainHastText,
+} from "./chat/markdownHast.logic";
 import {
   extractCodeBlock,
   extractFenceLanguage,
@@ -251,6 +256,8 @@ interface ChatMarkdownProps {
   /** The change request's repository, when it can differ from the checkout at `cwd`. */
   sourceControlMediaRepository?: string | undefined;
   headingLevelOffset?: number | undefined;
+  /** Top-level tables may grow into `--chat-markdown-table-gutter` on each side of the text. */
+  wideTables?: boolean;
 }
 
 export interface ChatMarkdownContextReference {
@@ -953,6 +960,20 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   };
 }
 
+const LONG_TABLE_WORD = /\S{19,}/;
+
+function markdownTableCellRenderer(Tag: "td" | "th") {
+  return function MarkdownTableCell({
+    node,
+    ...props
+  }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
+    // Lets index.css break a path or URL mid-word instead of sizing its column to it. Text
+    // nodes are tested apart so words split by <br> don't join.
+    const longWord = hastSomeText(node, (text) => LONG_TABLE_WORD.test(text));
+    return <Tag {...props} data-long-word={longWord ? "" : undefined} />;
+  };
+}
+
 // Native word selection stops at hyphens and dots, so a double-click takes the whole span.
 function selectInlineCode(event: ReactMouseEvent<HTMLElement>) {
   window.getSelection()?.selectAllChildren(event.currentTarget);
@@ -1560,6 +1581,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
   table: function MarkdownTableRenderer({ node: _node, ...props }) {
     return <MarkdownTable {...props} />;
   },
+  td: markdownTableCellRenderer("td"),
+  th: markdownTableCellRenderer("th"),
   details: function MarkdownDetailsRenderer({ node: _node, children, open: detailsOpen }) {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
   },
@@ -1726,6 +1749,7 @@ function ChatMarkdown({
   lineBreaks = false,
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
+  wideTables = false,
   ...props
 }: ChatMarkdownProps) {
   const { componentState, handleCopy, markdownRef, localMediaPreview, closeLocalMediaPreview } =
@@ -1774,6 +1798,7 @@ function ChatMarkdown({
         className,
       )}
       data-streaming={componentState.isStreaming ? "" : undefined}
+      data-wide-tables={wideTables ? "" : undefined}
       onCopy={handleCopy}
     >
       <ChatMarkdownRendererContext value={componentState}>
