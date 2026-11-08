@@ -104,7 +104,7 @@ const tabTitles = () =>
     .map((element) => element.textContent);
 // A row's accessible name leads with its label, then its status and project.
 const sidebarRow = (label: string) =>
-  page.getByRole("treeitem", { name: new RegExp(`^${label}(,|$)`) });
+  page.getByRole("button", { name: new RegExp(`^${label}(,|$)`) });
 const rowTabCount = (label: string) =>
   sidebarRow(label)
     .element()

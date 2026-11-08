@@ -2,6 +2,7 @@ import { type ProjectMutation } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { type ProjectCloneTracker } from "./ProjectCloneTracker.ts";
 import { ProjectNotFoundError, type ProjectService } from "./ProjectService.ts";
 
 type ProjectMutations = Pick<
@@ -45,6 +46,8 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultThreadEnvMode: mutation.defaultThreadEnvMode }),
         ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
+        ...(mutation.pinned === undefined ? {} : { pinned: mutation.pinned }),
+        ...(mutation.archived === undefined ? {} : { archived: mutation.archived }),
       });
 
     case "project.delete":
@@ -68,4 +71,18 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
       return project.value;
     }
   }
+});
+
+// A disconnect after deletion commits must not leave the in-memory clone record behind.
+export const mutateProjectWithClone = Effect.fn("mutateProjectWithClone")(function* (
+  projects: ProjectMutations,
+  clones: Pick<ProjectCloneTracker["Service"], "discard">,
+  mutation: ProjectMutation,
+) {
+  if (mutation.type !== "project.delete")
+    return yield* projectMutationOperation(projects, mutation);
+  return yield* projectMutationOperation(projects, mutation).pipe(
+    Effect.tap(() => clones.discard(mutation.projectId)),
+    Effect.uninterruptible,
+  );
 });

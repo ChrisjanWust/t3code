@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -55,7 +55,7 @@ const keyOf = (key: { readonly projectId: ProjectId; readonly worktreePath: stri
   JSON.stringify([key.projectId, key.worktreePath]);
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
@@ -138,7 +138,7 @@ const make = Effect.gen(function* () {
     if (title.length === 0) return entry ?? null;
 
     yield* projects.updateWorktreeTitle({
-      commandId: CommandId.make(`server:worktree-title:${yield* crypto.randomUUIDv4()}`),
+      commandId: CommandId.make(`server:worktree-title:${yield* random.uuidV4()}`),
       projectId: input.projectId,
       worktreePath: input.worktreePath,
       change: {

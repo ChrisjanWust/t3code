@@ -82,6 +82,7 @@ function tabStatusClassName(tab: ThreadTabItem): string | null {
       return "bg-warning";
     case "failed":
       return "bg-destructive";
+    case "preparing":
     case "working":
     case "waiting":
       return "bg-info";
