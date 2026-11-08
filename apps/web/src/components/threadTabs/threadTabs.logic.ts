@@ -179,14 +179,15 @@ export function collapseToWorktreeRows<T extends WorktreeLocation>(
 }
 
 /**
- * A worktree dates from its first thread, so a new tab in an old worktree leaves its row
- * where creation order put it. Pass every listed thread: closed tabs still date the worktree.
+ * A worktree dates from its first open thread, so a new tab leaves its row in place. Settled
+ * threads don't count: the server pages older ones, so they would move rows as pages load.
  */
-export function worktreeCreatedAtMs<T extends WorktreeLocation & { readonly createdAt: string }>(
-  threads: readonly T[],
-): (thread: T) => number {
+export function worktreeCreatedAtMs<
+  T extends WorktreeLocation & Pick<SidebarThreadSummary, "createdAt" | "settledOverride">,
+>(threads: readonly T[]): (thread: T) => number {
   const earliest = new Map<string, number>();
   for (const thread of threads) {
+    if (thread.settledOverride === "settled") continue;
     const key = worktreeKey(thread);
     const createdAt = threadCreatedAtMs(thread);
     if (createdAt < (earliest.get(key) ?? Number.POSITIVE_INFINITY)) {

@@ -410,6 +410,11 @@ function resolveDraggedOrders(input: {
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
     list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
+  const activeByReturn = (): readonly EnvironmentThreadShell[] =>
+    sortInboxThreadsByReturn(
+      [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
+      inboxReturns.returnedAt,
+    );
   return {
     settledOrder: sortSettledThreads([
       ...others(settledThreads),
@@ -417,14 +422,8 @@ function resolveDraggedOrders(input: {
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
       ? (createdAtMs === null
-          ? sortInboxThreadsByReturn(
-              [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-              inboxReturns.returnedAt,
-            )
-          : sortThreadsByCreatedAt(
-              [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-              createdAtMs,
-            )
+          ? activeByReturn()
+          : sortThreadsByCreatedAt(activeByReturn(), createdAtMs)
         ).map(threadShellKey)
       : undefined,
   };
@@ -755,17 +754,15 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     : groupByWorktree
       ? worktreeCreatedAtMs(visible)
       : threadCreatedAtMs;
+  // Layered on the default order, so a worktree's row keeps the thread that order picks.
+  const byCreation = (list: EnvironmentThreadShell[]) =>
+    createdAtMs === null ? list : sortThreadsByCreatedAt(list, createdAtMs);
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive =
-    createdAtMs !== null
-      ? sortActiveBySend || workingShelfEnabled
-        ? sortThreadsByCreatedAt(active, createdAtMs)
-        : sortThreadsForSidebar(active, createdAtMs)
-      : sortActiveBySend
-        ? sortWorkingThreadsBySend(active)
-        : workingShelfEnabled
-          ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-          : sortThreadsForSidebar(active);
+  const sortedActive = sortActiveBySend
+    ? byCreation(sortWorkingThreadsBySend(active))
+    : workingShelfEnabled
+      ? byCreation(sortInboxThreadsByReturn(active, inboxObservation.returnedAt))
+      : sortThreadsForSidebar(active, createdAtMs ?? undefined);
   const sections = {
     pinned:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -783,10 +780,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    working:
-      createdAtMs === null
-        ? sortWorkingThreadsBySend(working)
-        : sortThreadsByCreatedAt(working, createdAtMs),
+    working: byCreation(sortWorkingThreadsBySend(working)),
     snoozed: snoozed.toSorted(
       (left, right) =>
         firstValidTimestampMs(left.snoozedUntil ?? null) -

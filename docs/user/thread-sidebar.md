@@ -134,7 +134,7 @@ open.
 
 **Settings → General → Thread order** on web and desktop chooses how sidebar rows are ordered:
 **Recent activity**, the default, or **Created at**, newest first. With thread tabs on, a worktree
-row dates from its first thread, so a new tab in an old worktree does not move it up. Either way,
+row dates from its oldest open thread, so a new tab in an old worktree does not move it up. Either way,
 pinned threads and active threads you have dragged keep their place, Snoozed stays in wake order,
 and Settled stays in settlement order. Each device keeps its own choice.
 
@@ -157,7 +157,7 @@ Threads that are working or waiting on work they will resume from move into a co
 That includes subagents, watched pull requests, and background commands or monitors the agent
 says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
 there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
-answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
+answer, or to its creation slot when you sort by creation date. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
 This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
