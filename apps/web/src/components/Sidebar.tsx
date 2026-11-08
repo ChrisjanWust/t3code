@@ -34,7 +34,11 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
-import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  sortSettledThreads,
+  sortThreadsByCreatedAt,
+  threadCreatedAtMs,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -137,6 +141,7 @@ import {
 } from "../hooks/useSettings";
 import {
   collapseToWorktreeRows,
+  worktreeCreatedAtMs,
   draftWorktreeKey,
   findWorktreeTitle,
   isOpenTab,
@@ -369,6 +374,8 @@ interface SidebarThreadPartitionInput {
   readonly groupByWorktree: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  /** The user's thread order: creation date instead of recent activity. */
+  readonly sortByCreation: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -395,21 +402,28 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly createdAtMs: ((thread: EnvironmentThreadShell) => number) | null;
 }): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled, createdAtMs } =
+    input;
   const thread = threadByKey.get(drag.activeKey);
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
     list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
+  const activeByReturn = (): readonly EnvironmentThreadShell[] =>
+    sortInboxThreadsByReturn(
+      [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
+      inboxReturns.returnedAt,
+    );
   return {
     settledOrder: sortSettledThreads([
       ...others(settledThreads),
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
-          [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+      ? (createdAtMs === null
+          ? activeByReturn()
+          : sortThreadsByCreatedAt(activeByReturn(), createdAtMs)
         ).map(threadShellKey)
       : undefined,
   };
@@ -457,6 +471,7 @@ function useSidebarThreads(input: {
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+  const sortByCreation = useClientSettings((s) => s.sidebarThreadSortOrder) === "created_at";
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -502,6 +517,7 @@ function useSidebarThreads(input: {
     workingShelfEnabled,
     groupByWorktree,
     sortActiveBySend: folderGroups !== null,
+    sortByCreation,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -661,6 +677,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     workingShelfEnabled,
     groupByWorktree,
     sortActiveBySend,
+    sortByCreation,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
@@ -730,12 +747,22 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     }
   }
   // Availability gates dragging only; sorting must stay consistent across clients.
+  // Pinned stays manual, Snoozed by wake time and Settled by settle time, which the
+  // server pages by. Creation order dates a worktree row from its first thread.
+  const createdAtMs = !sortByCreation
+    ? null
+    : groupByWorktree
+      ? worktreeCreatedAtMs(visible)
+      : threadCreatedAtMs;
+  // Layered on the default order, so a worktree's row keeps the thread that order picks.
+  const byCreation = (list: EnvironmentThreadShell[]) =>
+    createdAtMs === null ? list : sortThreadsByCreatedAt(list, createdAtMs);
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
+    ? byCreation(sortWorkingThreadsBySend(active))
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
+      ? byCreation(sortInboxThreadsByReturn(active, inboxObservation.returnedAt))
+      : sortThreadsForSidebar(active, createdAtMs ?? undefined);
   const sections = {
     pinned:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -753,7 +780,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    working: sortWorkingThreadsBySend(working),
+    working: byCreation(sortWorkingThreadsBySend(working)),
     snoozed: snoozed.toSorted(
       (left, right) =>
         firstValidTimestampMs(left.snoozedUntil ?? null) -
@@ -780,6 +807,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     ],
     visibleThreads: visible,
     snoozeNow: preciseNow,
+    createdAtMs,
   };
 }
 
@@ -1405,6 +1433,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    createdAtMs,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -2229,6 +2258,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          createdAtMs,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,

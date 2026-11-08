@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { sortThreadsByCreatedAt } from "@t3tools/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary } from "../../types";
 import {
   buildWorktreeTabs,
@@ -11,6 +12,7 @@ import {
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
+  worktreeCreatedAtMs,
   worktreeKey,
   worktreeLabel,
 } from "./threadTabs.logic";
@@ -202,6 +204,22 @@ describe("buildWorktreeTabs", () => {
     expect(isBlankLastTab(tabs([], [draft("blank")]))).toBe(true);
     expect(isBlankLastTab(tabs([], [draft("blank", { hasContent: true })]))).toBe(false);
     expect(isBlankLastTab(tabs([thread("open")], [draft("blank")]))).toBe(false);
+  });
+});
+
+describe("worktreeCreatedAtMs", () => {
+  it("dates a worktree from its first open thread, keeping its threads' order", () => {
+    const at = (hour: number) => `2026-10-26T${String(hour).padStart(2, "0")}:00:00.000Z`;
+    const threads = [
+      thread("old-closed", { createdAt: at(7), settledOverride: "settled" }),
+      thread("old-first", { createdAt: at(9) }),
+      thread("old-new-tab", { createdAt: at(12) }),
+      thread("middle", { worktreePath: "/repo/.t3/worktrees/middle", createdAt: at(8) }),
+    ];
+    const open = threads.slice(1);
+    expect(sortThreadsByCreatedAt(open, worktreeCreatedAtMs(threads)).map((row) => row.id)).toEqual(
+      ["old-first", "old-new-tab", "middle"],
+    );
   });
 });
 

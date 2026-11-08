@@ -1,6 +1,7 @@
 import { arrayMove } from "@dnd-kit/sortable";
 import { isListedThreadLineage, type ProjectWorktreeTitle } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
 
 import type { SidebarThreadSummary } from "../../types";
 import { resolveSidebarThreadStatus, type SidebarSection } from "../Sidebar.logic";
@@ -175,6 +176,25 @@ export function collapseToWorktreeRows<T extends WorktreeLocation>(
     });
   }
   return collapsed;
+}
+
+/**
+ * A worktree dates from its first open thread, so a new tab leaves its row in place. Settled
+ * threads don't count: the server pages older ones, so they would move rows as pages load.
+ */
+export function worktreeCreatedAtMs<
+  T extends WorktreeLocation & Pick<SidebarThreadSummary, "createdAt" | "settledOverride">,
+>(threads: readonly T[]): (thread: T) => number {
+  const earliest = new Map<string, number>();
+  for (const thread of threads) {
+    if (thread.settledOverride === "settled") continue;
+    const key = worktreeKey(thread);
+    const createdAt = threadCreatedAtMs(thread);
+    if (createdAt < (earliest.get(key) ?? Number.POSITIVE_INFINITY)) {
+      earliest.set(key, createdAt);
+    }
+  }
+  return (thread) => earliest.get(worktreeKey(thread)) ?? threadCreatedAtMs(thread);
 }
 
 /**

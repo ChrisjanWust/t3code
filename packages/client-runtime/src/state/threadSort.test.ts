@@ -7,6 +7,7 @@ import {
   planPinnedReorder,
   resolveSettledThreadTimestamp,
   sortActiveThreadsByOrderKey,
+  threadCreatedAtMs,
   sortSettledThreads,
   sortThreads,
   type SettledThreadTimestampInput,
@@ -235,7 +236,7 @@ describe("generateSpreadPinOrderKeys", () => {
 
 describe("sortActiveThreadsByOrderKey", () => {
   it("keeps new and reopened threads ahead of the saved order", () => {
-    const sorted = sortActiveThreadsByOrderKey([
+    const threads = [
       {
         id: "arranged-first",
         createdAt: "2026-03-09T09:00:00.000Z",
@@ -257,13 +258,17 @@ describe("sortActiveThreadsByOrderKey", () => {
         createdAt: "2026-03-01T09:00:00.000Z",
         unsettledAt: "2026-03-09T12:00:00.000Z",
       },
-    ]);
-    expect(sorted.map((thread) => thread.id)).toEqual([
+    ];
+    expect(sortActiveThreadsByOrderKey(threads).map((thread) => thread.id)).toEqual([
       "reopened",
       "new",
       "arranged-first",
       "arranged-last",
     ]);
+    // Sorting by creation reorders only the undragged rows.
+    expect(
+      sortActiveThreadsByOrderKey(threads, threadCreatedAtMs).map((thread) => thread.id),
+    ).toEqual(["new", "reopened", "arranged-first", "arranged-last"]);
   });
 
   it("breaks equal order keys and timestamps by thread then environment", () => {
