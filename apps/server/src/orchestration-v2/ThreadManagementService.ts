@@ -461,6 +461,10 @@ export interface ThreadManagementServiceShape {
     { readonly sequence: number } | { readonly settlesWhenTurnEnds: true },
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
   >;
+  /** Stops the thread's running turn, waits for it to end, then settles the thread. */
+  readonly stopAndSettleThread: (
+    command: Extract<OrchestrationV2Command, { readonly type: "thread.settle" }>,
+  ) => Effect.Effect<Orchestrator.OrchestratorV2DispatchResult, ThreadManagementFailure>;
   readonly interruptThread: (
     input: ThreadManagementInterruptInput,
   ) => Effect.Effect<ThreadManagementInterruptResult, ThreadManagementFailure>;
@@ -567,6 +571,7 @@ function latestSteerableRun(
 }
 
 const SETTLE_AFTER_RUN_WAIT_MS = 24 * 60 * 60 * 1_000;
+const STOP_BEFORE_SETTLE_WAIT_MS = 30_000;
 const FORCE_STOP_REASON = "Force stopped by user";
 const FORCE_STOP_RELEASE_WAIT = "10 seconds";
 const isForceStopThreadError = Schema.is(OrchestrationV2ForceStopThreadError);
@@ -1134,6 +1139,39 @@ const make = Effect.gen(function* () {
     return { sequence: result.sequence };
   });
 
+  const stopAndSettleThread: ThreadManagementServiceShape["stopAndSettleThread"] = Effect.fn(
+    "ThreadManagementService.stopAndSettleThread",
+  )(function* ({ stopActiveRun: _, ...command }) {
+    // A replayed settle returns its receipt; stopping again could hit a turn started since.
+    const shell = (yield* hasReceipt(command.commandId))
+      ? null
+      : yield* orchestrator.getThreadShell(command.threadId);
+    if (shell !== null) {
+      // The Stop button's command: it also holds the queue and stops delegated tasks.
+      yield* dispatch({
+        type: "thread.stop",
+        commandId: CommandId.make(`${command.commandId}:stop`),
+        threadId: command.threadId,
+      });
+      if (shell.activeRunId !== null) {
+        const { timedOut } = yield* waitForThread({
+          projectId: shell.projectId,
+          threadId: shell.id,
+          runId: shell.activeRunId,
+          timeoutMs: STOP_BEFORE_SETTLE_WAIT_MS,
+        });
+        if (timedOut) {
+          return yield* new Orchestrator.OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} did not stop in time. Force stop it, then settle.`,
+          });
+        }
+      }
+    }
+    return yield* dispatch(command);
+  });
+
   const interruptThread: ThreadManagementServiceShape["interruptThread"] = Effect.fn(
     "ThreadManagementService.interruptThread",
   )(function* (input) {
@@ -1617,6 +1655,7 @@ const make = Effect.gen(function* () {
     waitForThread,
     settleAfterRun,
     settleThread,
+    stopAndSettleThread,
     interruptThread,
     stopDelegatedTasks,
     stopWorkflow,

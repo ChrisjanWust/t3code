@@ -101,6 +101,7 @@ export type UnarchiveThreadInput = ThreadCommandInput;
 export interface SettleThreadInput extends ThreadCommandInput {
   /** Threads settled together share it, so the group can be reopened together. */
   readonly settledAt?: string;
+  readonly stopActiveRun?: boolean;
 }
 
 export interface UnsettleThreadInput extends ThreadCommandInput {
@@ -528,6 +529,7 @@ export const settleThread = Effect.fn("EnvironmentCommands.settleThread")(functi
     commandId: yield* allocateCommandId(input),
     threadId: input.threadId,
     ...(input.settledAt === undefined ? {} : { settledAt: DateTime.makeUnsafe(input.settledAt) }),
+    ...(input.stopActiveRun ? { stopActiveRun: true } : {}),
   });
 });
 

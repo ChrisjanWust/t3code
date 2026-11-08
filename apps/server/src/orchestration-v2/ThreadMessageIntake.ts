@@ -152,6 +152,8 @@ export const dispatchCommand = Effect.fn("ThreadMessageIntake.dispatchCommand")(
         ),
       );
   }
+  if (command.type === "thread.settle" && command.stopActiveRun === true)
+    return yield* threads.stopAndSettleThread(command);
   if (
     command.type !== "message.dispatch" &&
     (command.type !== "queued-run.edit" || command.attachments === undefined)

@@ -1,6 +1,8 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { pinOrderKeyBetween } from "@t3tools/client-runtime/state/thread-sort";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
 
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { readThreadShell } from "../../state/entities";
@@ -33,15 +35,24 @@ export function useWorktreeRowActions(membersByRowKey: {
   };
   const now = () => new Date().toISOString();
 
+  // Snoozed threads settle too, or they would keep the worktree's row out of Settled.
+  const settlingWith = (target: ScopedThreadRef) =>
+    (othersOf(target) ?? []).filter((thread) => thread.settledOverride !== "settled").map(refOf);
+
+  const confirmStopRunningThreads: ThreadActions["confirmStopRunningThreads"] = (targets) =>
+    actions.confirmStopRunningThreads(
+      targets.flatMap((target) => [target, ...settlingWith(target)]),
+    );
+
   const settleThread: ThreadActions["settleThread"] = async (target, opts = {}) => {
-    const others = othersOf(target);
-    if (others === undefined) return actions.settleThread(target, opts);
-    const settledAt = opts.settledAt ?? now();
-    // Snoozed threads settle too, or they would keep the worktree's row out of Settled.
-    const unsettled = others.filter((thread) => thread.settledOverride !== "settled");
+    if (othersOf(target) === undefined) return actions.settleThread(target, opts);
+    if (!opts.stopConfirmed && !(await confirmStopRunningThreads([target]))) {
+      return AsyncResult.failure(Cause.interrupt());
+    }
+    const group = { settledAt: opts.settledAt ?? now(), stopConfirmed: true };
     const [lead, ...rest] = await Promise.all([
-      actions.settleThread(target, { settledAt }),
-      ...unsettled.map((thread) => actions.settleThread(refOf(thread), { settledAt })),
+      actions.settleThread(target, group),
+      ...settlingWith(target).map((ref) => actions.settleThread(ref, group)),
     ]);
     return firstFailure(rest, lead!);
   };
@@ -177,6 +188,7 @@ export function useWorktreeRowActions(membersByRowKey: {
   return {
     ...actions,
     settleThread,
+    confirmStopRunningThreads,
     unsettleThread,
     snoozeThread,
     unsnoozeThread,

@@ -4644,9 +4644,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
-  it.effect("rejects settling a thread while a run is active", () =>
+  it.effect("rejects settling a thread while a run is active unless asked to stop it", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const threadId = ThreadId.make("runtime-layer-active-settle-thread");
 
       yield* orchestrator.dispatch({
@@ -4707,6 +4708,16 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.isNull(projection.thread.settledOverride);
       assert.isNull(projection.thread.settledAt);
       assert.isNotNull(projection.thread.unsettledAt);
+
+      yield* threadManagement.stopAndSettleThread({
+        type: "thread.settle",
+        commandId: CommandId.make("runtime-layer-active-settle-stop"),
+        threadId,
+        stopActiveRun: true,
+      });
+      const stopped = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(stopped.runs[0]?.status, "interrupted");
+      assert.equal(stopped.thread.settledOverride, "settled");
     }),
   );
 
