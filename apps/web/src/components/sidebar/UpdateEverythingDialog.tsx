@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { ChevronRightIcon } from "lucide-react";
-import { Fragment, type RefObject, useRef } from "react";
+import { Fragment } from "react";
 
 import { environmentThreadShells } from "~/state/threads";
 import {
@@ -60,25 +60,21 @@ interface UpdateEverythingDialogProps {
 type UpdateEverythingDialogContentProps = Omit<
   UpdateEverythingDialogProps,
   "open" | "onOpenChange"
-> & {
-  readonly cancelRef: RefObject<HTMLButtonElement | null>;
-};
+>;
 
 export function UpdateEverythingDialog({
   open,
   onOpenChange,
   ...content
 }: UpdateEverythingDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       {/* Refocusing the trigger after a pointer close shows its focus ring and opens its tooltip. */}
       <AlertDialogPopup
         className="sm:max-w-xl"
-        initialFocus={cancelRef}
         finalFocus={(closeType) => closeType === "keyboard"}
       >
-        <UpdateEverythingDialogContent {...content} cancelRef={cancelRef} />
+        <UpdateEverythingDialogContent {...content} />
       </AlertDialogPopup>
     </AlertDialog>
   );
@@ -96,7 +92,6 @@ function UpdateEverythingDialogContent({
   rows,
   restarts,
   onConfirm,
-  cancelRef,
   title,
   confirmLabel = "Update",
   notes = [],
@@ -227,7 +222,7 @@ function UpdateEverythingDialogContent({
                 : `${threads} will be interrupted. ${continuing} can resume after the restart.`}
           </p>
         ) : null}
-        <AlertDialogClose ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>
+        <AlertDialogClose render={<Button variant="outline" disabled={busy} />}>
           Cancel
         </AlertDialogClose>
         <Button disabled={disabledReason !== null || busy} onClick={onConfirm}>
