@@ -1,4 +1,5 @@
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
+import { useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -51,6 +52,7 @@ function AlertDialogPopup({
   bottomStickOnMobile?: boolean;
   portalContainer?: AlertDialogPrimitive.Portal.Props["container"];
 }) {
+  const popupRef = useRef<HTMLDivElement>(null);
   return (
     <AlertDialogPortal container={portalContainer}>
       <AlertDialogBackdrop />
@@ -65,6 +67,15 @@ function AlertDialogPopup({
             className,
           )}
           data-slot="alert-dialog-popup"
+          // Footers end with the primary action; focusing it lets Enter confirm.
+          initialFocus={() =>
+            [
+              ...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
+                '[data-slot="alert-dialog-footer"] button:not(:disabled)',
+              ) ?? []),
+            ].at(-1) ?? true
+          }
+          ref={popupRef}
           render={renderRetainedPopup}
           {...props}
         />
