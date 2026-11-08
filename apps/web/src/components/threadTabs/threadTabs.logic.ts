@@ -1,6 +1,7 @@
 import { arrayMove } from "@dnd-kit/sortable";
 import { isListedThreadLineage, type ProjectWorktreeTitle } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
 
 import type { SidebarThreadSummary } from "../../types";
 import { resolveSidebarThreadStatus, type SidebarSection } from "../Sidebar.logic";
@@ -175,6 +176,24 @@ export function collapseToWorktreeRows<T extends WorktreeLocation>(
     });
   }
   return collapsed;
+}
+
+/**
+ * A worktree dates from its first thread, so a new tab in an old worktree leaves its row
+ * where creation order put it. Pass every listed thread: closed tabs still date the worktree.
+ */
+export function worktreeCreatedAtMs<T extends WorktreeLocation & { readonly createdAt: string }>(
+  threads: readonly T[],
+): (thread: T) => number {
+  const earliest = new Map<string, number>();
+  for (const thread of threads) {
+    const key = worktreeKey(thread);
+    const createdAt = threadCreatedAtMs(thread);
+    if (createdAt < (earliest.get(key) ?? Number.POSITIVE_INFINITY)) {
+      earliest.set(key, createdAt);
+    }
+  }
+  return (thread) => earliest.get(worktreeKey(thread)) ?? threadCreatedAtMs(thread);
 }
 
 /**

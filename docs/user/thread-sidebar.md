@@ -130,6 +130,14 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
+### Sort by creation date
+
+**Settings → General → Thread order** on web and desktop chooses how sidebar rows are ordered:
+**Recent activity**, the default, or **Created at**, newest first. With thread tabs on, a worktree
+row dates from its first thread, so a new tab in an old worktree does not move it up. Either way,
+pinned threads and active threads you have dragged keep their place, Snoozed stays in wake order,
+and Settled stays in settlement order. Each device keeps its own choice.
+
 ### Name worktrees
 
 With **Settings → Labs → Thread tabs** on, each sidebar row is a worktree. A new worktree gets a

@@ -300,6 +300,28 @@ export function sortPinnedThreadsByOrderKey<
   return [...keyed, ...keyless];
 }
 
+export function threadCreatedAtMs(thread: { readonly createdAt: string }): number {
+  return toSortableTimestamp(thread.createdAt) ?? 0;
+}
+
+/** Newest first. `createdAtMs` lets a grouped row date from another thread than itself. */
+export function sortThreadsByCreatedAt<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly environmentId?: string | undefined;
+  },
+>(threads: readonly T[], createdAtMs: (thread: T) => number = threadCreatedAtMs): T[] {
+  const timestamps = new Map(threads.map((thread) => [thread, createdAtMs(thread)]));
+  return [...threads].sort(
+    (left, right) =>
+      timestamps.get(right)! - timestamps.get(left)! ||
+      left.id.localeCompare(right.id) ||
+      (left.environmentId ?? "").localeCompare(right.environmentId ?? ""),
+  );
+}
+
+/** Dragged rows keep their manual order below the rest, which `anchorMs` sorts newest first. */
 export function sortActiveThreadsByOrderKey<
   T extends {
     readonly id: string;
@@ -308,12 +330,12 @@ export function sortActiveThreadsByOrderKey<
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
->(threads: readonly T[]): T[] {
+>(threads: readonly T[], anchorMs: (thread: T) => number = activeThreadAnchorTimestampMs): T[] {
   if (threads.length < 2) return [...threads];
   const timestamps = new Map<T, number>();
   for (const thread of threads) {
     if (thread.activeOrderKey == null) {
-      timestamps.set(thread, activeThreadAnchorTimestampMs(thread));
+      timestamps.set(thread, anchorMs(thread));
     }
   }
   return [...threads].sort((left, right) => {
