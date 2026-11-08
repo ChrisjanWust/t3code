@@ -290,16 +290,16 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
       return true;
     }
     const status = resolveSidebarThreadStatus(thread);
-    if (status === "working" || status === "approval") {
+    const running = status === "working" || status === "preparing";
+    if (running || status === "approval") {
       const toastId = toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: status === "working" ? "This tab is still running" : "This tab needs an answer",
-          description:
-            status === "working"
-              ? "Stop it to close the tab."
-              : "Answer its approval request to close the tab.",
-          ...(status === "working"
+          title: running ? "This tab is still running" : "This tab needs an answer",
+          description: running
+            ? "Stop it to close the tab."
+            : "Answer its approval request to close the tab.",
+          ...(running
             ? {
                 actionProps: {
                   children: "Stop",

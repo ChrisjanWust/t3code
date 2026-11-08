@@ -85,7 +85,13 @@ export type RightPanelSurface =
       detailTab?: PullRequestDetailTab;
     }
   | { id: "pull-requests"; kind: "pull-requests" }
-  | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
+  | {
+      id: `side-chat:${string}`;
+      kind: "side-chat";
+      threadId: ThreadId;
+      /** The side chat's parent, which a worktree's other tabs sharing the panel are not. */
+      owner?: ScopedThreadRef;
+    }
   /** The thread tab history of the panel's worktree. */
   | { id: "tabs"; kind: "tabs" };
 
@@ -767,7 +773,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openSideChat: (ref, threadId) =>
         set((state) =>
           userAction(state, ref, (current) =>
-            upsertSurface(current, { id: `side-chat:${threadId}`, kind: "side-chat", threadId }),
+            upsertSurface(current, {
+              id: `side-chat:${threadId}`,
+              kind: "side-chat",
+              threadId,
+              owner: ref,
+            }),
           ),
         ),
       renameDevice: (ref, surfaceId, title) =>

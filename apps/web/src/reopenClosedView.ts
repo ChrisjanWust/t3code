@@ -8,6 +8,7 @@ import {
   rightPanelHostRef,
   type RightPanelSurface,
   selectThreadRightPanelState,
+  surfaceOwnerRef,
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
@@ -161,7 +162,7 @@ export async function reopenClosedView(
       panels.openPullRequest(ref, surface);
       break;
     case "side-chat":
-      panels.openSideChat(ref, surface.threadId);
+      panels.openSideChat(surfaceOwnerRef(surface, ref), surface.threadId);
       break;
     default:
       panels.open(ref, surface.kind);

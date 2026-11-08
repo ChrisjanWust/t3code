@@ -1,5 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
-import type { ProjectWorktreeTitle } from "@t3tools/contracts";
+import { isListedThreadLineage, type ProjectWorktreeTitle } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 
 import type { SidebarThreadSummary } from "../../types";
@@ -40,7 +40,7 @@ export function draftWorktreeKey(
 }
 
 function isWorktreeMember(thread: WorktreeThread): boolean {
-  return thread.archivedAt === null && thread.lineage.relationshipToParent !== "subagent";
+  return thread.archivedAt === null && isListedThreadLineage(thread.lineage);
 }
 
 export function isOpenTab(thread: WorktreeThread, now: string): boolean {
@@ -223,6 +223,7 @@ const STATUS_URGENCY = [
   "failed",
   "limited",
   "working",
+  "preparing",
   "waiting",
 ] as const;
 

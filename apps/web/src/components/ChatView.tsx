@@ -3465,6 +3465,7 @@ export default function ChatView(props: ChatViewProps) {
                 projectCwd={activeProjectCwd}
                 rightPanelOpen={inlineRightPanelOwnsTitleBar}
                 isServerThread={isServerThread}
+                {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
               />
             ) : (
               <ChatHeader

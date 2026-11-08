@@ -8,6 +8,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import {
   closestCenter,
@@ -108,6 +109,7 @@ function ThreadTab(props: {
   readonly closable: boolean;
   readonly onSelect: (key: string) => void;
   readonly onClose: (key: string) => void;
+  readonly onFind?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }) {
   const { tab, active, onSelect, onClose } = props;
   const threadRef =
@@ -130,6 +132,7 @@ function ThreadTab(props: {
     threadRef,
     projectCwd: props.projectCwd,
     onStartRename: startRename,
+    onFind: props.onFind,
     canShareWithGuest,
   });
   const commitRename = (value: string) => {
@@ -242,6 +245,7 @@ export function ThreadTabStrip(props: {
   readonly projectCwd: string | null;
   readonly rightPanelOpen: boolean;
   readonly isServerThread: boolean;
+  readonly onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }) {
   const { location } = props;
   const { tabs, routeKey } = useWorktreeTabs(location);
@@ -300,6 +304,7 @@ export function ThreadTabStrip(props: {
                   closable={!isBlankLastTab(tabs)}
                   onSelect={selectTab}
                   onClose={closeTab}
+                  {...(tab.key === routeKey ? { onFind: props.onFindInThread } : {})}
                 />
               ))}
             </SortableContext>
