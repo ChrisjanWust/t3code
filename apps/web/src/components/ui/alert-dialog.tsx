@@ -47,6 +47,8 @@ function AlertDialogPopup({
   className,
   bottomStickOnMobile = true,
   portalContainer,
+  initialFocus,
+  onKeyDownCapture,
   ...props
 }: AlertDialogPrimitive.Popup.Props & {
   bottomStickOnMobile?: boolean;
@@ -68,14 +70,21 @@ function AlertDialogPopup({
           )}
           data-slot="alert-dialog-popup"
           // Footers end with the primary action; focusing it lets Enter confirm.
-          initialFocus={() =>
-            [
-              ...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
-                '[data-slot="alert-dialog-footer"] button:not(:disabled)',
-              ) ?? []),
-            ].at(-1) ?? true
+          initialFocus={
+            initialFocus ??
+            (() =>
+              [
+                ...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
+                  '[data-slot="alert-dialog-footer"] button:not(:disabled)',
+                ) ?? []),
+              ].at(-1) ?? true)
           }
           ref={popupRef}
+          onKeyDownCapture={(event) => {
+            // A held Enter that opened the dialog would otherwise repeat onto the focused action.
+            if (event.key === "Enter" && event.repeat) event.preventDefault();
+            onKeyDownCapture?.(event);
+          }}
           render={renderRetainedPopup}
           {...props}
         />
