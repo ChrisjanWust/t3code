@@ -1142,17 +1142,22 @@ const make = Effect.gen(function* () {
   const stopAndSettleThread: ThreadManagementServiceShape["stopAndSettleThread"] = Effect.fn(
     "ThreadManagementService.stopAndSettleThread",
   )(function* ({ stopActiveRun: _, ...command }) {
-    const shell = yield* orchestrator.getThreadShell(command.threadId);
-    if (shell?.activeRunId != null) {
-      const target = { projectId: shell.projectId, threadId: shell.id };
-      const interrupt = yield* interruptThread({
-        ...target,
+    // A replayed settle returns its receipt; stopping again could hit a turn started since.
+    const shell = (yield* hasReceipt(command.commandId))
+      ? null
+      : yield* orchestrator.getThreadShell(command.threadId);
+    if (shell !== null) {
+      // The Stop button's command: it also holds the queue and stops delegated tasks.
+      yield* dispatch({
+        type: "thread.stop",
         commandId: CommandId.make(`${command.commandId}:stop`),
+        threadId: command.threadId,
       });
-      if (interrupt.type === "interrupt_requested") {
+      if (shell.activeRunId !== null) {
         const { timedOut } = yield* waitForThread({
-          ...target,
-          runId: interrupt.run.id,
+          projectId: shell.projectId,
+          threadId: shell.id,
+          runId: shell.activeRunId,
           timeoutMs: STOP_BEFORE_SETTLE_WAIT_MS,
         });
         if (timedOut) {

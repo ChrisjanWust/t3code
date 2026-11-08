@@ -23,14 +23,8 @@ import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { readThreadShells, useQuietThreadShells } from "../../state/entities";
-import { threadEnvironment } from "../../state/threads";
-import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../../threadRoutes";
-import {
-  resolveSidebarRowThreadId,
-  resolveSidebarThreadStatus,
-  useSnoozeWakeClock,
-} from "../Sidebar.logic";
+import { resolveSidebarRowThreadId, useSnoozeWakeClock } from "../Sidebar.logic";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   buildWorktreeTabs,
@@ -208,10 +202,7 @@ const tabRef = (tab: ThreadTabItem): ScopedThreadRef | null =>
 export function useThreadTabActions(location: ThreadTabLocation | null) {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread } = useThreadActions();
-  const interruptTurn = useOrchestrationCommand(threadEnvironment.interruptTurn, {
-    reportFailure: false,
-  });
+  const { settleThread, confirmStopRunningThreads, pinThread } = useThreadActions();
 
   const openTab = (tab: ThreadTabItem) =>
     tab.kind === "thread"
@@ -289,34 +280,6 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
       if (isRoute) void leaveTab(tabs, key);
       return true;
     }
-    const status = resolveSidebarThreadStatus(thread);
-    const running = status === "working" || status === "preparing";
-    if (running || status === "approval") {
-      const toastId = toastManager.add(
-        stackedThreadToast({
-          type: "warning",
-          title: running ? "This tab is still running" : "This tab needs an answer",
-          description: running
-            ? "Stop it to close the tab."
-            : "Answer its approval request to close the tab.",
-          ...(running
-            ? {
-                actionProps: {
-                  children: "Stop",
-                  onClick: () => {
-                    toastManager.close(toastId);
-                    void interruptTurn({
-                      environmentId: ref.environmentId,
-                      input: { threadId: ref.threadId },
-                    });
-                  },
-                },
-              }
-            : {}),
-        }),
-      );
-      return true;
-    }
     // Settling unpins, so a pinned worktree passes its pin to another open tab.
     const otherOpenThreads = tabs.flatMap((candidate) =>
       candidate.kind === "thread" && candidate.key !== key && !candidate.closed
@@ -327,15 +290,17 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
       thread.pinnedAt != null && !otherOpenThreads.some((other) => other.pinnedAt != null)
         ? otherOpenThreads[0]
         : undefined;
-    if (isRoute) void leaveTab(tabs, key);
     void (async () => {
+      // Asked before leaving, so declining keeps the tab and its pin.
+      if (!(await confirmStopRunningThreads([ref]))) return;
+      if (isRoute) void leaveTab(tabs, key);
       if (heir) {
         await pinThread(
           scopeThreadRef(heir.environmentId, heir.id),
           thread.pinOrderKey ? { orderKey: thread.pinOrderKey } : {},
         );
       }
-      const result = await settleThread(ref);
+      const result = await settleThread(ref, { stopConfirmed: true });
       if (result._tag === "Success") {
         useClosedViewStore.getState().remember({ kind: "thread-tab", threadRef: ref });
         return;
