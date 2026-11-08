@@ -1035,6 +1035,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
+    confirmStopRunningThreads,
     unsettleThread,
     snoozeThread,
     unsnoozeThread,
@@ -1814,14 +1815,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const attemptSettle = (
     threadRef: ScopedThreadRef,
-    opts: { coSettlingKeys?: ReadonlySet<string> } = {},
+    opts: { coSettlingKeys?: ReadonlySet<string>; stopConfirmed?: boolean } = {},
   ) => {
     void (async () => {
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
       const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-      const result = await settleThread(threadRef);
+      const result = await settleThread(threadRef, { stopConfirmed: opts.stopConfirmed === true });
       settlingThreadKeysRef.current.delete(threadKey);
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
@@ -1871,12 +1872,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       }),
     [attemptSettle, threads],
   );
-  const settleThreads = (threadKeys: readonly string[]) => {
+  const settleThreads = async (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
-    for (const threadKey of threadKeys) {
+    const targets = threadKeys.flatMap((threadKey) => {
       const thread = threadByKeyRef.current.get(threadKey);
-      if (!thread || thread.settledOverride === "settled") continue;
-      attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
+      return !thread || thread.settledOverride === "settled"
+        ? []
+        : [scopeThreadRef(thread.environmentId, thread.id)];
+    });
+    if (!(await confirmStopRunningThreads(targets))) return;
+    for (const threadRef of targets) {
+      attemptSettle(threadRef, { coSettlingKeys, stopConfirmed: true });
     }
   };
   const attemptUnsettle = (threadRef: ScopedThreadRef) => {
@@ -2061,7 +2067,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         onEnd: () => {
           const keys = sweptKeys.filter(canApply);
           if (action === "settle") {
-            settleThreads(keys);
+            void settleThreads(keys);
             return;
           }
           for (const key of keys) {
@@ -2692,7 +2698,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return;
       }
       if (clicked.value === "settle") {
-        settleThreads(
+        void settleThreads(
           actionTargets.map((thread) =>
             scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           ),

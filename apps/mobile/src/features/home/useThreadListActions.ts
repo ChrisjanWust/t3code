@@ -139,18 +139,21 @@ function useThreadActionExecutor(
                 environmentId: thread.environmentId,
                 input: { threadId: thread.id, reason: "user" },
               })
-            : await (
-                action === "settle"
-                  ? settleMutation
-                  : action === "archive"
+            : action === "settle"
+              ? await settleMutation({
+                  environmentId: thread.environmentId,
+                  input: { threadId: thread.id, stopActiveRun: threadIsRunning(thread) },
+                })
+              : await (
+                  action === "archive"
                     ? archiveMutation
                     : action === "unarchive"
                       ? unarchiveMutation
                       : deleteMutation
-              )({
-                environmentId: thread.environmentId,
-                input: { threadId: thread.id },
-              }),
+                )({
+                  environmentId: thread.environmentId,
+                  input: { threadId: thread.id },
+                }),
         (result) => result._tag === "Success",
       );
       if (result._tag === "Failure") {
@@ -168,6 +171,23 @@ function useThreadActionExecutor(
   };
 
   return executeAction;
+}
+
+function threadIsRunning(thread: EnvironmentThreadShell) {
+  return thread.runtime?.activeRunId != null;
+}
+
+function confirmStopRunningThread(thread: EnvironmentThreadShell) {
+  return new Promise<boolean>((resolve) =>
+    Dialog.confirm({
+      title: "Stop and settle?",
+      message: `“${thread.title}” is still running. Settling it stops the current turn.`,
+      confirmText: "Stop and settle",
+      destructive: true,
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    }),
+  );
 }
 
 // Hookless use* functions skip compilation, leaving their returned handlers unstable.
@@ -276,6 +296,7 @@ export function useThreadListActions(): {
       },
     });
   const settleThread = async (thread: EnvironmentThreadShell) => {
+    if (threadIsRunning(thread) && !(await confirmStopRunningThread(thread))) return false;
     const key = scopedThreadKey(thread.environmentId, thread.id);
     const plan = ThreadUndo.planThreadUndo("settle", thread);
     let claim: ReturnType<typeof ThreadUndo.begin> | undefined;

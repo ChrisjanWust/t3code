@@ -108,6 +108,10 @@ export class ThreadSnoozeBlockedError extends Schema.TaggedError<ThreadSnoozeBlo
   }
 }
 
+function threadIsRunning(thread: { readonly runtime: { readonly activeRunId: unknown } | null }) {
+  return thread.runtime?.activeRunId != null;
+}
+
 function topOfPinnedRunOrderKey(): string | undefined {
   let firstKey: string | null = null;
   for (const shell of readThreadShells()) {
@@ -743,7 +747,28 @@ export function useThreadActions() {
     return result;
   };
 
-  const settleThread = async (target: ScopedThreadRef, opts: { settledAt?: string } = {}) => {
+  /** Asks once before settling threads that are still running; false means the user declined. */
+  const confirmStopRunningThreads = async (targets: ReadonlyArray<ScopedThreadRef>) => {
+    const running = targets.flatMap((target) => {
+      const thread = readThreadShell(target);
+      return thread !== null && threadIsRunning(thread) ? [thread] : [];
+    });
+    const localApi = readLocalApi();
+    if (running.length === 0 || !localApi) return true;
+    const result = await settlePromise(() =>
+      localApi.dialogs.confirm(
+        running.length === 1
+          ? `"${running[0]!.title}" is still running.\nStop it and settle?`
+          : `${running.length} threads are still running.\nStop them and settle?`,
+      ),
+    );
+    return result._tag === "Success" && result.value;
+  };
+
+  const settleThread = async (
+    target: ScopedThreadRef,
+    opts: { settledAt?: string; stopConfirmed?: boolean } = {},
+  ) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
@@ -753,6 +778,11 @@ export function useThreadActions() {
           }),
         ),
       );
+    }
+    const shell = readThreadShell(target);
+    const stopActiveRun = shell !== null && threadIsRunning(shell);
+    if (stopActiveRun && !opts.stopConfirmed && !(await confirmStopRunningThreads([target]))) {
+      return AsyncResult.failure(Cause.interrupt());
     }
     const resolved = resolveThreadTarget(target);
     // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
@@ -768,6 +798,7 @@ export function useThreadActions() {
       environmentId: target.environmentId,
       input: {
         threadId: target.threadId,
+        stopActiveRun,
         ...(opts.settledAt === undefined ? {} : { settledAt: opts.settledAt }),
       },
     });
@@ -958,6 +989,7 @@ export function useThreadActions() {
     deleteThread,
     confirmAndDeleteThread,
     settleThread,
+    confirmStopRunningThreads,
     unsettleThread,
     snoozeThread,
     unsnoozeThread,
