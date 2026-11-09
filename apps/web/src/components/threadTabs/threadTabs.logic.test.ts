@@ -365,16 +365,24 @@ describe("worktreeLabel", () => {
     ];
     expect(worktreeLabel(thread("a"), titles("Mine", "Generated"))).toBe("Mine");
     expect(worktreeLabel(thread("a"), titles(null, "Generated"))).toBe("Generated");
-    expect(worktreeLabel(thread("a", { worktreePath: "/other" }), titles("Mine", null))).toBe(
-      "feature",
-    );
+    expect(worktreeLabel(thread("a", { worktreePath: "/other" }), titles("Mine", null))).toBe("a");
   });
 
-  it("names a worktree by its branch, then its folder", () => {
-    expect(worktreeLabel(thread("a"))).toBe("feature");
-    expect(worktreeLabel(thread("a", { branch: null }))).toBe("feature");
-    expect(worktreeLabel(thread("a", { branch: null, worktreePath: null, title: "Chat" }))).toBe(
-      "Chat",
-    );
+  it("names an untitled worktree by its first open thread, not its branch", () => {
+    const first = thread("first", { createdAt: "2026-10-26T09:00:00.000Z" });
+    const later = thread("later", { createdAt: "2026-10-26T11:00:00.000Z" });
+    const closed = thread("closed", {
+      createdAt: "2026-10-26T08:00:00.000Z",
+      settledOverride: "settled",
+    });
+    expect(worktreeLabel(later, undefined, [later, closed, first])).toBe("first");
+    expect(worktreeLabel(closed, undefined, [closed])).toBe("closed");
+    expect(worktreeLabel(thread("b"), undefined, [thread("b"), thread("a")])).toBe("a");
+  });
+
+  it("names the project checkout by its branch", () => {
+    const root = thread("a", { worktreePath: null });
+    expect(worktreeLabel(root)).toBe("feature");
+    expect(worktreeLabel({ ...root, branch: null, title: "Chat" })).toBe("Chat");
   });
 });
