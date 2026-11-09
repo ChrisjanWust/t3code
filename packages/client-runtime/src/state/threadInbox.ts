@@ -1,6 +1,6 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
-import { toSortableTimestamp } from "./threadSort.ts";
+import { activeThreadAnchorTimestampMs, toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
 type WorkingThreadInput = Pick<
@@ -42,13 +42,7 @@ export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   const timestamps = new Map(
     threads.map((thread) => [
       thread,
-      Math.max(
-        toSortableTimestamp(thread.createdAt) ?? 0,
-        toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
-        observedReturnAt?.(thread) ?? 0,
-      ),
+      Math.max(activeThreadAnchorTimestampMs(thread), observedReturnAt?.(thread) ?? 0),
     ]),
   );
   return sortNewestFirst(threads, timestamps);
