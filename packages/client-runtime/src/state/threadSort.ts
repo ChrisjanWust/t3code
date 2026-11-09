@@ -1,6 +1,6 @@
 import type { ProjectId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import type { EnvironmentThreadShell } from "./models.ts";
+import type { EnvironmentThreadShell, ThreadRunSummary } from "./models.ts";
 
 export interface ThreadSortInput {
   readonly createdAt: string;
@@ -118,13 +118,19 @@ export function getThreadSortTimestamp(
   return getLatestUserMessageTimestamp(thread);
 }
 
-function activeThreadAnchorTimestampMs(thread: {
+type ActiveThreadAnchorInput = {
   readonly createdAt: string;
   readonly unsettledAt?: string | null | undefined;
-}): number {
+  readonly latestRun?: Pick<ThreadRunSummary, "requestedAt" | "completedAt"> | null | undefined;
+};
+
+/** When a thread last came back into view: created, reopened, sent work, or finished it. */
+export function activeThreadAnchorTimestampMs(thread: ActiveThreadAnchorInput): number {
   return Math.max(
     toSortableTimestamp(thread.createdAt) ?? 0,
     toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
+    toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
+    toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
   );
 }
 
@@ -315,10 +321,8 @@ export function sortThreadsByCreatedAt<T>(
 
 /** Dragged rows keep their manual order below the rest, which `anchorMs` sorts newest first. */
 export function sortActiveThreadsByOrderKey<
-  T extends {
+  T extends ActiveThreadAnchorInput & {
     readonly id: string;
-    readonly createdAt: string;
-    readonly unsettledAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
