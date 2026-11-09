@@ -1,5 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type ProjectWorktreeTitle, RunId, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
+import {
+  type OrchestrationV2Notification,
+  type ProjectWorktreeTitle,
+  RunId,
+  ScheduledTaskId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import * as DateTime from "effect/DateTime";
 
@@ -16,9 +22,10 @@ const b = ThreadId.make("thread-b");
 const c = ThreadId.make("thread-c");
 const d = ThreadId.make("thread-d");
 
-const thread = (id: ThreadId, minutesAgo: number | null) => ({
+const thread = (id: ThreadId, minutesAgo: number | null, settled = false) => ({
   id,
   lastUserMessageAt: minutesAgo === null ? null : now - minutesAgo * minute,
+  settled,
 });
 
 const minutesAgoIso = (minutes: number) =>
@@ -45,6 +52,18 @@ describe("selectWorktreeTitleWindow", () => {
     assert.deepEqual(
       window.map((candidate) => candidate.id),
       [b, ThreadId.make("thread-e"), d],
+    );
+  });
+
+  it("ignores settled threads while any thread is open", () => {
+    const settledOnly = [thread(a, 5, true), thread(b, 50, true)];
+    assert.deepEqual(
+      selectWorktreeTitleWindow([...settledOnly, thread(c, 500)]).map((candidate) => candidate.id),
+      [c],
+    );
+    assert.deepEqual(
+      selectWorktreeTitleWindow(settledOnly).map((candidate) => candidate.id),
+      [a, b],
     );
   });
 });
@@ -109,13 +128,14 @@ describe("isWorktreeTitleRefreshDue", () => {
 });
 
 describe("worktreeTitleExcerpts", () => {
-  it("keeps the user's first and latest requests and the last reply of finished runs", () => {
+  it("keeps the first and latest requests and the last reply of finished runs", () => {
     const message = (
       text: string,
       overrides: Partial<{
         role: "user" | "assistant" | "system";
         createdBy: "user" | "agent" | "system";
         scheduledTaskId: ScheduledTaskId;
+        notification: OrchestrationV2Notification;
         streaming: boolean;
         runId: RunId;
       }> = {},
@@ -168,6 +188,29 @@ describe("worktreeTitleExcerpts", () => {
         { from: "user", text: "Write the PRs" },
         { from: "assistant", text: "Checks are still pending" },
         { from: "user", text: "Draft the Slack post" },
+      ],
+    );
+
+    // A thread an agent launched has only the agent's prompts, which then stand as its requests.
+    assert.deepEqual(
+      worktreeTitleExcerpts(
+        [
+          message("Warn engineers about early meetings", { createdBy: "agent" }),
+          reply("Sent two heads-ups", "run-1"),
+          message("Background command failed", {
+            createdBy: "agent",
+            notification: {
+              source: { kind: "background_task" },
+              outcome: "failed",
+              summary: "Background command failed",
+            },
+          }),
+        ],
+        [run("run-1", "completed")],
+      ),
+      [
+        { from: "user", text: "Warn engineers about early meetings" },
+        { from: "assistant", text: "Sent two heads-ups" },
       ],
     );
   });

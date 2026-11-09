@@ -1,8 +1,9 @@
-import type {
-  OrchestrationV2ConversationMessage,
-  OrchestrationV2Run,
-  ProjectWorktreeTitle,
-  ThreadId,
+import {
+  isCompactionCommandMessage,
+  type OrchestrationV2ConversationMessage,
+  type OrchestrationV2Run,
+  type ProjectWorktreeTitle,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
@@ -16,18 +17,26 @@ const WORKTREE_TITLE_MAX_CONTEXT = 4_000;
 
 export interface WorktreeTitleCandidate {
   readonly id: ThreadId;
-  /** The user's latest own message, in epoch millis; null when they have written none. */
+  /**
+   * The latest request, in epoch millis: the user's own, or the agent's in a thread the user never
+   * wrote in. Null when it has none.
+   */
   readonly lastUserMessageAt: number | null;
+  readonly settled: boolean;
 }
 
-/** The threads a worktree title is written from: the most recently used, newest first. */
+/**
+ * The threads a worktree title is written from: the most recently used, newest first. Open
+ * threads are what the worktree row shows, so settled ones only count when none are open.
+ */
 export function selectWorktreeTitleWindow<T extends WorktreeTitleCandidate>(
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T & { readonly lastUserMessageAt: number }> {
-  return threads
-    .filter((thread): thread is T & { readonly lastUserMessageAt: number } => {
-      return thread.lastUserMessageAt !== null;
-    })
+  const used = threads.filter((thread): thread is T & { readonly lastUserMessageAt: number } => {
+    return thread.lastUserMessageAt !== null;
+  });
+  const open = used.filter((thread) => !thread.settled);
+  return (open.length > 0 ? open : used)
     .toSorted((a, b) => b.lastUserMessageAt - a.lastUserMessageAt || a.id.localeCompare(b.id))
     .slice(0, WORKTREE_TITLE_WINDOW_SIZE);
 }
@@ -47,7 +56,7 @@ export function isWorktreeTitleRefreshDue(input: {
   readonly entry:
     | Pick<ProjectWorktreeTitle, "manual" | "sourceThreadIds" | "updatedAt">
     | undefined;
-  readonly window: ReadonlyArray<WorktreeTitleCandidate>;
+  readonly window: ReadonlyArray<Omit<WorktreeTitleCandidate, "settled">>;
   readonly now: number;
 }): boolean {
   const { entry, window, now } = input;
@@ -64,6 +73,8 @@ export function isWorktreeTitleRefreshDue(input: {
   }
   if (now - Date.parse(entry.updatedAt) < WORKTREE_TITLE_COOLDOWN_MS) return false;
   const sources = new Set(entry.sourceThreadIds);
+  // A source closed and nothing new joined, so no parallel work can flip the title back.
+  if (window.every((thread) => sources.has(thread.id))) return true;
   return window.every(
     (thread) =>
       !sources.has(thread.id) ||
@@ -87,13 +98,14 @@ const flatten = (text: string) =>
 /**
  * A thread's first and latest two user requests, plus the assistant's first and latest final
  * replies, which say what a vague request or link was about. Tool output and delegated or
- * scheduled prompts are left out.
+ * scheduled prompts are left out, unless the user never wrote in the thread: then those prompts
+ * are its requests. Background notifications never are.
  */
 export function worktreeTitleExcerpts(
   messages: ReadonlyArray<
     Pick<
       OrchestrationV2ConversationMessage,
-      "role" | "createdBy" | "scheduledTaskId" | "streaming" | "text" | "runId"
+      "role" | "createdBy" | "scheduledTaskId" | "notification" | "streaming" | "text" | "runId"
     >
   >,
   runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "status">>,
@@ -102,18 +114,24 @@ export function worktreeTitleExcerpts(
   const finishedRuns = new Set(
     runs.filter((run) => run.status === "completed").map((run) => run.id),
   );
-  const requests: Array<number> = [];
+  const userRequests: Array<number> = [];
+  const otherRequests: Array<number> = [];
   const finalReplyByRun = new Map<string, number>();
   for (const [index, message] of messages.entries()) {
     const text = message.text.trim();
     if (message.streaming || text === "") continue;
     if (message.role === "user") {
       if (
-        message.createdBy === "user" &&
-        message.scheduledTaskId === undefined &&
-        text !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT
+        text === ATTACHMENT_ONLY_BOOTSTRAP_PROMPT ||
+        message.notification !== undefined ||
+        isCompactionCommandMessage(message)
       ) {
-        requests.push(index);
+        continue;
+      }
+      if (message.createdBy === "user" && message.scheduledTaskId === undefined) {
+        userRequests.push(index);
+      } else {
+        otherRequests.push(index);
       }
     } else if (
       message.role === "assistant" &&
@@ -123,6 +141,7 @@ export function worktreeTitleExcerpts(
       finalReplyByRun.set(message.runId, index);
     }
   }
+  const requests = userRequests.length > 0 ? userRequests : otherRequests;
   const replies = [...finalReplyByRun.values()].toSorted((a, b) => a - b);
   const picked = new Set([
     ...requests.slice(0, 1),
