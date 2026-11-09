@@ -1,5 +1,6 @@
 import {
   CommandId,
+  isListedThreadLineage,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
   type ProjectId,
@@ -100,7 +101,7 @@ const make = Effect.gen(function* () {
     });
     const window = selectWorktreeTitleWindow(
       threads
-        .filter((thread) => thread.lineage.relationshipToParent !== "subagent")
+        .filter((thread) => isListedThreadLineage(thread.lineage))
         .map((thread) => ({
           id: thread.id,
           title: thread.title,
@@ -184,7 +185,7 @@ const make = Effect.gen(function* () {
         thread === null ||
         thread.worktreePath === null ||
         thread.archivedAt !== null ||
-        thread.lineage.relationshipToParent === "subagent"
+        !isListedThreadLineage(thread.lineage)
       ) {
         return;
       }

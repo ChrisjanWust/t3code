@@ -1,8 +1,9 @@
-import type {
-  OrchestrationV2ConversationMessage,
-  OrchestrationV2Run,
-  ProjectWorktreeTitle,
-  ThreadId,
+import {
+  isCompactionCommandMessage,
+  type OrchestrationV2ConversationMessage,
+  type OrchestrationV2Run,
+  type ProjectWorktreeTitle,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
@@ -72,6 +73,8 @@ export function isWorktreeTitleRefreshDue(input: {
   }
   if (now - Date.parse(entry.updatedAt) < WORKTREE_TITLE_COOLDOWN_MS) return false;
   const sources = new Set(entry.sourceThreadIds);
+  // A source closed and nothing new joined, so no parallel work can flip the title back.
+  if (window.every((thread) => sources.has(thread.id))) return true;
   return window.every(
     (thread) =>
       !sources.has(thread.id) ||
@@ -118,7 +121,13 @@ export function worktreeTitleExcerpts(
     const text = message.text.trim();
     if (message.streaming || text === "") continue;
     if (message.role === "user") {
-      if (text === ATTACHMENT_ONLY_BOOTSTRAP_PROMPT || message.notification !== undefined) continue;
+      if (
+        text === ATTACHMENT_ONLY_BOOTSTRAP_PROMPT ||
+        message.notification !== undefined ||
+        isCompactionCommandMessage(message)
+      ) {
+        continue;
+      }
       if (message.createdBy === "user" && message.scheduledTaskId === undefined) {
         userRequests.push(index);
       } else {
