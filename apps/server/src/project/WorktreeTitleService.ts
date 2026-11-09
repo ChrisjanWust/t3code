@@ -1,6 +1,7 @@
 import {
   CommandId,
   type OrchestrationV2DomainEvent,
+  type OrchestrationV2ThreadShell,
   type ProjectId,
   ProjectRegenerateWorktreeTitleError,
   type ProjectRegenerateWorktreeTitleInput,
@@ -51,6 +52,14 @@ export class WorktreeTitleService extends Context.Service<
 
 type Mode = "refresh" | "regenerate";
 
+/** Agent-launched threads have no user-authored messages; their prompts stand in. */
+const lastRequestAt = (
+  thread: Pick<OrchestrationV2ThreadShell, "latestUserAuthoredMessageAt" | "latestUserMessageAt">,
+): number | null => {
+  const at = thread.latestUserAuthoredMessageAt ?? thread.latestUserMessageAt;
+  return at == null ? null : DateTime.toEpochMillis(at);
+};
+
 const keyOf = (key: { readonly projectId: ProjectId; readonly worktreePath: string }) =>
   JSON.stringify([key.projectId, key.worktreePath]);
 
@@ -95,10 +104,8 @@ const make = Effect.gen(function* () {
         .map((thread) => ({
           id: thread.id,
           title: thread.title,
-          lastUserMessageAt:
-            thread.latestUserAuthoredMessageAt == null
-              ? null
-              : DateTime.toEpochMillis(thread.latestUserAuthoredMessageAt),
+          lastUserMessageAt: lastRequestAt(thread),
+          settled: thread.settledOverride === "settled",
         })),
     );
     const now = DateTime.toEpochMillis(yield* DateTime.now);
@@ -115,7 +122,7 @@ const make = Effect.gen(function* () {
     const sources = yield* Effect.forEach(window, (thread) =>
       excerpts(thread.id).pipe(Effect.map((excerpts) => ({ title: thread.title, excerpts }))),
     );
-    if (sources.every((source) => source.excerpts.every((excerpt) => excerpt.from !== "user"))) {
+    if (sources.every((source) => source.excerpts.length === 0)) {
       return entry ?? null;
     }
     const settings = resolveProjectSettings(
