@@ -96,16 +96,23 @@ const flatten = (text: string) =>
     .trim();
 
 /**
- * A thread's first and latest two user requests, plus the assistant's first and latest final
- * replies, which say what a vague request or link was about. Tool output and delegated or
+ * A thread's first and latest two user requests, plus the assistant's first finished reply and its
+ * latest message, which say what a vague request or link was about. Tool output and delegated or
  * scheduled prompts are left out, unless the user never wrote in the thread: then those prompts
- * are its requests. Background notifications never are.
+ * are its requests. Background notifications and delegated completions never are.
  */
 export function worktreeTitleExcerpts(
   messages: ReadonlyArray<
     Pick<
       OrchestrationV2ConversationMessage,
-      "role" | "createdBy" | "scheduledTaskId" | "notification" | "streaming" | "text" | "runId"
+      | "role"
+      | "createdBy"
+      | "scheduledTaskId"
+      | "notification"
+      | "delegatedCompletion"
+      | "streaming"
+      | "text"
+      | "runId"
     >
   >,
   runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "status">>,
@@ -117,6 +124,7 @@ export function worktreeTitleExcerpts(
   const userRequests: Array<number> = [];
   const otherRequests: Array<number> = [];
   const finalReplyByRun = new Map<string, number>();
+  let latestReply: number | undefined;
   for (const [index, message] of messages.entries()) {
     const text = message.text.trim();
     if (message.streaming || text === "") continue;
@@ -124,6 +132,7 @@ export function worktreeTitleExcerpts(
       if (
         text === ATTACHMENT_ONLY_BOOTSTRAP_PROMPT ||
         message.notification !== undefined ||
+        message.delegatedCompletion !== undefined ||
         isCompactionCommandMessage(message)
       ) {
         continue;
@@ -133,21 +142,21 @@ export function worktreeTitleExcerpts(
       } else {
         otherRequests.push(index);
       }
-    } else if (
-      message.role === "assistant" &&
-      message.runId !== null &&
-      finishedRuns.has(message.runId)
-    ) {
-      finalReplyByRun.set(message.runId, index);
+    } else if (message.role === "assistant") {
+      // The agent's latest word always counts, even mid-run: it says where the work stands.
+      latestReply = index;
+      if (message.runId !== null && finishedRuns.has(message.runId)) {
+        finalReplyByRun.set(message.runId, index);
+      }
     }
   }
   const requests = userRequests.length > 0 ? userRequests : otherRequests;
-  const replies = [...finalReplyByRun.values()].toSorted((a, b) => a - b);
+  const [firstAnswer] = finalReplyByRun.values();
   const picked = new Set([
     ...requests.slice(0, 1),
     ...requests.slice(-2),
-    ...replies.slice(0, 1),
-    ...replies.slice(-1),
+    ...(firstAnswer === undefined ? [] : [firstAnswer]),
+    ...(latestReply === undefined ? [] : [latestReply]),
   ]);
   return [...picked]
     .toSorted((a, b) => a - b)

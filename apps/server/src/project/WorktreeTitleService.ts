@@ -53,12 +53,18 @@ export class WorktreeTitleService extends Context.Service<
 
 type Mode = "refresh" | "regenerate";
 
-/** Agent-launched threads have no user-authored messages; their prompts stand in. */
+/**
+ * Agent-launched threads have no user-authored messages, so they count from their launch. Wakes
+ * move latestUserMessageAt, and ranking by it would keep a watched thread looking busy forever.
+ */
 const lastRequestAt = (
-  thread: Pick<OrchestrationV2ThreadShell, "latestUserAuthoredMessageAt" | "latestUserMessageAt">,
+  thread: Pick<
+    OrchestrationV2ThreadShell,
+    "latestUserAuthoredMessageAt" | "latestUserMessageAt" | "createdAt"
+  >,
 ): number | null => {
-  const at = thread.latestUserAuthoredMessageAt ?? thread.latestUserMessageAt;
-  return at == null ? null : DateTime.toEpochMillis(at);
+  if (thread.latestUserMessageAt === null) return null;
+  return DateTime.toEpochMillis(thread.latestUserAuthoredMessageAt ?? thread.createdAt);
 };
 
 const keyOf = (key: { readonly projectId: ProjectId; readonly worktreePath: string }) =>

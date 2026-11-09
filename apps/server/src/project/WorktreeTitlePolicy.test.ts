@@ -128,7 +128,7 @@ describe("isWorktreeTitleRefreshDue", () => {
 });
 
 describe("worktreeTitleExcerpts", () => {
-  it("keeps the first and latest requests and the last reply of finished runs", () => {
+  it("keeps the first and latest requests, the first answer and the agent's latest message", () => {
     const message = (
       text: string,
       overrides: Partial<{
@@ -186,8 +186,8 @@ describe("worktreeTitleExcerpts", () => {
         { from: "user", text: "https://example.slack.com/archives/C1/p1" },
         { from: "assistant", text: "It is about vendor fallbacks" },
         { from: "user", text: "Write the PRs" },
-        { from: "assistant", text: "Checks are still pending" },
         { from: "user", text: "Draft the Slack post" },
+        { from: "assistant", text: "Still writing" },
       ],
     );
 
