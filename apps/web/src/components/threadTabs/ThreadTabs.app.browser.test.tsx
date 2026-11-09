@@ -52,6 +52,8 @@ const WORKTREE = {
   worktreePath: "/workspace/render-worktrees/feature-tabs",
   branch: "feature/tabs",
 };
+// Untitled, the worktree is named by its first thread; these share a timestamp, so by id.
+const WORKTREE_ROW = "Thread tab-a";
 const inWorktree = (name: string): FakeThread => ({ ...threadWithHistory(name, 2), ...WORKTREE });
 
 function setup(
@@ -123,7 +125,7 @@ it("lists the open worktree's threads as tabs, one sidebar row per worktree", as
 
   await expect.element(tab("Thread tab-c")).toBeVisible();
   expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]);
-  await vi.waitFor(() => expect(rowTabCount("feature/tabs")).toBe("3"));
+  await vi.waitFor(() => expect(rowTabCount(WORKTREE_ROW)).toBe("3"));
   expect(rowTabCount("main")).toBe("1");
 
   await userEvent.click(tab("Thread tab-b"));
@@ -237,10 +239,8 @@ it("settles a worktree's open tabs together and reopens the same tabs", async ()
   await userEvent.click(page.getByRole("button", { name: "Close Thread tab-c" }));
   await vi.waitFor(() => expect(settleCommands()).toHaveLength(1));
 
-  await userEvent.hover(sidebarRow("feature/tabs"));
-  await userEvent.click(
-    sidebarRow("feature/tabs").getByRole("button", { name: "Settle worktree" }),
-  );
+  await userEvent.hover(sidebarRow(WORKTREE_ROW));
+  await userEvent.click(sidebarRow(WORKTREE_ROW).getByRole("button", { name: "Settle worktree" }));
   await vi.waitFor(() => expect(settleCommands()).toHaveLength(3));
   const [, ...worktreeSettles] = settleCommands();
   expect(worktreeSettles.map((command) => command.threadId).toSorted()).toEqual(["tab-a", "tab-b"]);
@@ -252,13 +252,11 @@ it("settles a worktree's open tabs together and reopens the same tabs", async ()
     await userEvent.click(settledShelf);
   }
 
-  await userEvent.hover(sidebarRow("feature/tabs"));
-  await userEvent.click(
-    sidebarRow("feature/tabs").getByRole("button", { name: "Reopen worktree" }),
-  );
+  await userEvent.hover(sidebarRow(WORKTREE_ROW));
+  await userEvent.click(sidebarRow(WORKTREE_ROW).getByRole("button", { name: "Reopen worktree" }));
   await vi.waitFor(() => expect(unsettledThreadIds().toSorted()).toEqual(["tab-a", "tab-b"]));
 
-  await userEvent.click(sidebarRow("feature/tabs"));
+  await userEvent.click(sidebarRow(WORKTREE_ROW));
   await vi.waitFor(() => expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b"]));
 });
 
@@ -303,7 +301,7 @@ it("opens a thread the server adds to the worktree, such as a fork, as a new tab
       "Thread tab-fork",
     ]),
   );
-  await vi.waitFor(() => expect(rowTabCount("feature/tabs")).toBe("4"));
+  await vi.waitFor(() => expect(rowTabCount(WORKTREE_ROW)).toBe("4"));
 });
 
 it("keeps the right panel when switching tabs, and keeps each worktree's own", async () => {
@@ -389,7 +387,7 @@ it("keeps a thread out of the checkout's tabs while its new worktree is being cr
     worktreePath: "/workspace/render-worktrees/new-work",
     branch: "t3/new-work",
   });
-  await vi.waitFor(() => expect(rowTabCount("t3/new-work")).toBe("1"));
+  await vi.waitFor(() => expect(rowTabCount("Thread new-work")).toBe("1"));
   expect(sidebarRow("New worktree").elements()).toHaveLength(0);
   expect(tabTitles()).toEqual(["Thread new-work"]);
   await expect.element(page.getByRole("button", { name: "New tab" })).toBeEnabled();
@@ -412,7 +410,7 @@ it("names a worktree row by its title, and F2 renames the worktree", async () =>
   await using _screen = screen;
 
   await expect.element(sidebarRow("Thread tab layout")).toBeVisible();
-  expect(sidebarRow("feature/tabs").elements()).toHaveLength(0);
+  expect(sidebarRow(WORKTREE_ROW).elements()).toHaveLength(0);
 
   sidebarRow("Thread tab layout").element().focus();
   await userEvent.keyboard("{F2}");

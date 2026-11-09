@@ -279,15 +279,32 @@ export function findWorktreeTitle(
     : worktreeTitles?.find((entry) => entry.worktreePath === worktreePath);
 }
 
-/** The worktree's own title; the branch stands in until one is generated. */
+type WorktreeLabelThread = WorktreeThread & Pick<SidebarThreadSummary, "branch" | "title">;
+
+/**
+ * The worktree's own title. Until one exists, its first open thread names it, as worktrees
+ * agents launch never get a generated title. A settled worktree keeps the name it had, from
+ * the tabs settled with it. The project checkout is named by its branch.
+ */
 export function worktreeLabel(
-  thread: Pick<SidebarThreadSummary, "branch" | "worktreePath" | "title" | "creatingWorktree">,
+  thread: WorktreeLabelThread,
   worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>,
+  members: readonly WorktreeLabelThread[] = [thread],
 ): string {
   const titled = findWorktreeTitle(worktreeTitles, thread.worktreePath);
   const title = titled?.manual ?? titled?.generated;
   if (title) return title;
-  if (thread.branch) return thread.branch;
-  if (thread.worktreePath === null) return thread.creatingWorktree ? "New worktree" : thread.title;
-  return thread.worktreePath.split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "Worktree";
+  if (thread.worktreePath === null) {
+    if (thread.branch) return thread.branch;
+    return thread.creatingWorktree ? "New worktree" : thread.title;
+  }
+  const open = members.filter((member) => member.settledOverride !== "settled");
+  const named = open.length > 0 ? open : resolveWorktreeReopenSet(members);
+  const candidates = named.length > 0 ? named : members;
+  // Threads launched together share a timestamp; the id keeps the label from flipping.
+  return candidates.reduce((first, member) =>
+    (threadCreatedAtMs(member) - threadCreatedAtMs(first) || member.id.localeCompare(first.id)) < 0
+      ? member
+      : first,
+  ).title;
 }

@@ -2835,7 +2835,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         )?.worktreeTitles;
         const worktreeTarget = worktreeRowTitleTarget(thread, worktreeMembers !== undefined);
         const worktreeTitleKey = worktreeTarget === null ? null : JSON.stringify(worktreeTarget);
-        const worktreeName = `${worktreeMembers?.length ?? 1} threads in "${worktreeLabel(thread, worktreeTitles)}"`;
+        const worktreeName = `${worktreeMembers?.length ?? 1} threads in "${worktreeLabel(thread, worktreeTitles, worktreeMembers)}"`;
         const threadWorkspacePath =
           thread.worktreePath ??
           projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
@@ -3023,7 +3023,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           }
           case "rename":
             if (worktreeMembers !== undefined) {
-              startThreadRename(threadRef, worktreeLabel(thread, worktreeTitles));
+              startThreadRename(threadRef, worktreeLabel(thread, worktreeTitles, worktreeMembers));
               return;
             }
             startThreadRename(threadRef, thread.title);
@@ -3653,6 +3653,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   thread,
                                   projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
                                     ?.worktreeTitles,
+                                  worktreeMembers,
                                 ),
                                 worktreeTabCount: worktreeOpenTabs.length,
                                 worktreeStatusThreadId:
