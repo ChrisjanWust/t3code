@@ -75,6 +75,7 @@ import {
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
+  ProjectMutateEntryError,
   ProjectWriteFileError,
   ProjectMutationError,
   ProviderUploadFeedbackError,
@@ -652,6 +653,8 @@ function projectFileFailureContext(
         resolvedPath: error.resolvedPath,
         resolvedWorkspaceRoot: error.resolvedWorkspaceRoot,
       };
+    case "WorkspacePathExistsError":
+      return { failure: "path_exists", resolvedPath: error.resolvedPath };
     case "WorkspacePathNotFileError":
       return { failure: "path_not_file", resolvedPath: error.resolvedPath };
     case "WorkspaceBinaryFileError":
@@ -3024,6 +3027,22 @@ export const layerWsRpc = (
                 new ProjectWriteFileError({
                   cwd: input.cwd,
                   relativePath: input.relativePath,
+                  ...projectFileFailureContext(cause),
+                  cause,
+                }),
+            ),
+          ),
+        [WS_METHODS.projectsMutateEntry]: (input) =>
+          workspaceFileSystem.mutateEntry(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectMutateEntryError({
+                  cwd: input.cwd,
+                  // A collision is at the destination, which is the path worth naming.
+                  relativePath:
+                    cause._tag === "WorkspacePathExistsError"
+                      ? cause.relativePath
+                      : input.relativePath,
                   ...projectFileFailureContext(cause),
                   cause,
                 }),

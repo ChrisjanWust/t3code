@@ -495,6 +495,7 @@ export const ProjectFileFailure = Schema.Literals([
   "resolved_path_outside_root",
   "path_not_file",
   "binary_file",
+  "path_exists",
   "operation_failed",
 ]);
 export type ProjectFileFailure = typeof ProjectFileFailure.Type;
@@ -508,6 +509,9 @@ export const ProjectFileOperation = Schema.Literals([
   "close",
   "make-directory",
   "write-file",
+  "move",
+  "copy",
+  "delete",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
 
@@ -559,6 +563,31 @@ export const ProjectWriteFileResult = Schema.Struct({
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
+const ProjectEntryPath = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH),
+);
+
+export const ProjectEntryAction = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("create"), kind: ProjectEntryKind }),
+  // A move fails when the destination exists; a copy takes the next free "name copy" instead.
+  Schema.Struct({ type: Schema.Literals(["move", "copy"]), toRelativePath: ProjectEntryPath }),
+  Schema.Struct({ type: Schema.Literal("delete") }),
+]);
+export type ProjectEntryAction = typeof ProjectEntryAction.Type;
+
+export const ProjectMutateEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: ProjectEntryPath,
+  action: ProjectEntryAction,
+});
+export type ProjectMutateEntryInput = typeof ProjectMutateEntryInput.Type;
+
+export const ProjectMutateEntryResult = Schema.Struct({
+  /** Where the entry is now; for a delete, where it was. */
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectMutateEntryResult = typeof ProjectMutateEntryResult.Type;
+
 export const ProjectEnsureScratchResult = Schema.Struct({
   projectId: ProjectId,
 });
@@ -608,6 +637,33 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export class ProjectMutateEntryError extends Schema.TaggedError<ProjectMutateEntryError>()(
+  "ProjectMutateEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        (props.failure === "path_exists"
+          ? `'${props.relativePath}' already exists.`
+          : `Failed to change '${props.relativePath}' in '${props.cwd}'.`),
     } as any);
   }
 }

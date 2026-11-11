@@ -69,6 +69,17 @@ function writtenFilePaths(
   );
 }
 
+function mutatedEntryPaths(
+  input: EnvironmentRpcInput<typeof WS_METHODS.projectsMutateEntry>,
+  result: EnvironmentRpcSuccess<typeof WS_METHODS.projectsMutateEntry>,
+) {
+  return new Set(
+    [input.relativePath, result.relativePath].map((path) =>
+      resolveWorkspaceFilePath(path, input.cwd),
+    ),
+  );
+}
+
 export class ScratchProjectNotLoadedError extends Schema.TaggedError<ScratchProjectNotLoadedError>()(
   "ScratchProjectNotLoadedError",
   { projectId: ProjectId },
@@ -241,6 +252,26 @@ export function createProjectEnvironmentAtoms<R, E>(
       onSuccess: ({ environmentId, input }, registry, result) =>
         Effect.sync(() => {
           for (const path of writtenFilePaths(input, result))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
+    mutateEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:mutate-entry",
+      tag: WS_METHODS.projectsMutateEntry,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.projectsMutateEntry, input).pipe(
+          Effect.tap((result) =>
+            Effect.forEach(mutatedEntryPaths(input, result), fileMetadata.invalidate),
+          ),
+        ),
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          for (const path of mutatedEntryPaths(input, result))
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
     }),

@@ -10,6 +10,7 @@ import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide";
+import { FilePlusIcon, FolderPlusIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -27,6 +28,7 @@ import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
+import { isFileEntryActionId, useFileEntryActions } from "./fileEntryActions";
 import { joinHostPath } from "./filePath";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
@@ -167,6 +169,24 @@ export default function FileBrowserPanel({
   const { entries, entryKinds, treePaths, directoryPaths, expandableDirectoryPaths } =
     buildTreeEntries(directoryEntries, pathSearch.entries, pathSearch.isPending, query);
   const entryKindsRef = useRef(entryKinds);
+  const pendingDirectoryRevealRef = useRef<string | null>(null);
+  const entryActions = useFileEntryActions({
+    environmentId,
+    cwd,
+    enabled: !hostFolder,
+    selectedPath,
+    onOpenFile,
+    onCreatedDirectory: (path) => {
+      pendingDirectoryRevealRef.current = path;
+      // The trailing segment stands in for a file, so the new folder itself is listed too.
+      void loadFileAncestors(`${path}/.`, load, { signal: new AbortController().signal });
+    },
+    onChanged: () => {
+      refresh();
+      if (query.trim()) pathSearch.refresh();
+    },
+    onSelectedFileChanged: () => onRefreshSelectedFile?.(),
+  });
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
@@ -192,14 +212,27 @@ export default function FileBrowserPanel({
         : { x: anchorRect.left, y: anchorRect.bottom };
       const fileTarget = { environmentId, filePath: relativePath, workspaceRoot: cwd };
       const fileMenuItems = fileContextMenu.buildItems(fileTarget);
+      const entry = {
+        path: relativePath,
+        kind: item.path.endsWith("/") ? ("directory" as const) : ("file" as const),
+      };
+      const [newFile, newFolder, ...changeItems] = entryActions.menuItems();
       // The app menu owns focus; the tree's outside-click handler would dismiss it before click.
       context.close({ restoreFocus: !pointerIsFresh });
       void settlePromise(async () => {
         const clicked = await api.contextMenu.show(
           [
-            ...fileMenuItems,
-            { id: "copy-mention", label: "Copy mention" },
+            ...(newFile && newFolder ? [newFile, newFolder] : []),
+            ...fileMenuItems.map((menuItem, index) =>
+              index === 0 && newFile ? { ...menuItem, separatorBefore: true } : menuItem,
+            ),
+            {
+              id: "copy-mention",
+              label: "Copy mention",
+              separatorBefore: newFile !== undefined && fileMenuItems.length === 0,
+            },
             { id: "add-to-chat", label: "Add to chat" },
+            ...changeItems,
           ],
           position,
         );
@@ -209,6 +242,10 @@ export default function FileBrowserPanel({
           fileMenuItems.some((entry) => entry.id === clicked) || clicked.startsWith("editor:");
         if (isFileMenuAction) {
           await fileContextMenu.activate(clicked as FileContextMenuAction, fileTarget);
+          return;
+        }
+        if (isFileEntryActionId(clicked)) {
+          await entryActions.activate(clicked, entry);
           return;
         }
         if (clicked === "copy-mention") {
@@ -401,6 +438,15 @@ export default function FileBrowserPanel({
     }
     const updates = buildFileTreePathUpdates(previousTreePaths, treePaths);
     if (updates.length > 0) model.batch(updates);
+    const pendingReveal = pendingDirectoryRevealRef.current;
+    if (pendingReveal === null || !model.getItem(`${pendingReveal}/`)) return;
+    pendingDirectoryRevealRef.current = null;
+    const segments = pendingReveal.split("/");
+    for (let depth = 1; depth < segments.length; depth++) {
+      const ancestor = model.getItem(`${segments.slice(0, depth).join("/")}/`);
+      if (ancestor && "expand" in ancestor) ancestor.expand();
+    }
+    model.scrollToPath(`${pendingReveal}/`, { focus: true, offset: "center" });
   }, [ready, entryKinds, model, treePaths]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expands every directory in the Pierre tree model while expand-all is on and no search is active
@@ -489,6 +535,42 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+        {entryActions.enabled ? (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="New file"
+                    onClick={() => entryActions.startCreate("file")}
+                  />
+                }
+              >
+                <FilePlusIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup>New file</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="New folder"
+                    onClick={() => entryActions.startCreate("directory")}
+                  />
+                }
+              >
+                <FolderPlusIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup>New folder</TooltipPopup>
+            </Tooltip>
+          </>
+        ) : null}
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -564,6 +646,7 @@ export default function FileBrowserPanel({
           style={pierreTreeStyle(resolvedTheme)}
         />
       )}
+      {entryActions.dialog}
     </div>
   );
 }
