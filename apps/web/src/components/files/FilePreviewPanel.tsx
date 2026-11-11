@@ -118,11 +118,9 @@ import {
   shouldShowFileExplorer,
   workspaceAssetResource,
 } from "./filePreviewMode";
-import { setMarkdownTaskChecked } from "@t3tools/shared/markdownTaskList";
 import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
 import { revisionedQuery } from "~/state/revisionedQuery";
 import {
-  getOptimisticProjectFileQueryData,
   getProjectFileContents,
   getProjectFileQueryAtom,
   setProjectFileQueryData,
@@ -951,6 +949,38 @@ function RenderedMarkdownSurface({
 }) {
   const saveTarget = { environmentId, cwd, relativePath };
   useFileSaveSession(saveTarget, onPendingChange);
+  // Text the editor wrote comes back as `contents`; anything else is an outside
+  // change (an agent, another client) and reloads the editor.
+  const [external, setExternal] = useState({ contents, revision: 0 });
+  const [edited, setEdited] = useState<string | null>(null);
+  const [loadFailedFor, setLoadFailedFor] = useState<number | null>(null);
+  if (contents !== (edited ?? external.contents)) {
+    setExternal({ contents, revision: external.revision + 1 });
+    setEdited(null);
+  }
+  const save = (nextContents: string) => {
+    if (nextContents === getProjectFileContents(environmentId, cwd, relativePath)) return;
+    setEdited(nextContents);
+    setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+    changeFileSaveSession(saveTarget, nextContents);
+  };
+
+  if (!readOnly && loadFailedFor !== external.revision) {
+    return (
+      <Suspense fallback={<FileSurfaceLoading />}>
+        <FileMarkdownEditor
+          cwd={cwd}
+          relativePath={relativePath}
+          text={edited ?? external.contents}
+          revision={external.revision}
+          threadRef={threadRef}
+          workspaceMutationId={workspaceMutationId}
+          onChange={save}
+          onLoadError={() => setLoadFailedFor(external.revision)}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <ScrollArea className="@container min-h-0 flex-1">
@@ -960,19 +990,6 @@ function RenderedMarkdownSurface({
         relativePath={relativePath}
         threadRef={threadRef}
         workspaceMutationId={workspaceMutationId}
-        onTaskListChange={
-          readOnly
-            ? undefined
-            : ({ markerOffset, checked }) => {
-                const currentContents =
-                  getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-                  contents;
-                const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-                if (nextContents === currentContents) return;
-                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                changeFileSaveSession(saveTarget, nextContents);
-              }
-        }
       />
     </ScrollArea>
   );
@@ -1573,6 +1590,7 @@ export default function FilePreviewPanel({
 }
 
 const LargeTextViewer = lazy(() => import("./LargeTextViewer"));
+const FileMarkdownEditor = lazy(() => import("./markdownEditor/FileMarkdownEditor"));
 export function WorkspaceLargeTextPreview(props: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;

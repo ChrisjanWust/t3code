@@ -501,6 +501,11 @@ export default defineConfig({
         rules: { "shadcn/no-unknown-classes": "error" },
       },
       {
+        // Vendored from vmark: upstream's comments carry the reasons for its parser quirks.
+        files: ["apps/web/src/components/files/markdownEditor/vmark/**"],
+        rules: { "t3code/no-low-value-comments": "off" },
+      },
+      {
         files: ["apps/web/src/**"],
         rules: { "t3code/no-outset-state-indicators": "error" },
       },

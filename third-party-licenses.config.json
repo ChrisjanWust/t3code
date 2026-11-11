@@ -8,6 +8,13 @@
       "noticeFile": "apps/web/src/components/files/office/LICENSE.opencode"
     },
     {
+      "name": "vmark Markdown pipeline",
+      "bundles": ["web"],
+      "license": "ISC",
+      "sourceUrl": "https://github.com/xiaolai/vmark",
+      "noticeFile": "apps/web/src/components/files/markdownEditor/vmark/LICENSE.vmark"
+    },
+    {
       "bundles": ["desktop", "web"],
       "license": "MIT",
       "name": "Ionic keyboard assist",
@@ -229,6 +236,16 @@
     }
   ],
   "packageOverrides": [
+    {
+      "name": "format",
+      "version": "0.2.2",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/samsonjs/format",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Sami Samhuri"]
+      }
+    },
     {
       "name": "entities",
       "version": "8.1.0",
