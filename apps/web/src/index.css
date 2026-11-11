@@ -2617,3 +2617,111 @@ code {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+
+/* WYSIWYG markdown file editor. Typography comes from `.chat-markdown`. */
+.file-markdown-editor {
+  min-height: 100%;
+}
+
+.file-markdown-editor li[data-checked] {
+  list-style: none;
+  position: relative;
+}
+
+.file-markdown-editor li[data-checked]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -1.35em;
+  top: 0.3em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1px solid var(--border);
+  border-radius: 0.2em;
+  background: var(--background);
+  cursor: pointer;
+}
+
+.file-markdown-editor li[data-checked="true"]::before {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.file-markdown-editor li[data-checked="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: -1.05em;
+  top: 0.42em;
+  width: 0.3em;
+  height: 0.55em;
+  border: solid var(--primary-foreground);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.file-markdown-editor pre.chat-markdown-codeblock {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  overflow-x: auto;
+}
+
+.file-markdown-editor [data-alert] {
+  margin-block: 0.25rem;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid var(--info, var(--primary));
+}
+
+.file-markdown-editor [data-alert]::before {
+  content: attr(data-alert);
+  display: block;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.file-markdown-editor [data-alert="WARNING"],
+.file-markdown-editor [data-alert="CAUTION"] {
+  border-inline-start-color: var(--warning, var(--destructive));
+}
+
+.file-markdown-editor [data-footnote-definition] {
+  position: relative;
+  padding-inline-start: 2.5em;
+  font-size: 0.92em;
+}
+
+.file-markdown-editor [data-footnote-definition]::before {
+  content: "[" attr(data-label) "]";
+  position: absolute;
+  inset-inline-start: 0;
+  color: var(--muted-foreground);
+}
+
+/* Source the editor shows but does not edit in place. */
+.file-markdown-editor :is(div, span)[data-markdown-atom]:not(:has(.chat-markdown)) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+}
+
+.file-markdown-editor div[data-markdown-atom] {
+  margin-block: 0.65rem;
+}
+
+.file-markdown-editor [data-markdown-atom].ProseMirror-selectednode,
+.file-markdown-editor hr.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+.file-markdown-editor .selectedCell {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.file-markdown-editor :is(th, td) > p {
+  margin: 0;
+}

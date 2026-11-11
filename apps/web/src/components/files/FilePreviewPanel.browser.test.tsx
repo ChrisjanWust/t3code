@@ -141,14 +141,25 @@ describe("rendered Markdown task saves", () => {
     expect(state.writeFile).not.toHaveBeenCalled();
   });
 
-  it("still toggles and saves tasks from a complete read", async () => {
+  it("toggles and saves a task from the editor of a complete read", async () => {
     using _settings = setup();
+    // The editor is a lazy chunk; loading it first keeps the wait below on rendering alone.
+    await import("./markdownEditor/FileMarkdownEditor");
     await using screen = await render(markdownPreview(false));
+    const task = await vi.waitFor(() => {
+      const item = screen.container.querySelector<HTMLElement>(
+        '.file-markdown-editor li[data-checked="false"]',
+      );
+      expect(item).not.toBeNull();
+      return item!;
+    });
     using _timers = fakeTimers();
-    const checkbox = screen.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-    expect(checkbox).not.toBeNull();
-    expect(checkbox.disabled).toBe(false);
-    await act(async () => checkbox.click());
+    const { left, top } = task.getBoundingClientRect();
+    await act(async () => {
+      task.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, clientX: left - 8, clientY: top + 8 }),
+      );
+    });
     await vi.advanceTimersByTimeAsync(500);
     expect(state.writeFile).toHaveBeenCalledExactlyOnceWith({
       environmentId,
