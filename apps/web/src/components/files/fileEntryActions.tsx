@@ -51,7 +51,7 @@ type NameRequest =
   | { readonly mode: "create"; readonly kind: ProjectEntryKind; readonly directory: string }
   | { readonly mode: "rename"; readonly entry: FileEntryTarget };
 
-function parentDirectory(path: string): string {
+export function parentDirectory(path: string): string {
   return path.slice(0, Math.max(0, path.lastIndexOf("/")));
 }
 
@@ -87,6 +87,8 @@ export function useFileEntryActions(props: {
   readonly onCreatedDirectory: (relativePath: string) => void;
   readonly onChanged: () => void;
   readonly onSelectedFileChanged: () => void;
+  /** The open path moved or is gone; show `path` in its place, not beside it. */
+  readonly onSelectedPathReplaced: (path: string) => void;
 }) {
   const { environmentId, cwd, selectedPath } = props;
   const mutateEntry = useAtomCommand(projectEnvironment.mutateEntry, { reportFailure: false });
@@ -134,12 +136,17 @@ export function useFileEntryActions(props: {
     if (copiedEntry !== null && pathAfterMove(copiedEntry.path, entry.path, "") !== null) {
       setCopiedEntry(null);
     }
+    // Left open, the editor would write the deleted file back on the next keystroke.
     if (selectedPath !== null && pathAfterMove(selectedPath, entry.path, "") !== null) {
-      props.onSelectedFileChanged();
+      props.onSelectedPathReplaced(parentDirectory(entry.path));
     }
   };
 
   const copyInto = async (source: FileEntryTarget, directory: string) => {
+    if (pathAfterMove(directory, source.path, "") !== null) {
+      toastManager.add({ type: "error", title: "A folder can't be pasted into itself" });
+      return;
+    }
     await runWithToast("Could not copy", source.path, {
       type: "copy",
       toRelativePath: joinPath(directory, baseName(source.path)),
@@ -150,6 +157,8 @@ export function useFileEntryActions(props: {
     const path = normalizeEnteredPath(value);
     if (!path) return "Enter a name.";
     if (request.mode === "create") {
+      // The prefilled folder on its own names nothing new.
+      if (path === request.directory) return "Enter a name.";
       const result = await run(path, { type: "create", kind: request.kind });
       if (result === null) return null;
       if ("error" in result) return result.error;
@@ -161,6 +170,7 @@ export function useFileEntryActions(props: {
     }
     const source = request.entry.path;
     if (path === source) return null;
+    if (pathAfterMove(path, source, "") !== null) return "It can't be moved into itself.";
     const result = await run(source, { type: "move", toRelativePath: path });
     if (result === null) return null;
     if ("error" in result) return result.error;
@@ -170,7 +180,7 @@ export function useFileEntryActions(props: {
     }
     const movedSelection =
       selectedPath === null ? null : pathAfterMove(selectedPath, source, result.path);
-    if (movedSelection !== null) props.onOpenFile(movedSelection);
+    if (movedSelection !== null) props.onSelectedPathReplaced(movedSelection);
     return null;
   };
 
@@ -179,25 +189,30 @@ export function useFileEntryActions(props: {
 
   return {
     enabled,
-    menuItems: (): ContextMenuItem<FileEntryActionId>[] =>
+    /** Menu entries that add something new, and those that change the clicked entry. */
+    menuItems: (): Record<"create" | "change", ContextMenuItem<FileEntryActionId>[]> =>
       enabled
-        ? [
-            { id: "new-file", label: "New file…" },
-            { id: "new-folder", label: "New folder…" },
-            { id: "copy-entry", label: "Copy", separatorBefore: true },
-            ...(copiedEntry === null
-              ? []
-              : [
-                  {
-                    id: "paste-entry" as const,
-                    label: `Paste "${baseName(copiedEntry.path)}"`,
-                  },
-                ]),
-            { id: "duplicate-entry", label: "Duplicate" },
-            { id: "rename-entry", label: "Rename or move…" },
-            { id: "delete-entry", label: "Delete", destructive: true },
-          ]
-        : [],
+        ? {
+            create: [
+              { id: "new-file", label: "New file…" },
+              { id: "new-folder", label: "New folder…" },
+            ],
+            change: [
+              { id: "copy-entry", label: "Copy", separatorBefore: true },
+              ...(copiedEntry === null
+                ? []
+                : [
+                    {
+                      id: "paste-entry" as const,
+                      label: `Paste "${baseName(copiedEntry.path)}"`,
+                    },
+                  ]),
+              { id: "duplicate-entry", label: "Duplicate" },
+              { id: "rename-entry", label: "Rename or move…" },
+              { id: "delete-entry", label: "Delete", destructive: true },
+            ],
+          }
+        : { create: [], change: [] },
     activate: (id: FileEntryActionId, entry: FileEntryTarget): Promise<void> | void => {
       if (!enabled) return;
       switch (id) {
@@ -223,14 +238,8 @@ export function useFileEntryActions(props: {
           return deleteEntry(entry);
       }
     },
-    /** Starts a new entry beside the open file, or at the project root. */
-    startCreate: (kind: ProjectEntryKind) => {
-      if (!enabled) return;
-      setNameRequest({
-        mode: "create",
-        kind,
-        directory: selectedPath === null ? "" : parentDirectory(selectedPath),
-      });
+    startCreate: (kind: ProjectEntryKind, directory: string) => {
+      if (enabled) setNameRequest({ mode: "create", kind, directory });
     },
     dialog:
       nameRequest === null ? null : (

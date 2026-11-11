@@ -1554,6 +1554,7 @@ export default function FilePreviewPanel({
               }
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
+              onSelectedPathReplaced={(path) => onNavigateFolder(path, path, false)}
               workspaceMutationId={workspaceMutationId}
               {...(previewPath && !isMedia && !isPdf
                 ? {

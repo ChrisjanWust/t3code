@@ -28,7 +28,7 @@ import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
-import { isFileEntryActionId, useFileEntryActions } from "./fileEntryActions";
+import { isFileEntryActionId, parentDirectory, useFileEntryActions } from "./fileEntryActions";
 import { joinHostPath } from "./filePath";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
@@ -48,6 +48,7 @@ interface FileBrowserPanelProps {
    * loaded folders. */
   hostFolder?: boolean;
   onRefreshSelectedFile?: () => void;
+  onSelectedPathReplaced?: (path: string) => void;
   workspaceMutationId: string | null;
 }
 
@@ -143,6 +144,7 @@ export default function FileBrowserPanel({
   selectedPathRevealId,
   onOpenFile,
   onRefreshSelectedFile,
+  onSelectedPathReplaced,
   workspaceMutationId,
   hostFolder = false,
 }: FileBrowserPanelProps) {
@@ -186,7 +188,18 @@ export default function FileBrowserPanel({
       if (query.trim()) pathSearch.refresh();
     },
     onSelectedFileChanged: () => onRefreshSelectedFile?.(),
+    onSelectedPathReplaced: (path) => onSelectedPathReplaced?.(path),
   });
+  // New entries start in the open folder, beside the open file, or at the project root.
+  const startCreate = (kind: "file" | "directory") =>
+    entryActions.startCreate(
+      kind,
+      selectedPath === null
+        ? ""
+        : entryKindsRef.current.get(selectedPath) === "directory"
+          ? selectedPath
+          : parentDirectory(selectedPath),
+    );
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
@@ -216,23 +229,24 @@ export default function FileBrowserPanel({
         path: relativePath,
         kind: item.path.endsWith("/") ? ("directory" as const) : ("file" as const),
       };
-      const [newFile, newFolder, ...changeItems] = entryActions.menuItems();
+      const entryMenu = entryActions.menuItems();
+      const otherItems = [
+        ...fileMenuItems,
+        { id: "copy-mention", label: "Copy mention" },
+        { id: "add-to-chat", label: "Add to chat" },
+        ...entryMenu.change,
+      ];
       // The app menu owns focus; the tree's outside-click handler would dismiss it before click.
       context.close({ restoreFocus: !pointerIsFresh });
       void settlePromise(async () => {
         const clicked = await api.contextMenu.show(
           [
-            ...(newFile && newFolder ? [newFile, newFolder] : []),
-            ...fileMenuItems.map((menuItem, index) =>
-              index === 0 && newFile ? { ...menuItem, separatorBefore: true } : menuItem,
+            ...entryMenu.create,
+            ...otherItems.map((menuItem, index) =>
+              index === 0 && entryMenu.create.length > 0
+                ? { ...menuItem, separatorBefore: true }
+                : menuItem,
             ),
-            {
-              id: "copy-mention",
-              label: "Copy mention",
-              separatorBefore: newFile !== undefined && fileMenuItems.length === 0,
-            },
-            { id: "add-to-chat", label: "Add to chat" },
-            ...changeItems,
           ],
           position,
         );
@@ -545,7 +559,7 @@ export default function FileBrowserPanel({
                     size="icon-xs"
                     variant="ghost"
                     aria-label="New file"
-                    onClick={() => entryActions.startCreate("file")}
+                    onClick={() => startCreate("file")}
                   />
                 }
               >
@@ -561,7 +575,7 @@ export default function FileBrowserPanel({
                     size="icon-xs"
                     variant="ghost"
                     aria-label="New folder"
-                    onClick={() => entryActions.startCreate("directory")}
+                    onClick={() => startCreate("directory")}
                   />
                 }
               >

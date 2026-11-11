@@ -663,7 +663,10 @@ export class ProjectMutateEntryError extends Schema.TaggedError<ProjectMutateEnt
         decodedProjectErrorMessage(props) ??
         (props.failure === "path_exists"
           ? `'${props.relativePath}' already exists.`
-          : `Failed to change '${props.relativePath}' in '${props.cwd}'.`),
+          : props.failure === "workspace_path_outside_root" ||
+              props.failure === "resolved_path_outside_root"
+            ? "The path must stay inside the project and outside '.git'."
+            : `Failed to change '${props.relativePath}' in '${props.cwd}'.`),
     } as any);
   }
 }

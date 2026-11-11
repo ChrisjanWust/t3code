@@ -22,6 +22,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
@@ -489,6 +490,8 @@ export const make = Effect.gen(function* () {
   // Resolve existing ancestors and reject dangling links so creation cannot follow symlinks outside root.
   const resolveWriteTarget = Effect.fn("WorkspaceFileSystem.resolveWriteTarget")(function* (
     input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
+    // Entry mutations act on the leaf itself, so only its folders are followed through links.
+    followLeaf = true,
   ) {
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
       workspaceRoot: input.cwd,
@@ -512,7 +515,7 @@ export const make = Effect.gen(function* () {
     const segments = path.relative(input.cwd, target.absolutePath).split(path.sep);
     const realTargetPath = yield* Effect.tryPromise({
       try: async () => {
-        for (let depth = segments.length; depth > 0; depth--) {
+        for (let depth = segments.length - (followLeaf ? 0 : 1); depth > 0; depth--) {
           const candidate = path.join(realWorkspaceRoot, ...segments.slice(0, depth));
           try {
             return path.join(await NodeFSP.realpath(candidate), ...segments.slice(depth));
@@ -565,7 +568,7 @@ export const make = Effect.gen(function* () {
         resolvedPath: realTargetPath,
       });
     }
-    return { relativePath: target.relativePath, realTargetPath, namedTargetPath };
+    return { relativePath: target.relativePath, realTargetPath };
   });
 
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
@@ -620,14 +623,15 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
+  // One change at a time: the collision check and the change it guards are separate steps.
+  const mutationLock = yield* Semaphore.make(1);
   const mutateEntry: WorkspaceFileSystem["Service"]["mutateEntry"] = Effect.fn(
     "WorkspaceFileSystem.mutateEntry",
   )(function* (input) {
     yield* knownWorkspaces.assertContains(input.cwd);
     const { action } = input;
-    // The named path, not the real one: moving or deleting a symlink acts on the link itself.
-    const source = yield* resolveWriteTarget(input);
-    const sourcePath = source.namedTargetPath;
+    const source = yield* resolveWriteTarget(input, false);
+    const sourcePath = source.realTargetPath;
     const attempt = <A>(
       operation: WorkspaceFileSystemOperationError["operation"],
       operationPath: string,
@@ -671,18 +675,23 @@ export const make = Effect.gen(function* () {
     } else if (action.type === "delete") {
       yield* attempt("delete", sourcePath, () => NodeFSP.rm(sourcePath, { recursive: true }));
     } else {
-      const destination = yield* resolveWriteTarget({
-        cwd: input.cwd,
-        relativePath: action.toRelativePath,
-      });
-      let destinationPath = destination.namedTargetPath;
+      const destination = yield* resolveWriteTarget(
+        { cwd: input.cwd, relativePath: action.toRelativePath },
+        false,
+      );
+      let destinationPath = destination.realTargetPath;
       relativePath = destination.relativePath;
-      const sourceStat = yield* lstatOrNull(sourcePath);
+      // Checked before any folder is created, so a refused change leaves nothing behind.
+      const sourceStat = yield* attempt(action.type, sourcePath, () => NodeFSP.lstat(sourcePath));
+      if (destinationPath.startsWith(`${sourcePath}${path.sep}`)) {
+        return yield* attempt(action.type, destinationPath, () =>
+          Promise.reject(new Error("The destination is inside the entry itself.")),
+        );
+      }
       const destinationStat = yield* lstatOrNull(destinationPath);
       if (action.type === "move") {
         // A case-only rename on a case-insensitive disk finds the entry itself at the destination.
         const sameEntry =
-          sourceStat !== null &&
           destinationStat !== null &&
           sourceStat.ino === destinationStat.ino &&
           sourceStat.dev === destinationStat.dev;
@@ -698,7 +707,7 @@ export const make = Effect.gen(function* () {
         if (destinationStat) {
           const folder = path.dirname(destinationPath);
           const base = path.basename(destinationPath);
-          const extension = sourceStat?.isDirectory() ? "" : path.extname(base);
+          const extension = sourceStat.isDirectory() ? "" : path.extname(base);
           const stem = base.slice(0, base.length - extension.length);
           for (let copy = 1; ; copy++) {
             const name = `${stem} copy${copy === 1 ? "" : ` ${copy}`}${extension}`;
@@ -717,13 +726,15 @@ export const make = Effect.gen(function* () {
             recursive: true,
             force: false,
             errorOnExist: true,
+            // Relative links inside a copied folder must keep pointing within the copy.
+            verbatimSymlinks: true,
           });
         });
       }
     }
     yield* workspaceEntries.refresh(input.cwd);
     return { relativePath };
-  });
+  }, mutationLock.withPermits(1));
 
   return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile, mutateEntry });
 });

@@ -963,8 +963,10 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           const fileSystem = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const cwd = yield* makeTempDir;
-          yield* writeTextFile(cwd, "real/data.md", "data\n");
-          yield* fileSystem.symlink("real", path.join(cwd, "link"));
+          // Outside the workspace, as a worktree's linked `.env` is: only the link may go.
+          const outside = yield* makeTempDir;
+          yield* writeTextFile(outside, "data.md", "data\n");
+          yield* fileSystem.symlink(path.join(outside, "data.md"), path.join(cwd, "link"));
 
           yield* workspaceFileSystem.mutateEntry({
             cwd,
@@ -973,7 +975,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           });
 
           expect(yield* fileSystem.exists(path.join(cwd, "link"))).toBe(false);
-          expect(yield* fileSystem.readFileString(path.join(cwd, "real/data.md"))).toBe("data\n");
+          expect(yield* fileSystem.readFileString(path.join(outside, "data.md"))).toBe("data\n");
         }),
     );
   });
