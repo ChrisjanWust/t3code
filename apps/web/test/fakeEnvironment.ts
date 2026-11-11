@@ -95,7 +95,10 @@ const makeServerConfig = (): ServerConfig => ({
         status: "ready",
         auth: { status: "authenticated" },
         checkedAt: "2026-03-17T19:12:28.000Z",
-        models: [{ slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null }],
+        models: [
+          { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null },
+          { slug: "gpt-5.5", name: "GPT-5.5", isCustom: false, capabilities: null },
+        ],
       },
     ],
     availableEditors: [],
@@ -112,7 +115,12 @@ const makeServerConfig = (): ServerConfig => ({
   }),
   keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
 });
-let serverConfig = makeServerConfig();
+let baseServerConfig = makeServerConfig();
+// A server only leaves threads out of the shell when it serves their families.
+const serverConfig = (): ServerConfig =>
+  threads.some((thread) => thread.olderSettled)
+    ? { ...baseServerConfig, shellThreadFamilies: true }
+    : baseServerConfig;
 
 const baseProject: OrchestrationProjectShell = {
   id: PROJECT_ID,
@@ -197,6 +205,8 @@ function run(threadId: ThreadId, id: RunId, ordinal: number, userMessageId: stri
 export interface FakeThread {
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
+  /** Makes this an older settled thread the shell leaves out; only its family read returns it. */
+  readonly olderSettled?: true;
   readonly id: ThreadId;
   readonly title: string;
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
@@ -283,8 +293,8 @@ function baseShellOf(
     createdAt: AT,
     updatedAt: AT,
     archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
+    settledOverride: thread.olderSettled ? "settled" : null,
+    settledAt: thread.olderSettled ? AT : null,
     lastVisitedAt: AT,
     deletedAt: null,
   };
@@ -320,8 +330,8 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       createdAt: AT,
       updatedAt: AT,
       archivedAt: null,
-      settledOverride: null,
-      settledAt: null,
+      settledOverride: shell.settledOverride,
+      settledAt: shell.settledAt,
       lastVisitedAt: AT,
       deletedAt: null,
     },
@@ -353,8 +363,9 @@ const threadSubscribers = new Map<string, Queue.Queue<OrchestrationV2ThreadStrea
 const shellSubscribers = new Set<Queue.Queue<OrchestrationV2ShellStreamItem>>();
 let terminalMetadataSubscriber: Queue.Queue<TerminalMetadataStreamEvent> | null = null;
 let threads: ReadonlyArray<FakeThread> = [];
-let sequence = 1;
 let dispatched: OrchestrationV2Command[] = [];
+let acceptCommands = false;
+let sequence = 1;
 let projectMutations: ProjectMutation[] = [];
 
 const publishShell = (thread: FakeThread) => {
@@ -374,7 +385,7 @@ const shellSnapshot = (): OrchestrationV2ShellStreamItem => ({
     schemaVersion: 1,
     snapshotSequence: sequence,
     projects: [project],
-    threads: threads.map(shellOf),
+    threads: threads.filter((thread) => !thread.olderSettled).map(shellOf),
     archivedThreads: [],
   },
 });
@@ -406,9 +417,8 @@ const applyProjectMutation = (mutation: ProjectMutation) => {
   return { ...project, deletedAt: null };
 };
 
-// Settle and unsettle land as the server's projection would; other commands are only recorded.
+// Settle and unsettle land as the server's projection would; other commands change nothing.
 const applyCommand = (command: OrchestrationV2Command) => {
-  dispatched.push(command);
   if (command.type !== "thread.settle" && command.type !== "thread.unsettle") return;
   const thread = threads.find((candidate) => candidate.id === command.threadId);
   if (!thread) return;
@@ -437,6 +447,16 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
   );
 
 const handlers: Record<string, (input: never) => unknown> = {
+  // Recorded, and accepted only when the scenario asks, since a pending command holds every
+  // later command on its thread. Only settle and unsettle reach the shell once accepted.
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
+    Effect.suspend(() => {
+      dispatched.push(command);
+      if (!acceptCommands) return Effect.never;
+      const before = sequence;
+      applyCommand(command);
+      return Effect.succeed({ sequence: sequence === before ? sequence + 1 : sequence });
+    }),
   [WS_METHODS.subscribeTerminalMetadata]: () =>
     subscribe<TerminalMetadataStreamEvent>([{ type: "snapshot", terminals: [] }], (queue) => {
       terminalMetadataSubscriber = queue;
@@ -452,11 +472,6 @@ const handlers: Record<string, (input: never) => unknown> = {
         return () => void shellSubscribers.delete(queue);
       },
     ),
-  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
-    Effect.sync(() => {
-      applyCommand(command);
-      return { sequence };
-    }),
   [WS_METHODS.projectsMutate]: (mutation: ProjectMutation) =>
     Effect.sync(() => applyProjectMutation(mutation)),
   [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: { readonly threadId: ThreadId }) => {
@@ -477,6 +492,16 @@ const handlers: Record<string, (input: never) => unknown> = {
       },
     );
   },
+  [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input: { readonly threadId: ThreadId }) => {
+    const rootOf = (thread: FakeThread) => thread.sideChatOf ?? thread.id;
+    const requested = threads.find((candidate) => candidate.id === input.threadId);
+    return Effect.succeed({
+      snapshotSequence: sequence,
+      threads: requested
+        ? threads.filter((thread) => rootOf(thread) === rootOf(requested)).map(shellOf)
+        : [],
+    });
+  },
   [WS_METHODS.subscribeVcsStatus]: () =>
     subscribe<VcsStatusStreamEvent>([], (queue) => {
       vcsStatusSubscriber = queue;
@@ -485,7 +510,7 @@ const handlers: Record<string, (input: never) => unknown> = {
       };
     }),
   [WS_METHODS.subscribeServerConfig]: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig }]),
+    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
 };
 
 // Unanswered calls stay pending, like a server that has not replied yet.
@@ -500,9 +525,9 @@ const client = new Proxy(handlers, {
 
 const session: EnvironmentConnectionLease["session"] = {
   client: client as unknown as WsRpcProtocolClient,
-  initialConfig: Effect.sync(() => serverConfig),
+  initialConfig: Effect.sync(serverConfig),
   subscribeServerConfig: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig }]),
+    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
   ready: Effect.void,
   probe: Effect.void,
   inboundFrames: Effect.succeed(0),
@@ -536,17 +561,20 @@ const realFetch = globalThis.fetch;
 export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
   options: {
+    readonly acceptCommands?: boolean;
     readonly capabilities?: Partial<ExecutionEnvironmentCapabilities>;
     readonly worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>;
   } = {},
 ): Disposable {
   threads = fixtures;
+  dispatched = [];
+  acceptCommands = options.acceptCommands === true;
   project =
     options.worktreeTitles === undefined
       ? baseProject
       : { ...baseProject, worktreeTitles: options.worktreeTitles };
   descriptor = makeDescriptor(options.capabilities ?? {});
-  serverConfig = makeServerConfig();
+  baseServerConfig = makeServerConfig();
   const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));
   // The app keeps its connection across mounts, so live subscriptions resync as on a reconnect.
   sequence += 1;
@@ -574,10 +602,16 @@ export function installFakeEnvironment(
       threads = [];
       settlement.clear();
       dispatched = [];
+      acceptCommands = false;
       projectMutations = [];
       project = baseProject;
     },
   };
+}
+
+/** Commands the app dispatched to the environment, oldest first. */
+export function dispatchedCommands(): ReadonlyArray<OrchestrationV2Command> {
+  return dispatched;
 }
 
 type ThreadEvent = Extract<OrchestrationV2ThreadStreamItem, { readonly kind: "event" }>["event"];
@@ -612,11 +646,6 @@ export async function emitThreadEvent(
 /** The project mutations the app has sent, oldest first. */
 export function dispatchedProjectMutations(): ReadonlyArray<ProjectMutation> {
   return projectMutations;
-}
-
-/** The orchestration commands the app has sent, oldest first. */
-export function dispatchedCommands(): ReadonlyArray<OrchestrationV2Command> {
-  return dispatched;
 }
 
 /** Adds a thread the server created, such as a fork, and publishes it to the shell. */

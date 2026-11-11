@@ -10,7 +10,7 @@ import { draftWorktreeKey, worktreeKey } from "./threadTabs.logic";
 function worktreePanelKey(ref: ScopedThreadRef): string | null {
   if (!isClientSettingsHydrated()) return null;
   const settings = getClientSettings();
-  if (!settings.threadTabsEnabled || settings.legacySidebarEnabled) return null;
+  if (!settings.threadTabsEnabled || settings.boringSidebarEnabled) return null;
   const shell = readThreadShell(ref);
   if (shell !== null) return `worktree:${worktreeKey(shell)}`;
   const draft = useComposerDraftStore.getState().getDraftThreadByRef(ref);

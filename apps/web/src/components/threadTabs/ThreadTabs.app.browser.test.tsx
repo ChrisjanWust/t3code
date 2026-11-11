@@ -81,7 +81,11 @@ function setup(
       inWorktree("tab-c"),
       ...extra,
     ],
-    { capabilities: { threadSettlement: true }, ...(worktreeTitles ? { worktreeTitles } : {}) },
+    {
+      acceptCommands: true,
+      capabilities: { threadSettlement: true },
+      ...(worktreeTitles ? { worktreeTitles } : {}),
+    },
   );
 }
 
