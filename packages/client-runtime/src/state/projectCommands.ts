@@ -13,12 +13,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
-import {
-  type EnvironmentRpcInput,
-  type EnvironmentRpcSuccess,
-  request,
-  requestGuarded,
-} from "../rpc/client.ts";
+import { type EnvironmentRpcInput, request, requestGuarded } from "../rpc/client.ts";
 import type { EnvironmentProject } from "./models.ts";
 import {
   createAtomCommandScheduler,
@@ -58,9 +53,10 @@ function optimisticProjectFileKey(target: OptimisticProjectFileTarget): string {
   return JSON.stringify([target.environmentId, target.cwd, target.relativePath]);
 }
 
-function writtenFilePaths(
-  input: EnvironmentRpcInput<typeof WS_METHODS.projectsWriteFile>,
-  result: EnvironmentRpcSuccess<typeof WS_METHODS.projectsWriteFile>,
+/** The absolute paths a file change touched, as named by the request and by the server. */
+function changedFilePaths(
+  input: { readonly cwd: string; readonly relativePath: string },
+  result: { readonly relativePath: string },
 ) {
   return new Set(
     [result.relativePath, input.relativePath].map((path) =>
@@ -235,12 +231,32 @@ export function createProjectEnvironmentAtoms<R, E>(
       execute: (input) =>
         requestGuarded(WS_METHODS.projectsWriteFile, input).pipe(
           Effect.tap((result) =>
-            Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
+            Effect.forEach(changedFilePaths(input, result), fileMetadata.invalidate),
           ),
         ),
       onSuccess: ({ environmentId, input }, registry, result) =>
         Effect.sync(() => {
-          for (const path of writtenFilePaths(input, result))
+          for (const path of changedFilePaths(input, result))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
+    mutateEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:mutate-entry",
+      tag: WS_METHODS.projectsMutateEntry,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.projectsMutateEntry, input).pipe(
+          Effect.tap((result) =>
+            Effect.forEach(changedFilePaths(input, result), fileMetadata.invalidate),
+          ),
+        ),
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          for (const path of changedFilePaths(input, result))
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
     }),

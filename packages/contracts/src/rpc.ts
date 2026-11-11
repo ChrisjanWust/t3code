@@ -247,6 +247,9 @@ import {
   ProjectListIgnoredFilesResult,
   ProjectReadFileError,
   ProjectReadFileInput,
+  ProjectMutateEntryError,
+  ProjectMutateEntryInput,
+  ProjectMutateEntryResult,
   ProjectReadFileResult,
   ProjectSearchContentsError,
   ProjectSearchContentsInput,
@@ -426,6 +429,7 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsMutateEntry: "projects.mutateEntry",
   projectsMutate: "projects.mutate",
   projectsRegenerateWorktreeTitle: "projects.regenerateWorktreeTitle",
   projectsEnsureScratch: "projects.ensureScratch",
@@ -1377,6 +1381,12 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsMutateEntryRpc = Rpc.make(WS_METHODS.projectsMutateEntry, {
+  payload: ProjectMutateEntryInput,
+  success: ProjectMutateEntryResult,
+  error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -2206,6 +2216,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsMutateEntryRpc,
   WsProjectsMutateRpc,
   WsProjectsRegenerateWorktreeTitleRpc,
   WsShellOpenInEditorRpc,
