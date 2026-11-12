@@ -429,10 +429,11 @@ export function createThreadEnvironmentAtoms<R, E>(
             snoozedAt: now,
           },
     ),
-    unsnooze: optimistic.wrap(commands.unsnooze, (thread) => ({
+    unsnooze: optimistic.wrap(commands.unsnooze, (thread, _input, now) => ({
       ...thread,
       snoozedUntil: null,
       snoozedAt: null,
+      lastSnoozeWakeAt: thread.snoozedUntil == null ? (thread.lastSnoozeWakeAt ?? null) : now,
     })),
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
@@ -451,6 +452,7 @@ export function createThreadEnvironmentAtoms<R, E>(
         : {}),
       snoozedUntil: null,
       snoozedAt: null,
+      lastSnoozeWakeAt: thread.snoozedUntil == null ? (thread.lastSnoozeWakeAt ?? null) : now,
     })),
     unpin: optimistic.wrap(commands.unpin, (thread) => ({
       ...thread,
