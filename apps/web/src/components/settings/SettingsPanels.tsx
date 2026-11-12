@@ -591,6 +591,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
       ? ["Agent browser access"]
       : []),
+    ...(settings.hideAgentBrowserWhenOff !== DEFAULT_UNIFIED_SETTINGS.hideAgentBrowserWhenOff
+      ? ["Hide browser from agents"]
+      : []),
   ];
 
   const restoreDefaults = async () => {
@@ -714,6 +717,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       browserAutoShowFloatingPreview: DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview,
       pullRequestLinksOpenInApp: DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp,
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
+      hideAgentBrowserWhenOff: DEFAULT_UNIFIED_SETTINGS.hideAgentBrowserWhenOff,
     });
     onRestored?.();
   };

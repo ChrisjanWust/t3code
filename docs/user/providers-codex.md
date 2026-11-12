@@ -100,6 +100,14 @@ in the thread on web, desktop, or mobile. Some tools offer access for one reques
 the current session, or permanently. See [Permission modes](./permission-modes.md)
 for command and file approvals.
 
+## Use Codex's own browser
+
+Agents use T3 Code's browser by default. To have Codex use its own browser,
+turn off **Settings → Browser → Agent browser access** and turn on **Hide
+browser from agents**. With access off but the browser not hidden, Codex
+still sees T3 Code's browser, reports that browsing is off, and may not try its
+own. Both settings apply when the agent session next starts.
+
 ## Codex says I hit a usage limit
 
 When Codex stops on a usage limit, the thread names the window that ran out and

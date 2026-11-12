@@ -9,6 +9,8 @@ export interface McpProviderSessionConfig {
   readonly authorizationHeader: string;
   /** Omit preview_* instructions when the user withholds agent browser access. */
   readonly browserToolsAvailable: boolean;
+  /** The user hides T3's browser: its tools go unlisted and instructions never mention it. */
+  readonly browserHidden?: boolean;
   readonly capabilities?: ReadonlySet<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }

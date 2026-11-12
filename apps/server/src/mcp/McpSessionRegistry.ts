@@ -18,6 +18,8 @@ export interface McpCredentialRequest {
   readonly providerInstanceId: ProviderInstanceId;
   /** False omits the preview capability wherever the token is honored. Defaults to full access. */
   readonly browserToolsAvailable?: boolean;
+  /** Unlists the browser tools; only meaningful without the preview capability. */
+  readonly browserHidden?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
 }
@@ -101,6 +103,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
       const browserToolsAvailable = request.browserToolsAvailable ?? true;
+      const capabilities = new Set<McpInvocationContext.McpCapability>([
+        "orchestration",
+        "worktree",
+        "pull-requests",
+        ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+      ]);
+      const browserHidden = request.browserHidden === true && !capabilities.has("preview");
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
         requestNamespace: providerSessionId,
@@ -111,12 +120,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           subagent: request.subagent === true,
         },
         client: undefined,
-        capabilities: new Set<McpInvocationContext.McpCapability>([
-          "orchestration",
-          "worktree",
-          "pull-requests",
-          ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
-        ]),
+        capabilities,
+        ...(browserHidden ? { browserHidden } : {}),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
@@ -133,6 +138,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           endpoint,
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
+          ...(browserHidden ? { browserHidden } : {}),
           capabilities: scope.capabilities,
         },
       };
