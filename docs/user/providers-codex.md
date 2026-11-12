@@ -108,6 +108,15 @@ browser from agents**. With access off but the browser not hidden, Codex
 still sees T3 Code's browser, reports that browsing is off, and may not try its
 own. Both settings apply when the agent session next starts.
 
+## Use Daybreak
+
+Models with cyber access programs show a Cyber Access option in the model
+options. It starts on Standard, or on Daybreak when `config.toml` in your Codex
+home sets `daybreak = true` or the model only runs under Daybreak. Your choice carries
+over to new threads. Custom models do not offer it. If Codex rejects a turn
+because your login lacks the program, switch Cyber Access back to Standard or
+sign in to Codex with an account that has it.
+
 ## Codex says I hit a usage limit
 
 When Codex stops on a usage limit, the thread names the window that ran out and

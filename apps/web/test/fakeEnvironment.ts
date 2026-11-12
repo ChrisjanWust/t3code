@@ -8,6 +8,7 @@ import {
   EventId,
   ExecutionEnvironmentDescriptor,
   MessageId,
+  OrchestrationV2DispatchCommandError,
   ORCHESTRATION_PROTOCOL_VERSION,
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
@@ -20,9 +21,11 @@ import {
   WsRpcGroup,
   type ExecutionEnvironmentCapabilities,
   type VcsStatusStreamEvent,
+  type ModelSelection,
   type OrchestrationProjectShell,
   type OrchestrationV2Command,
   type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2ProviderThread,
   type OrchestrationV2Run,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadProjection,
@@ -43,6 +46,7 @@ import type { WsRpcProtocolClient } from "@t3tools/client-runtime/rpc";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { APP_VERSION } from "~/branding";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
@@ -73,11 +77,37 @@ const auth = {
   sessionCookieName: "t3_session",
 };
 
+const readyProvider = (
+  instanceId: string,
+  driver: string,
+  models: ReadonlyArray<{ readonly slug: string; readonly name: string }>,
+) => ({
+  instanceId,
+  driver,
+  enabled: true,
+  installed: true,
+  version: "1.0.0",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: "2026-03-17T19:12:28.000Z",
+  models: models.map((model) => ({ ...model, isCustom: false, capabilities: null })),
+});
+export const CODEX_PROVIDER = readyProvider(CODEX, "codex", [
+  { slug: "gpt-5.4", name: "GPT-5.4" },
+  { slug: "gpt-5.5", name: "GPT-5.5" },
+]);
+export const CLAUDE_PROVIDER = {
+  ...readyProvider("claudeAgent", "claudeAgent", [
+    { slug: "claude-opus-4-6", name: "Claude Opus 4.6" },
+  ]),
+  slashCommands: [{ name: "compact" }],
+};
+
 const decodeServerConfig = Schema.decodeUnknownSync(ServerConfig);
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
 const encodeDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor);
 
-const makeServerConfig = (): ServerConfig => ({
+const makeServerConfig = (providers: ReadonlyArray<unknown>): ServerConfig => ({
   ...decodeServerConfig({
     environment: descriptor,
     auth,
@@ -85,22 +115,7 @@ const makeServerConfig = (): ServerConfig => ({
     keybindingsConfigPath: "/workspace/.t3/keybindings.json",
     keybindings: [],
     issues: [],
-    providers: [
-      {
-        instanceId: CODEX,
-        driver: "codex",
-        enabled: true,
-        installed: true,
-        version: "1.0.0",
-        status: "ready",
-        auth: { status: "authenticated" },
-        checkedAt: "2026-03-17T19:12:28.000Z",
-        models: [
-          { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null },
-          { slug: "gpt-5.5", name: "GPT-5.5", isCustom: false, capabilities: null },
-        ],
-      },
-    ],
+    providers,
     availableEditors: [],
     observability: {
       logsDirectoryPath: "/workspace/.t3/logs",
@@ -115,7 +130,7 @@ const makeServerConfig = (): ServerConfig => ({
   }),
   keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
 });
-let baseServerConfig = makeServerConfig();
+let baseServerConfig = makeServerConfig([CODEX_PROVIDER]);
 // A server only leaves threads out of the shell when it serves their families.
 const serverConfig = (): ServerConfig =>
   threads.some((thread) => thread.olderSettled)
@@ -182,13 +197,19 @@ export function assistantItem(
   } satisfies OrchestrationV2TurnItem;
 }
 
-function run(threadId: ThreadId, id: RunId, ordinal: number, userMessageId: string) {
+function run(
+  threadId: ThreadId,
+  id: RunId,
+  ordinal: number,
+  userMessageId: string,
+  modelSelection: ModelSelection = MODEL,
+) {
   return {
     id,
     threadId,
     ordinal,
-    providerInstanceId: CODEX,
-    modelSelection: MODEL,
+    providerInstanceId: modelSelection.instanceId,
+    modelSelection,
     providerThreadId: null,
     userMessageId: MessageId.make(userMessageId),
     rootNodeId: null,
@@ -209,6 +230,10 @@ export interface FakeThread {
   readonly olderSettled?: true;
   readonly id: ThreadId;
   readonly title: string;
+  /** Defaults to GPT-5.4 on Codex. */
+  readonly modelSelection?: ModelSelection;
+  /** The first is the thread's active provider thread. */
+  readonly providerThreads?: ReadonlyArray<OrchestrationV2ProviderThread>;
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
   /** The project checkout when absent. */
@@ -219,13 +244,17 @@ export interface FakeThread {
 }
 
 /** A thread of `turns` user prompts, each answered in markdown with a list and inline code. */
-export function threadWithHistory(name: string, turns: number): FakeThread {
+export function threadWithHistory(
+  name: string,
+  turns: number,
+  modelSelection: ModelSelection = MODEL,
+): FakeThread {
   const id = ThreadId.make(name);
   const runs: OrchestrationV2Run[] = [];
   const items: OrchestrationV2TurnItem[] = [];
   for (let turn = 0; turn < turns; turn++) {
     const runId = RunId.make(`${name}-run-${turn}`);
-    runs.push(run(id, runId, turn + 1, `${name}-user-${turn}`));
+    runs.push(run(id, runId, turn + 1, `${name}-user-${turn}`, modelSelection));
     items.push(
       userItem(id, runId, `${name}-user-${turn}`, turn * 2, `${name}: question ${turn}`),
       assistantItem(
@@ -238,7 +267,7 @@ export function threadWithHistory(name: string, turns: number): FakeThread {
       ),
     );
   }
-  return { id, title: `Thread ${name}`, runs, items };
+  return { id, title: `Thread ${name}`, modelSelection, runs, items };
 }
 
 // Keyed by thread id: what settle commands changed since the fixture was installed.
@@ -259,18 +288,19 @@ function baseShellOf(
   thread: FakeThread,
   latest: OrchestrationV2Run | undefined,
 ): OrchestrationV2ThreadShell {
+  const modelSelection = thread.modelSelection ?? MODEL;
   return {
     id: thread.id,
     projectId: PROJECT_ID,
     title: thread.title,
-    providerInstanceId: CODEX,
-    modelSelection: MODEL,
+    providerInstanceId: modelSelection.instanceId,
+    modelSelection,
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: thread.branch === undefined ? "main" : thread.branch,
     worktreePath: thread.worktreePath ?? null,
     ...(thread.creatingWorktree === undefined ? {} : { creatingWorktree: thread.creatingWorktree }),
-    activeProviderThreadId: null,
+    activeProviderThreadId: thread.providerThreads?.[0]?.id ?? null,
     lineage: {
       rootThreadId: thread.sideChatOf ?? thread.id,
       parentThreadId: thread.sideChatOf ?? null,
@@ -322,7 +352,7 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       interactionMode: shell.interactionMode,
       branch: shell.branch,
       worktreePath: shell.worktreePath,
-      activeProviderThreadId: null,
+      activeProviderThreadId: shell.activeProviderThreadId,
       lineage: shell.lineage,
       forkedFrom: null,
       createdBy: "user",
@@ -340,7 +370,7 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
     nodes: [],
     subagents: [],
     providerSessions: [],
-    providerThreads: [],
+    providerThreads: [...(thread.providerThreads ?? [])],
     providerTurns: [],
     runtimeRequests: [],
     messages: [],
@@ -365,6 +395,11 @@ let terminalMetadataSubscriber: Queue.Queue<TerminalMetadataStreamEvent> | null 
 let threads: ReadonlyArray<FakeThread> = [];
 let dispatched: OrchestrationV2Command[] = [];
 let acceptCommands = false;
+let holdCommand: (command: OrchestrationV2Command) => boolean = () => false;
+let pendingDispatches: Array<{
+  readonly command: OrchestrationV2Command;
+  readonly reply: Deferred.Deferred<never, OrchestrationV2DispatchCommandError>;
+}> = [];
 let sequence = 1;
 let projectMutations: ProjectMutation[] = [];
 
@@ -452,10 +487,14 @@ const handlers: Record<string, (input: never) => unknown> = {
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
     Effect.suspend(() => {
       dispatched.push(command);
-      if (!acceptCommands) return Effect.never;
-      const before = sequence;
-      applyCommand(command);
-      return Effect.succeed({ sequence: sequence === before ? sequence + 1 : sequence });
+      if (acceptCommands && !holdCommand(command)) {
+        const before = sequence;
+        applyCommand(command);
+        return Effect.succeed({ sequence: sequence === before ? sequence + 1 : sequence });
+      }
+      const reply = Deferred.makeUnsafe<never, OrchestrationV2DispatchCommandError>();
+      pendingDispatches.push({ command, reply });
+      return Deferred.await(reply);
     }),
   [WS_METHODS.subscribeTerminalMetadata]: () =>
     subscribe<TerminalMetadataStreamEvent>([{ type: "snapshot", terminals: [] }], (queue) => {
@@ -562,6 +601,9 @@ export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
   options: {
     readonly acceptCommands?: boolean;
+    /** Commands left unanswered even when accepting, until `rejectPendingCommand`. */
+    readonly holdCommand?: (command: OrchestrationV2Command) => boolean;
+    readonly providers?: ReadonlyArray<unknown>;
     readonly capabilities?: Partial<ExecutionEnvironmentCapabilities>;
     readonly worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>;
   } = {},
@@ -569,12 +611,13 @@ export function installFakeEnvironment(
   threads = fixtures;
   dispatched = [];
   acceptCommands = options.acceptCommands === true;
+  holdCommand = options.holdCommand ?? (() => false);
   project =
     options.worktreeTitles === undefined
       ? baseProject
       : { ...baseProject, worktreeTitles: options.worktreeTitles };
   descriptor = makeDescriptor(options.capabilities ?? {});
-  baseServerConfig = makeServerConfig();
+  baseServerConfig = makeServerConfig(options.providers ?? [CODEX_PROVIDER]);
   const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));
   // The app keeps its connection across mounts, so live subscriptions resync as on a reconnect.
   sequence += 1;
@@ -601,12 +644,31 @@ export function installFakeEnvironment(
       globalThis.fetch = realFetch;
       threads = [];
       settlement.clear();
+      baseServerConfig = makeServerConfig([CODEX_PROVIDER]);
       dispatched = [];
       acceptCommands = false;
       projectMutations = [];
       project = baseProject;
+      holdCommand = () => false;
+      pendingDispatches = [];
     },
   };
+}
+
+/** Answers the oldest unanswered command with the server's rejection. */
+export async function rejectPendingCommand(message: string): Promise<void> {
+  const pending = pendingDispatches.shift();
+  if (!pending) throw new Error("No pending command");
+  await Effect.runPromise(
+    Deferred.fail(
+      pending.reply,
+      new OrchestrationV2DispatchCommandError({
+        commandId: pending.command.commandId,
+        commandType: pending.command.type,
+        message,
+      }),
+    ),
+  );
 }
 
 /** Commands the app dispatched to the environment, oldest first. */
