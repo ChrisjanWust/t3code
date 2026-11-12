@@ -80,6 +80,23 @@ describe("Codex orchestration context", () => {
   });
 });
 
+describe("Codex browser context", () => {
+  it("names T3's browser in no entry when the user hides it", () => {
+    const entries = (browserHidden: boolean) =>
+      Object.values(
+        buildCodexAdditionalContext(
+          { model: "gpt-6.1-sol" },
+          { browser: false, browserHidden, device: true },
+        ),
+      )
+        .map((entry) => entry.value)
+        .join("\n");
+
+    NodeAssert.match(entries(false), /`preview_\*`/);
+    NodeAssert.doesNotMatch(entries(true), /preview_|browser/i);
+  });
+});
+
 describe("Codex device context", () => {
   it("adds the shared device block only when the session holds device access", () => {
     const tools = (device: boolean) =>

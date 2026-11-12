@@ -756,6 +756,7 @@ function makeBrowserAccessProject(projectId: ProjectId): Project {
 
 function runBrowserAccessScenario(input: {
   readonly enableAgentBrowserAccess: boolean;
+  readonly hideAgentBrowserWhenOff?: boolean;
   readonly projectOverride: boolean;
   readonly deviceOverride?: boolean;
   readonly createThread?: boolean;
@@ -812,6 +813,7 @@ function runBrowserAccessScenario(input: {
           projectServiceLayer: layerProjectService,
           serverSettingsLayer: ServerSettings.layerTest({
             enableAgentBrowserAccess: input.enableAgentBrowserAccess,
+            hideAgentBrowserWhenOff: input.hideAgentBrowserWhenOff === true,
             projectSettingsOverrides: {
               [projectId]: {
                 enableAgentBrowserAccess: input.projectOverride,
@@ -2171,6 +2173,7 @@ it.effect(
         const captured = (yield* Ref.get(mcpConfigs))[0];
         assert.isDefined(captured);
         assert.equal(captured?.browserToolsAvailable, false);
+        assert.isUndefined(captured?.browserHidden);
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         const resolved = yield* registry.resolve(token!);
         assert.deepEqual(
@@ -2204,6 +2207,19 @@ it.effect("ProviderSessionManagerV2 honors a project browser-access opt-out", ()
     });
     assert.isDefined(captured);
     assert.equal(captured?.browserToolsAvailable, false);
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 hides the browser only where the project's access is off", () =>
+  Effect.gen(function* () {
+    const hidden = (enableAgentBrowserAccess: boolean, projectOverride: boolean) =>
+      runBrowserAccessScenario({
+        enableAgentBrowserAccess,
+        projectOverride,
+        hideAgentBrowserWhenOff: true,
+      }).pipe(Effect.map((captured) => captured?.browserHidden === true));
+    assert.isTrue(yield* hidden(true, false));
+    assert.isFalse(yield* hidden(false, true));
   }),
 );
 

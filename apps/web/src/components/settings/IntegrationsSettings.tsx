@@ -1073,6 +1073,40 @@ function AgentBrowserAccessSetting() {
   );
 }
 
+function HideAgentBrowserSetting() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["hideAgentBrowserWhenOff"]}
+      {...searchableSetting("hide-agent-browser")}
+      description="Where agent browser access is off, don't tell agents about this browser, so they use their own, such as Codex's. Applies when the agent session next starts."
+      resetAction={
+        settings.hideAgentBrowserWhenOff !== DEFAULT_SERVER_SETTINGS.hideAgentBrowserWhenOff ? (
+          <SettingResetButton
+            label="hide browser from agents"
+            onClick={() =>
+              updateSettings({
+                hideAgentBrowserWhenOff: DEFAULT_SERVER_SETTINGS.hideAgentBrowserWhenOff,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <ScopedSwitch
+          settingKeys={["hideAgentBrowserWhenOff"]}
+          aria-label="Hide browser from agents"
+          checked={settings.hideAgentBrowserWhenOff}
+          onCheckedChange={(hidden) => updateSettings({ hideAgentBrowserWhenOff: hidden })}
+        />
+      }
+    />
+  );
+}
+
 function BrowserAutoShowFloatingPreviewSetting({ disabled }: { readonly disabled: boolean }) {
   const autoShow = useClientSettings((settings) => settings.browserAutoShowFloatingPreview);
   const updateSettings = useUpdatePrimarySettings();
@@ -1584,6 +1618,7 @@ export function BrowserSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection id="browser-agent-access" title="Agent access">
         <AgentBrowserAccessSetting />
+        <HideAgentBrowserSetting />
       </SettingsSection>
       <SettingsSection id="browser" title="Browsing">
         <SettingsUnavailableGroup message={desktopOnlyMessage}>

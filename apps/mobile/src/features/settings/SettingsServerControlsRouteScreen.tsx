@@ -393,6 +393,21 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     disabled={disabledFor("enableAgentBrowserAccess")}
                     onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                   />
+                  <View className="border-t border-border-subtle">
+                    <SettingsSwitchRow
+                      icon="eye.slash"
+                      label="Hide browser from agents"
+                      subtitle={managedSubtitle(
+                        "hideAgentBrowserWhenOff",
+                        projectSelected
+                          ? "Environment-wide setting. Select All projects to change it."
+                          : "Where agent browser access is off, don't tell agents about this browser, so they use their own.",
+                      )}
+                      value={uniform("hideAgentBrowserWhenOff")}
+                      disabled={disabledFor("hideAgentBrowserWhenOff")}
+                      onValueChange={(value) => write({ hideAgentBrowserWhenOff: value })}
+                    />
+                  </View>
                 </SettingsSection>
                 <AutoSettleSettingsRows write={write} pending={pendingWrites > 0} />
               </>

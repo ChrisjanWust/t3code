@@ -990,6 +990,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
   },
   {
+    id: "hide-agent-browser",
+    title: "Hide browser from agents",
+    to: "/settings/browser",
+    scope: "environment-defaults",
+    searchTerms: ["mention instructions preview tools own native codex browser off"],
+  },
+  {
     id: "device-sources",
     title: "Device sources",
     to: "/settings/devices",

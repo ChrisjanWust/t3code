@@ -1,7 +1,9 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 
+const T3_CODE_PREVIEW_TOOL_RULES = `- Never use \`preview_*\` unasked to verify or show your own edit. Use them when the current request asks for browser work, including recording edits, or names a page or tab. Do not repeat preview calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.`;
+
 // Codex truncates entries over 4,000 bytes; keep each section self-contained and below that limit.
-export const T3_CODE_ORCHESTRATION_SECTIONS: ReadonlyArray<string> = [
+const orchestrationSections = (browser: boolean): ReadonlyArray<string> => [
   `## T3 Code orchestration
 
 Ordinary coding tasks need no T3 tools.
@@ -20,14 +22,22 @@ Ordinary coding tasks need no T3 tools.
 - T3 tools may load late. Try the name once before you call it absent.`,
   `### Visuals and preview
 
-- Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\`. A screenshot on disk or a text description does not show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.
-- Never use \`preview_*\` unasked to verify or show your own edit. Use them when the current request asks for browser work, including recording edits, or names a page or tab. Do not repeat preview calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.`,
+- Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\`. A screenshot on disk or a text description does not show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.${browser ? `\n${T3_CODE_PREVIEW_TOOL_RULES}` : ""}`,
 ];
 
-export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
+export const T3_CODE_ORCHESTRATION_SECTIONS = orchestrationSections(true);
+/** For sessions whose user hides T3's browser, so the agent reaches for its own. */
+export const T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER = orchestrationSections(false);
 
-${T3_CODE_ORCHESTRATION_SECTIONS.join("\n\n")}
+const joinSections = (sections: ReadonlyArray<string>) => `
+
+${sections.join("\n\n")}
 `;
+
+export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = joinSections(T3_CODE_ORCHESTRATION_SECTIONS);
+export const T3_CODE_ORCHESTRATION_INSTRUCTIONS_WITHOUT_BROWSER = joinSections(
+  T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER,
+);
 
 export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
@@ -71,6 +81,7 @@ export interface T3AcpInstructionState {
   readonly interactionMode: ProviderInteractionMode;
   readonly hasT3Mcp: boolean;
   readonly hasDeviceTools: boolean;
+  readonly browserHidden?: boolean;
 }
 
 /** ACP lacks system/developer fields; inject context on first prompt and tool/mode changes. */
@@ -84,7 +95,8 @@ export function t3AcpPromptWithInstructions(input: {
   if (
     input.previousState?.interactionMode === input.state.interactionMode &&
     input.previousState.hasT3Mcp === input.state.hasT3Mcp &&
-    input.previousState.hasDeviceTools === input.state.hasDeviceTools
+    input.previousState.hasDeviceTools === input.state.hasDeviceTools &&
+    (input.previousState.browserHidden === true) === (input.state.browserHidden === true)
   ) {
     return input.prompt;
   }
@@ -94,9 +106,9 @@ export function t3AcpPromptWithInstructions(input: {
       : T3_CODE_ACP_DEFAULT_MODE_INSTRUCTIONS,
     ...(input.state.hasT3Mcp
       ? [
-          T3_CODE_BROWSER_TOOL_INSTRUCTIONS.trim(),
+          ...(input.state.browserHidden === true ? [] : [T3_CODE_BROWSER_TOOL_INSTRUCTIONS.trim()]),
           ...(input.state.hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
-          T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim(),
+          orchestrationInstructions(false, input.state.browserHidden).trim(),
           T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS,
         ]
       : []),
@@ -104,10 +116,12 @@ export function t3AcpPromptWithInstructions(input: {
   return `<t3_code_instructions>\n${instructions.join("\n\n")}\n</t3_code_instructions>\n\n<user_request>\n${input.prompt}\n</user_request>`;
 }
 
-const orchestrationInstructions = (hasDeviceTools: boolean) =>
-  hasDeviceTools
-    ? `${T3_CODE_ORCHESTRATION_INSTRUCTIONS}\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS}\n`
+const orchestrationInstructions = (hasDeviceTools: boolean, browserHidden = false) => {
+  const base = browserHidden
+    ? T3_CODE_ORCHESTRATION_INSTRUCTIONS_WITHOUT_BROWSER
     : T3_CODE_ORCHESTRATION_INSTRUCTIONS;
+  return hasDeviceTools ? `${base}\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS}\n` : base;
+};
 
 function prependT3OrchestrationInstructions(prompt: string, instructions: string): string {
   return `<t3_code_orchestration_instructions>${instructions.trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
@@ -118,6 +132,7 @@ export function t3OrchestrationPrompt(input: {
   readonly prompt: string;
   readonly hasT3Mcp: boolean;
   readonly hasDeviceTools: boolean;
+  readonly browserHidden?: boolean;
   readonly orchestrationDelivered: boolean;
   readonly deviceInstructionsDelivered: boolean;
 }): string {
@@ -125,7 +140,7 @@ export function t3OrchestrationPrompt(input: {
   if (!input.orchestrationDelivered) {
     return prependT3OrchestrationInstructions(
       input.prompt,
-      orchestrationInstructions(input.hasDeviceTools),
+      orchestrationInstructions(input.hasDeviceTools, input.browserHidden),
     );
   }
   return input.hasDeviceTools && !input.deviceInstructionsDelivered
@@ -136,6 +151,7 @@ export function t3OrchestrationPrompt(input: {
 export function t3OrchestrationSystemPrompt(
   hasT3Mcp: boolean,
   hasDeviceTools: boolean,
+  browserHidden = false,
 ): string | undefined {
-  return hasT3Mcp ? orchestrationInstructions(hasDeviceTools) : undefined;
+  return hasT3Mcp ? orchestrationInstructions(hasDeviceTools, browserHidden) : undefined;
 }
