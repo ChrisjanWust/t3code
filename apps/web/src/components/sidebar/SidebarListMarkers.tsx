@@ -80,6 +80,7 @@ export function SidebarDragBoundary(props: {
   label: string;
   visible: boolean;
   isDropTarget: boolean;
+  showRule?: boolean;
 }) {
   return (
     <SortableSidebarMarker
@@ -105,6 +106,9 @@ export function SidebarDragBoundary(props: {
             )}
           />
         </div>
+      ) : props.showRule ? (
+        // Absolute so it takes no height: drag projection assumes zero-height boundaries.
+        <div aria-hidden className="absolute inset-x-2 -top-px h-px bg-sidebar-border" />
       ) : null}
     </SortableSidebarMarker>
   );
