@@ -86,7 +86,8 @@ export function SidebarDragBoundary(props: {
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className="pointer-events-none relative mx-0.5 -mb-px h-0"
+      // Height must not change when a drag starts: dnd-kit measured the rows just before.
+      className={cn("pointer-events-none relative mx-0.5 -mb-px", props.showRule ? "h-1.5" : "h-0")}
     >
       {props.visible ? (
         <div className="sidebar-drag-boundary-label absolute inset-x-2 top-1 flex h-4 items-center gap-2">
@@ -107,8 +108,10 @@ export function SidebarDragBoundary(props: {
           />
         </div>
       ) : props.showRule ? (
-        // Absolute so it takes no height: drag projection assumes zero-height boundaries.
-        <div aria-hidden className="absolute inset-x-2 -top-px h-px bg-sidebar-border" />
+        <div
+          aria-hidden
+          className="absolute inset-x-2 top-0.5 h-px bg-sidebar-border dark:bg-sidebar-foreground/15"
+        />
       ) : null}
     </SortableSidebarMarker>
   );
