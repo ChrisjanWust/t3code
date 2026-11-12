@@ -137,6 +137,16 @@ row dates from its oldest open thread, so a new tab in an old worktree does not 
 pinned threads and active threads you have dragged keep their place, Snoozed stays in wake order,
 and Settled stays in settlement order. Each device keeps its own choice.
 
+### Show only recent work
+
+On web and desktop, the clock button next to the project filter limits the sidebar to work from the
+last 6 hours, 12 hours, 24 hours, 2 days, or 7 days. Activity means a thread was created, messaged,
+ran, or was settled, snoozed, reopened, or woken, and a thread that is running or waiting on you
+always counts. The open thread stays listed either way, and search still finds older threads. With
+thread tabs on, a worktree stays while any of its threads is recent, and opening it shows all of its
+tabs. A Settled count such as **15+** means older pages haven't loaded yet. Each device keeps its own
+choice.
+
 ### Name worktrees
 
 With **Settings → Labs → Thread tabs** on, each sidebar row is a worktree. A new worktree gets a

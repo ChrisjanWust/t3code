@@ -268,6 +268,14 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarRecencyFilter } from "./sidebar/SidebarRecencyFilter";
+import {
+  filterRecentSidebarRows,
+  SIDEBAR_RECENCY_LABELS,
+  SIDEBAR_RECENCY_WINDOWS,
+  sidebarRecencyCutoffMs,
+  type SidebarRecencyWindow,
+} from "./sidebar/sidebarRecency.logic";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -345,6 +353,8 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const RECENCY_WINDOW_KEY = "t3code:sidebar:recency-window";
+const RecencyWindowSchema = Schema.NullOr(Schema.Literals(SIDEBAR_RECENCY_WINDOWS));
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -373,6 +383,10 @@ interface SidebarThreadPartitionInput {
   readonly sortActiveBySend: boolean;
   /** The user's thread order: creation date instead of recent activity. */
   readonly sortByCreation: boolean;
+  /** Lists only rows with activity this recent, and the open route's row. */
+  readonly recencyWindow: SidebarRecencyWindow | null;
+  /** The open route's row: its worktree when grouped, else its thread. */
+  readonly routeRowKey: string | null;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -447,6 +461,7 @@ function useSidebarThreads(input: {
   readonly routeRowThreadKey: string | null;
   readonly groupByWorktree: boolean;
   readonly routeWorktreeKey: string | null;
+  readonly recencyWindow: SidebarRecencyWindow | null;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
@@ -462,6 +477,7 @@ function useSidebarThreads(input: {
     delegatedUnderParent,
     groupByWorktree,
     routeWorktreeKey,
+    recencyWindow,
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
@@ -515,6 +531,8 @@ function useSidebarThreads(input: {
     groupByWorktree,
     sortActiveBySend: folderGroups !== null,
     sortByCreation,
+    recencyWindow,
+    routeRowKey: groupByWorktree ? routeWorktreeKey : input.routeRowThreadKey,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -552,11 +570,17 @@ function useSidebarThreads(input: {
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
     expanded: settledShelfExpanded,
     visibleCount: settledVisibleCount,
+    sinceMs: partition.recencyCutoffMs,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
-  const settledCount =
-    settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  // The server counts unloaded threads but not when they were active, so a filtered shelf
+  // counts only what it holds until it has read back past the cutoff.
+  const filteringByRecency = partition.recencyCutoffMs !== null;
+  const unloadedSettledCount = olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const settledCount = settledThreads.length + (filteringByRecency ? 0 : unloadedSettledCount);
+  const settledCountIsLowerBound =
+    filteringByRecency && !olderSettledShelf.complete && unloadedSettledCount > 0;
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -627,6 +651,7 @@ function useSidebarThreads(input: {
     worktreeRowKeyByThreadKey,
     settledVisibleCount,
     settledCount,
+    settledCountIsLowerBound,
     olderSettledShelf,
     hiddenSettledCount: Math.max(0, settledCount - visibleSettledThreads.length),
     showMoreSettled: () =>
@@ -675,6 +700,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     groupByWorktree,
     sortActiveBySend,
     sortByCreation,
+    recencyWindow,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
@@ -785,7 +811,22 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     ),
     settled: sortSettledThreads(settled),
   };
-  const rows = groupByWorktree ? collapseToWorktreeRows(sections) : sections;
+  const collapsed = groupByWorktree ? collapseToWorktreeRows(sections) : sections;
+  const nowMs = Date.parse(preciseNow);
+  const recencyCutoffMs =
+    recencyWindow === null ? null : sidebarRecencyCutoffMs(recencyWindow, nowMs);
+  // Only rows are filtered: a worktree's tabs and row actions still cover every thread in it.
+  const rows =
+    recencyCutoffMs === null
+      ? collapsed
+      : filterRecentSidebarRows({
+          sections: collapsed,
+          threads: visible,
+          rowKey: groupByWorktree ? worktreeKey : threadShellKey,
+          keepRowKey: input.routeRowKey,
+          cutoffMs: recencyCutoffMs,
+          nowMs,
+        });
   return {
     pinnedThreads: rows.pinned,
     draggableThreadKeys,
@@ -805,6 +846,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     visibleThreads: visible,
     snoozeNow: preciseNow,
     createdAtMs,
+    recencyCutoffMs,
   };
 }
 
@@ -1200,6 +1242,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setPersistedProjectScopeKeys(keys);
     scrollSidebarToTop(sidebarContentRef.current);
   };
+  const [recencyWindow, setPersistedRecencyWindow] = useLocalStorage(
+    RECENCY_WINDOW_KEY,
+    null,
+    RecencyWindowSchema,
+  );
+  const setRecencyWindow = (window: SidebarRecencyWindow | null) => {
+    clearSelection();
+    setPersistedRecencyWindow(window);
+    scrollSidebarToTop(sidebarContentRef.current);
+  };
   // A scope whose project is gone reads as all projects once every snapshot has
   // loaded. The stored keys are left alone, so the scope returns with its project.
   // An archived project's scope reads as all projects, matching the menu.
@@ -1443,6 +1495,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     searchableThreads,
     settledVisibleCount,
     settledCount,
+    settledCountIsLowerBound,
     olderSettledShelf,
     hiddenSettledCount,
     showMoreSettled,
@@ -1480,6 +1533,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     routeRowThreadKey,
     groupByWorktree: threadTabsEnabled,
     routeWorktreeKey,
+    recencyWindow,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
         ? // An archived project keeps a folder for its active threads, below the rest.
@@ -2169,6 +2223,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
+      !settledCountIsLowerBound &&
       pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
@@ -3501,6 +3556,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </ComboboxPopup>
                 </Combobox>
               }
+              recencyFilter={
+                <SidebarRecencyFilter value={recencyWindow} onChange={setRecencyWindow} />
+              }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
@@ -3904,7 +3962,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
                                 )}
                                 label="Settled"
-                                count={settledCount}
+                                count={settledCountIsLowerBound ? `${settledCount}+` : settledCount}
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
                                 toggle={{
@@ -3936,7 +3994,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       }
                       return items;
                     })()}
-                    {settledShelfExpanded && hiddenSettledCount > 0 ? (
+                    {settledShelfExpanded &&
+                    (hiddenSettledCount > 0 || settledCountIsLowerBound) ? (
                       <li className="list-none">
                         <button
                           type="button"
@@ -3955,7 +4014,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             ? "Loading"
                             : olderSettledShelf.failed
                               ? "Could not load older threads. Retry"
-                              : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
+                              : settledCountIsLowerBound &&
+                                  hiddenSettledCount < SETTLED_TAIL_PAGE_COUNT
+                                ? "Show more"
+                                : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
                         </button>
                       </li>
                     ) : null}
@@ -3966,6 +4028,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ) : null}
           {!isSearchingThreads &&
           !hasProjectFolders &&
+          !settledCountIsLowerBound &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
             activeThreads.length +
@@ -3984,6 +4047,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   >
                     <PlusIcon className="-mx-0.5 size-3" />
                     Add project
+                  </button>
+                </>
+              ) : recencyWindow !== null ? (
+                <>
+                  <span>{`No threads active in the last ${SIDEBAR_RECENCY_LABELS[recencyWindow]}`}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRecencyWindow(null)}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                  >
+                    Show all
                   </button>
                 </>
               ) : scopedProjectGroups.length > 1 ? (

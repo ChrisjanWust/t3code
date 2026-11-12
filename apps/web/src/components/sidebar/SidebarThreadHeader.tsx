@@ -15,6 +15,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export interface SidebarThreadHeaderProps {
   hasProjects: boolean;
   projectScope: ReactNode;
+  recencyFilter: ReactNode;
   onNewProject: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
@@ -34,6 +35,7 @@ export interface SidebarThreadHeaderProps {
 export function SidebarThreadHeader({
   hasProjects,
   projectScope,
+  recencyFilter,
   onNewProject,
   onNewThread,
   newThreadDisabled,
@@ -100,6 +102,7 @@ export function SidebarThreadHeader({
         {hasProjects ? (
           <>
             {projectScope}
+            {recencyFilter}
             <SidebarHeaderIconButton label="Add project" onClick={onNewProject}>
               <FolderPlusIcon />
             </SidebarHeaderIconButton>
