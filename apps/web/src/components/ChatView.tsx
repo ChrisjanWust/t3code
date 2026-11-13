@@ -1,5 +1,6 @@
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
+import { openNewScratchFile } from "../lib/newScratchFile";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -57,6 +58,7 @@ import { type ChatShortcutCommands, useChatShortcuts } from "./chat/useChatShort
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   AuthPreviewOperateScope,
@@ -284,6 +286,8 @@ import {
   DeviceSetupDialogHost,
   openBranchRestoreConfirm,
   PullRequestThreadDialogHost,
+  ScratchFileDialogHost,
+  openScratchFileDialog,
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
@@ -444,6 +448,7 @@ export default function ChatView(props: ChatViewProps) {
   const embedded = parentPanel !== undefined;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
+  const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
@@ -1791,6 +1796,10 @@ export default function ChatView(props: ChatViewProps) {
   const threadTabActions = useThreadTabActions(threadTabLocation);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const saveSelectionToScratchStable = useStableCallback((markdown: string) => {
+    if (!activeThreadRef || !activeThreadKey || !activeWorkspaceRoot) return;
+    void openScratchFileDialog(activeThreadRef, activeThreadKey, activeWorkspaceRoot, markdown);
+  });
   const activeTerminalLaunchContext =
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   const liveIsGitRepo = gitStatusQuery.data?.isRepo;
@@ -2829,6 +2838,10 @@ export default function ChatView(props: ChatViewProps) {
       "thread.copyReference": ({ event }) => {
         if (!event.repeat) copyActiveThreadReference();
       },
+      "file.newScratch": ({ event }) => {
+        if (!activeThreadRef || !activeWorkspaceRoot || !canWriteFiles) return false;
+        if (!event.repeat) void openNewScratchFile(activeThreadRef, activeWorkspaceRoot);
+      },
       "chat.find": () => {
         if (!isServerThread || serverConfig?.threadFind !== true || activeThreadKey === null)
           return false;
@@ -2939,6 +2952,7 @@ export default function ChatView(props: ChatViewProps) {
       composerRef,
       composerDraftTarget,
       setThreadError,
+      placeForkTab: threadTabActions.placeForkTab,
     });
   const onCompactContext = () => {
     if (compactDisabled) return;
@@ -3520,6 +3534,9 @@ export default function ChatView(props: ChatViewProps) {
                   citationHistory={citationHistory}
                   onCiteAssistantText={citeAssistantTextStable}
                   onReplyToResponse={replyToResponseStable}
+                  onSaveSelectionToScratch={
+                    canWriteFiles && activeWorkspaceRoot ? saveSelectionToScratchStable : undefined
+                  }
                   {...(activeProject
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
                     : {})}
@@ -4130,6 +4147,7 @@ export default function ChatView(props: ChatViewProps) {
       {embedded ? null : <LinkPullRequestDialogHost />}
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
+      <ScratchFileDialogHost threadKey={activeThreadKey} threadRef={activeThreadRef} />
     </div>
   );
   return (

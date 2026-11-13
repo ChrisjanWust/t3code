@@ -8,7 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 
@@ -29,6 +29,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   buildWorktreeTabs,
   draftWorktreeKey,
+  insertTabAfter,
   isBlankLastTab,
   moveWorktreeTab,
   resolveTabAfterClose,
@@ -324,5 +325,13 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     if (order) useThreadTabOrderStore.getState().setOrder(location.worktreeKey, order);
   };
 
-  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab };
+  /** Called before the fork exists, so its tab never shows at the end first. */
+  const placeForkTab = (threadId: ThreadId) => {
+    if (location === null) return;
+    const { tabs, routeKey } = readTabs(location);
+    const order = insertTabAfter(tabs, routeKey, threadId);
+    if (order) useThreadTabOrderStore.getState().setOrder(location.worktreeKey, order);
+  };
+
+  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab, placeForkTab };
 }

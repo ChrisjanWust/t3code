@@ -219,6 +219,20 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
     }),
+    createScratchFile: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:create-scratch-file",
+      tag: WS_METHODS.projectsCreateScratchFile,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+    }),
+    suggestScratchFile: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:suggest-scratch-file",
+      tag: WS_METHODS.projectsSuggestScratchFile,
+      scheduler: fileScheduler,
+    }),
     writeFile: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:write-file",
       tag: WS_METHODS.projectsWriteFile,

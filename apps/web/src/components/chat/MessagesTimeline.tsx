@@ -229,6 +229,7 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   onReplyToResponse?: TimelineRowSharedState["onReplyToResponse"];
+  onSaveSelectionToScratch?: ((markdown: string) => void) | undefined;
   isWorking: boolean;
   runlessWorkActive?: boolean;
   activeTurnStartedAt?: string | null;
@@ -348,6 +349,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationHistory = CITED_HISTORY_LOADING,
   onCiteAssistantText,
   onReplyToResponse,
+  onSaveSelectionToScratch,
   isWorking,
   runlessWorkActive = false,
   activeTurnStartedAt = null,
@@ -1414,6 +1416,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+                onSaveToScratch={onSaveSelectionToScratch}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

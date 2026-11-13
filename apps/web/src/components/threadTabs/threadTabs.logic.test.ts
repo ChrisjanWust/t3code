@@ -6,6 +6,7 @@ import {
   buildWorktreeTabs,
   collapseToWorktreeRows,
   draftWorktreeKey,
+  insertTabAfter,
   isBlankLastTab,
   moveWorktreeTab,
   resolveTabAfterClose,
@@ -188,6 +189,34 @@ describe("buildWorktreeTabs", () => {
       order,
     });
     expect(asThread.map((tab) => tab.key)).toEqual(["sent", "a", "b"]);
+  });
+
+  it("opens a fork right after the tab it was forked from, not at the end", () => {
+    const threads = [
+      thread("a", { createdAt: "2026-10-26T09:00:00.000Z" }),
+      thread("b", { createdAt: "2026-10-26T10:00:00.000Z" }),
+      thread("c", { createdAt: "2026-10-26T11:00:00.000Z" }),
+    ];
+    const tabsOf = (members: SidebarThreadSummary[], order?: readonly string[]) =>
+      buildWorktreeTabs({
+        threads: members,
+        drafts: [],
+        worktreeKey: FEATURE,
+        routeKey: "a",
+        threadKey: (tab) => tab.id,
+        now: NOW,
+        order,
+      });
+    const order = insertTabAfter(tabsOf(threads), "a", "fork")!;
+
+    const fork = thread("fork", { createdAt: "2026-10-26T12:00:00.000Z" });
+    expect(tabsOf([...threads, fork], order).map((tab) => tab.key)).toEqual([
+      "a",
+      "fork",
+      "b",
+      "c",
+    ]);
+    expect(insertTabAfter(tabsOf(threads), "missing", "fork")).toBeNull();
   });
 
   it("leaves nothing to close when the only tab is a blank draft", () => {
