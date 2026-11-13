@@ -163,13 +163,21 @@ function TabProviderIcon(props: { readonly thread: EnvironmentThreadShell | null
 
 // Re-renders only when the label changes: each minute for the first hour, then hourly, then daily.
 function TabActivityTime(props: { readonly thread: EnvironmentThreadShell }) {
-  const relative = useRelativeTimeState(resolveThreadActivityTimestamp(props.thread));
-  if (relative.status !== "relative") return null;
-  return (
-    <span className="shrink-0 text-muted-foreground tabular-nums">
-      {relative.suffix === null ? "now" : relative.value}
-    </span>
+  const status = resolveSidebarThreadStatus(props.thread);
+  // A running turn's newest timestamp is its start, which would count up as if the thread were idle.
+  const running = status === "preparing" || status === "working";
+  const relative = useRelativeTimeState(
+    running ? null : resolveThreadActivityTimestamp(props.thread),
   );
+  const label = running
+    ? "now"
+    : relative.status !== "relative"
+      ? null
+      : relative.suffix === null
+        ? "now"
+        : relative.value;
+  if (label === null) return null;
+  return <span className="shrink-0 text-muted-foreground tabular-nums">{label}</span>;
 }
 
 interface TabMenuContext {
