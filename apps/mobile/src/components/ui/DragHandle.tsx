@@ -2,9 +2,9 @@ import { useEffectEvent, useState } from "react";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
-import { SymbolView } from "../../../components/ui/AppSymbol";
+import { SymbolView } from "./AppSymbol";
 
-export function SettingsDragHandle(props: {
+export function DragHandle(props: {
   readonly title: string;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;

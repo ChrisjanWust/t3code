@@ -32,7 +32,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { connectionTone } from "../connection/connectionTone";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
-import { SettingsDragHandle } from "./components/SettingsDragHandle";
+import { DragHandle } from "../../components/ui/DragHandle";
 import { SettingsSection } from "./components/SettingsSection";
 
 const ICON_SIZE = Platform.OS === "android" ? 24 : 22;
@@ -316,7 +316,7 @@ function RouteRow(props: {
         </View>
       </View>
       {props.editing ? (
-        <SettingsDragHandle
+        <DragHandle
           title={label}
           canMoveUp={props.position > 1}
           canMoveDown={props.position < props.count}

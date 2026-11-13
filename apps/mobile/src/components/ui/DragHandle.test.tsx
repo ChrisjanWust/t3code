@@ -36,11 +36,11 @@ vi.mock("react-native-gesture-handler", () => ({
     },
   },
 }));
-vi.mock("../../../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
+vi.mock("./AppSymbol", () => ({ SymbolView: () => null }));
 
-import { SettingsDragHandle } from "./SettingsDragHandle";
+import { DragHandle } from "./DragHandle";
 
-describe("SettingsDragHandle", () => {
+describe("DragHandle", () => {
   // The worklets Babel plugin copies values a gesture callback closes over when the gesture is
   // built, so a drop must not read a translation tracked in a local variable.
   it("reports the released translation when the pan ends", () => {
@@ -49,7 +49,7 @@ describe("SettingsDragHandle", () => {
     const root = createRoot(document.createElement("div"));
     act(() =>
       root.render(
-        <SettingsDragHandle
+        <DragHandle
           title="Built-in microphone"
           canMoveUp
           canMoveDown

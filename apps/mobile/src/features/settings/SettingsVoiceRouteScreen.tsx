@@ -35,7 +35,7 @@ import type { VoiceGrant } from "../voice-input/voiceGrantStorage";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
-import { SettingsDragHandle } from "./components/SettingsDragHandle";
+import { DragHandle } from "../../components/ui/DragHandle";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
@@ -435,7 +435,7 @@ function MicrophoneRow(props: {
         />
       </View>
       {props.reorderable ? (
-        <SettingsDragHandle
+        <DragHandle
           title={title}
           canMoveUp={props.position > 1}
           canMoveDown={props.position < props.count}

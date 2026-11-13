@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
+import { type OrchestrationV2ThreadProjection, RunId } from "@t3tools/contracts";
 
 import {
   canForkProjectedAssistantItem,
   deriveThreadQueueWorkflowState,
+  moveQueuedRun,
   resolveLatestMergeBackRun,
+  shownQueuedRunOrder,
   threadSupportsProviderHandoff,
 } from "./threadWorkflows.ts";
 
@@ -346,6 +348,42 @@ describe("thread workflows", () => {
       expect(state.canPromoteToSteer).toBe(false);
     },
   );
+
+  it.each([
+    { run: "a", to: 2, order: ["b", "c", "a", "d"], beforeRunId: "d" },
+    { run: "a", to: 3, order: ["b", "c", "d", "a"], beforeRunId: null },
+    { run: "d", to: 0, order: ["d", "a", "b", "c"], beforeRunId: "a" },
+    { run: "c", to: 1, order: ["a", "c", "b", "d"], beforeRunId: "b" },
+    { run: "b", to: 1, order: null, beforeRunId: null },
+    { run: "b", to: 4, order: null, beforeRunId: null },
+    { run: "missing", to: 0, order: null, beforeRunId: null },
+  ])("moves queued run $run to $to", ({ run, to, order, beforeRunId }) => {
+    const move = moveQueuedRun(
+      ["a", "b", "c", "d"].map((id) => RunId.make(id)),
+      RunId.make(run),
+      to,
+    );
+    expect(move).toEqual(order === null ? null : { order, beforeRunId });
+  });
+
+  it("shows a reordered queue until the thread applies the reorder", () => {
+    const [a, b, c] = ["a", "b", "c"].map((id) => RunId.make(id)) as [RunId, RunId, RunId];
+    const server = { order: [a, b, c], sequence: 10 };
+    const inFlight = { order: [b, a, c], sequence: null };
+    const accepted = { order: [b, a, c], sequence: 12 };
+
+    expect(shownQueuedRunOrder(null, server)).toBeNull();
+    expect(shownQueuedRunOrder(inFlight, server)).toEqual([b, a, c]);
+    // Events of one reorder can land one at a time; the server order in between is never shown.
+    expect(shownQueuedRunOrder(accepted, { order: [a, b, c], sequence: 11 })).toEqual([b, a, c]);
+    expect(shownQueuedRunOrder(accepted, { order: [b, a, c], sequence: 12 })).toBeNull();
+    // Caught up, the server order wins even when another client moved a run since.
+    expect(shownQueuedRunOrder(accepted, { order: [c, b, a], sequence: 14 })).toBeNull();
+    expect(shownQueuedRunOrder(inFlight, { order: [a, c], sequence: 11 })).toBeNull();
+    expect(
+      shownQueuedRunOrder(inFlight, { order: [a, b, RunId.make("d")], sequence: 11 }),
+    ).toBeNull();
+  });
 
   it("allows native, portable, and capability-unknown exact-run forks", () => {
     const projectedItem = {
