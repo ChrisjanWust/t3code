@@ -249,6 +249,9 @@ import {
   ProjectListIgnoredFilesResult,
   ProjectReadFileError,
   ProjectReadFileInput,
+  ProjectMutateEntryError,
+  ProjectMutateEntryInput,
+  ProjectMutateEntryResult,
   ProjectReadFileResult,
   ProjectSearchContentsError,
   ProjectSearchContentsInput,
@@ -256,6 +259,8 @@ import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectCreateScratchFileInput,
+  ProjectSuggestScratchFileInput,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -412,7 +417,14 @@ import {
   SourceControlSignInResult,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
-import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import {
+  Project,
+  ProjectMutation,
+  ProjectMutationError,
+  ProjectRegenerateWorktreeTitleError,
+  ProjectRegenerateWorktreeTitleInput,
+  ProjectWorktreeTitle,
+} from "./project.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -421,7 +433,11 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsMutateEntry: "projects.mutateEntry",
+  projectsCreateScratchFile: "projects.createScratchFile",
+  projectsSuggestScratchFile: "projects.suggestScratchFile",
   projectsMutate: "projects.mutate",
+  projectsRegenerateWorktreeTitle: "projects.regenerateWorktreeTitle",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
@@ -1400,10 +1416,34 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsMutateEntryRpc = Rpc.make(WS_METHODS.projectsMutateEntry, {
+  payload: ProjectMutateEntryInput,
+  success: ProjectMutateEntryResult,
+  error: Schema.Union([ProjectMutateEntryError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsCreateScratchFileRpc = Rpc.make(WS_METHODS.projectsCreateScratchFile, {
+  payload: ProjectCreateScratchFileInput,
+  success: ProjectWriteFileResult,
+  error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsSuggestScratchFileRpc = Rpc.make(WS_METHODS.projectsSuggestScratchFile, {
+  payload: ProjectSuggestScratchFileInput,
+  success: ProjectWriteFileResult,
+  error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
   error: Schema.Union([ProjectMutationError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsRegenerateWorktreeTitleRpc = Rpc.make(WS_METHODS.projectsRegenerateWorktreeTitle, {
+  payload: ProjectRegenerateWorktreeTitleInput,
+  success: Schema.NullOr(ProjectWorktreeTitle),
+  error: Schema.Union([ProjectRegenerateWorktreeTitleError, EnvironmentAuthorizationError]),
 });
 
 const WsProjectsEnsureScratchRpc = Rpc.make(WS_METHODS.projectsEnsureScratch, {
@@ -2232,7 +2272,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsMutateEntryRpc,
+  WsProjectsCreateScratchFileRpc,
+  WsProjectsSuggestScratchFileRpc,
   WsProjectsMutateRpc,
+  WsProjectsRegenerateWorktreeTitleRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,

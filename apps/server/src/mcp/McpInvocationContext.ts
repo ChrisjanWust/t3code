@@ -141,6 +141,8 @@ export interface McpInvocationScope {
   readonly client: McpClientCaller | undefined;
   /** False while the Linked environments beta is off here; `/mcp` reads it per request. */
   readonly linkedEnvironments?: boolean;
+  /** The user hides T3's browser from this thread's agent, so it never sees the preview tools. */
+  readonly browserHidden?: boolean;
 }
 
 /**
@@ -180,6 +182,13 @@ export const hiddenWhileLinksOff = (): boolean => {
   const fiber = Fiber.getCurrent();
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   return scope?.linkedEnvironments !== false;
+};
+
+/** `McpSchema.EnabledWhen` for browser tools, unlisted while the user hides T3's browser. */
+export const hiddenWhileBrowserHidden = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.browserHidden !== true;
 };
 
 export type McpCapabilityError<C extends McpCapability> = C extends "preview"

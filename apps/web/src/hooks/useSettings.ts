@@ -440,6 +440,15 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   });
 }
 
+/** Worktree rows and thread tabs need the default sidebar, so the boring one turns them off. */
+export function useThreadTabsEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const enabled = useClientSettings(
+    (settings) => settings.threadTabsEnabled && !settings.boringSidebarEnabled,
+  );
+  return settingsHydrated && enabled;
+}
+
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,

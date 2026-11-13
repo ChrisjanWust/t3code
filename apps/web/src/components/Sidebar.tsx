@@ -34,7 +34,11 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
-import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  sortSettledThreads,
+  sortThreadsByCreatedAt,
+  threadCreatedAtMs,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -55,6 +59,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
+  PROJECT_WORKTREE_TITLE_MAX_LENGTH,
   ProjectId,
   type ScopedThreadRef,
   type ThreadId,
@@ -117,11 +122,7 @@ import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
-import {
-  canTurnThreadIntoProject,
-  useAcknowledgeThreadWoke,
-  useThreadActions,
-} from "../hooks/useThreadActions";
+import { canTurnThreadIntoProject, useAcknowledgeThreadWoke } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
@@ -129,7 +130,19 @@ import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useThreadTabsEnabled } from "../hooks/useSettings";
+import {
+  collapseToWorktreeRows,
+  worktreeCreatedAtMs,
+  draftWorktreeKey,
+  findWorktreeTitle,
+  isOpenTab,
+  resolveWorktreeReturnTab,
+  resolveWorktreeStatusThread,
+  worktreeKey,
+  worktreeLabel,
+} from "./threadTabs/threadTabs.logic";
+import { useWorktreeRowActions } from "./threadTabs/useWorktreeRowActions";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -149,7 +162,7 @@ import {
 } from "../state/entities";
 import { environmentPresentations } from "../state/presentation";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { environmentProjects } from "../state/projects";
+import { environmentProjects, projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../state/olderSettledShelf";
 import { useThreadSearch } from "../state/queries";
@@ -183,6 +196,7 @@ import {
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
+  hasUnseenCompletion,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -193,6 +207,7 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
+  resolveThreadLastVisitedAt,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
@@ -251,6 +266,14 @@ import {
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarRecencyFilter } from "./sidebar/SidebarRecencyFilter";
+import {
+  filterRecentSidebarRows,
+  SIDEBAR_RECENCY_LABELS,
+  SIDEBAR_RECENCY_WINDOWS,
+  sidebarRecencyCutoffMs,
+  type SidebarRecencyWindow,
+} from "./sidebar/sidebarRecency.logic";
 import { TooltipProvider } from "./ui/tooltip";
 import {
   composerDraftHasUserContent,
@@ -333,6 +356,8 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const RECENCY_WINDOW_KEY = "t3code:sidebar:recency-window";
+const RecencyWindowSchema = Schema.NullOr(Schema.Literals(SIDEBAR_RECENCY_WINDOWS));
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -356,8 +381,15 @@ interface SidebarThreadPartitionInput {
   readonly connectedEnvironmentIds: readonly EnvironmentId[];
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
+  readonly groupByWorktree: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  /** The user's thread order: creation date instead of recent activity. */
+  readonly sortByCreation: boolean;
+  /** Lists only rows with activity this recent, and the open route's row. */
+  readonly recencyWindow: SidebarRecencyWindow | null;
+  /** The open route's row: its worktree when grouped, else its thread. */
+  readonly routeRowKey: string | null;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -384,21 +416,28 @@ function resolveDraggedOrders(input: {
   readonly settledThreads: readonly EnvironmentThreadShell[];
   readonly activeThreads: readonly EnvironmentThreadShell[];
   readonly workingShelfEnabled: boolean;
+  readonly createdAtMs: ((thread: EnvironmentThreadShell) => number) | null;
 }): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled, createdAtMs } =
+    input;
   const thread = threadByKey.get(drag.activeKey);
   if (thread === undefined) return NO_DRAGGED_ORDERS;
   const others = (list: readonly EnvironmentThreadShell[]) =>
     list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
+  const activeByReturn = (): readonly EnvironmentThreadShell[] =>
+    sortInboxThreadsByReturn(
+      [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
+      inboxReturns.returnedAt,
+    );
   return {
     settledOrder: sortSettledThreads([
       ...others(settledThreads),
       applySidebarThreadDrop(thread, "settled", drag.occurredAt),
     ]).map(threadShellKey),
     activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
-          [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
+      ? (createdAtMs === null
+          ? activeByReturn()
+          : sortThreadsByCreatedAt(activeByReturn(), createdAtMs)
         ).map(threadShellKey)
       : undefined,
   };
@@ -423,6 +462,9 @@ function useSidebarThreads(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
+  readonly groupByWorktree: boolean;
+  readonly routeWorktreeKey: string | null;
+  readonly recencyWindow: SidebarRecencyWindow | null;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
@@ -436,13 +478,16 @@ function useSidebarThreads(input: {
     optimisticDrop,
     threads,
     delegatedUnderParent,
-    routeRowThreadKey,
+    groupByWorktree,
+    routeWorktreeKey,
+    recencyWindow,
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+  const sortByCreation = useClientSettings((s) => s.sidebarThreadSortOrder) === "created_at";
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -486,22 +531,59 @@ function useSidebarThreads(input: {
     connectedEnvironmentIds,
     optimisticDrop,
     workingShelfEnabled,
+    groupByWorktree,
     sortActiveBySend: folderGroups !== null,
+    sortByCreation,
+    recencyWindow,
+    routeRowKey: groupByWorktree ? routeWorktreeKey : input.routeRowThreadKey,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
+  // Grouped, each row stands for its worktree's threads, and the open route's row is
+  // the one its worktree collapsed to.
+  const worktreeRowKeyByWorktree = new Map<string, string>();
+  for (const thread of [
+    ...pinnedThreads,
+    ...activeThreads,
+    ...workingThreads,
+    ...snoozedThreads,
+    ...settledThreads,
+  ]) {
+    if (groupByWorktree) worktreeRowKeyByWorktree.set(worktreeKey(thread), threadShellKey(thread));
+  }
+  const worktreeMembersByRowKey = new Map<string, EnvironmentThreadShell[]>();
+  const worktreeRowKeyByThreadKey = new Map<string, string>();
+  for (const thread of groupByWorktree ? partition.visibleThreads : []) {
+    const rowKey = worktreeRowKeyByWorktree.get(worktreeKey(thread));
+    if (rowKey === undefined) continue;
+    worktreeRowKeyByThreadKey.set(threadShellKey(thread), rowKey);
+    const members = worktreeMembersByRowKey.get(rowKey);
+    if (members) members.push(thread);
+    else worktreeMembersByRowKey.set(rowKey, [thread]);
+  }
+  const routeRowThreadKey = groupByWorktree
+    ? routeWorktreeKey === null
+      ? null
+      : (worktreeRowKeyByWorktree.get(routeWorktreeKey) ?? null)
+    : input.routeRowThreadKey;
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
     expanded: settledShelfExpanded,
     visibleCount: settledVisibleCount,
+    sinceMs: partition.recencyCutoffMs,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
-  const settledCount =
-    settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  // The server counts unloaded threads but not when they were active, so a filtered shelf
+  // counts only what it holds until it has read back past the cutoff.
+  const filteringByRecency = partition.recencyCutoffMs !== null;
+  const unloadedSettledCount = olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const settledCount = settledThreads.length + (filteringByRecency ? 0 : unloadedSettledCount);
+  const settledCountIsLowerBound =
+    filteringByRecency && !olderSettledShelf.complete && unloadedSettledCount > 0;
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
@@ -567,15 +649,12 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
-    searchableThreads: [
-      ...pinnedThreads,
-      ...activeThreads,
-      ...workingThreads,
-      ...snoozedThreads,
-      ...settledThreads,
-    ],
+    routeRowThreadKey,
+    worktreeMembersByRowKey,
+    worktreeRowKeyByThreadKey,
     settledVisibleCount,
     settledCount,
+    settledCountIsLowerBound,
     olderSettledShelf,
     hiddenSettledCount: Math.max(0, settledCount - visibleSettledThreads.length),
     showMoreSettled: () =>
@@ -621,10 +700,19 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
+    groupByWorktree,
     sortActiveBySend,
+    sortByCreation,
+    recencyWindow,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  // A worktree row dropped on Settled settles its open tabs with it.
+  const droppedThread =
+    groupByWorktree && optimisticDrop?.section === "settled"
+      ? visible.find((thread) => threadShellKey(thread) === optimisticDrop.key)
+      : undefined;
+  const settlingWorktreeKey = droppedThread === undefined ? null : worktreeKey(droppedThread);
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -661,6 +749,13 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
           ? projected
           : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
       );
+    } else if (
+      optimisticDrop !== null &&
+      settlingWorktreeKey !== null &&
+      worktreeKey(thread) === settlingWorktreeKey &&
+      thread.settledOverride !== "settled"
+    ) {
+      settled.push(applySidebarThreadDrop(thread, "settled", optimisticDrop.occurredAt));
     } else {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
@@ -678,14 +773,24 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     }
   }
   // Availability gates dragging only; sorting must stay consistent across clients.
+  // Pinned stays manual, Snoozed by wake time and Settled by settle time, which the
+  // server pages by. Creation order dates a worktree row from its first thread.
+  const createdAtMs = !sortByCreation
+    ? null
+    : groupByWorktree
+      ? worktreeCreatedAtMs(visible)
+      : threadCreatedAtMs;
+  // Layered on the default order, so a worktree's row keeps the thread that order picks.
+  const byCreation = (list: EnvironmentThreadShell[]) =>
+    createdAtMs === null ? list : sortThreadsByCreatedAt(list, createdAtMs);
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
+    ? byCreation(sortWorkingThreadsBySend(active))
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
-  return {
-    pinnedThreads:
+      ? byCreation(sortInboxThreadsByReturn(active, inboxObservation.returnedAt))
+      : sortThreadsForSidebar(active, createdAtMs ?? undefined);
+  const sections = {
+    pinned:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
         ? sortedPinned
         : orderItemsByPreferredIds({
@@ -693,9 +798,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    draggableThreadKeys,
-    activeReorderableThreadKeys,
-    activeThreads:
+    active:
       optimisticDrop?.section !== "active" || optimisticDrop.order === null
         ? sortedActive
         : orderItemsByPreferredIds({
@@ -703,15 +806,50 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    workingThreads: sortWorkingThreadsBySend(working),
-    snoozedThreads: snoozed.toSorted(
+    working: byCreation(sortWorkingThreadsBySend(working)),
+    snoozed: snoozed.toSorted(
       (left, right) =>
         firstValidTimestampMs(left.snoozedUntil ?? null) -
         firstValidTimestampMs(right.snoozedUntil ?? null),
     ),
-    settledThreads: sortSettledThreads(settled),
+    settled: sortSettledThreads(settled),
+  };
+  const collapsed = groupByWorktree ? collapseToWorktreeRows(sections) : sections;
+  const nowMs = Date.parse(preciseNow);
+  const recencyCutoffMs =
+    recencyWindow === null ? null : sidebarRecencyCutoffMs(recencyWindow, nowMs);
+  // Only rows are filtered: a worktree's tabs and row actions still cover every thread in it.
+  const rows =
+    recencyCutoffMs === null
+      ? collapsed
+      : filterRecentSidebarRows({
+          sections: collapsed,
+          threads: visible,
+          rowKey: groupByWorktree ? worktreeKey : threadShellKey,
+          keepRowKey: input.routeRowKey,
+          cutoffMs: recencyCutoffMs,
+          nowMs,
+        });
+  return {
+    pinnedThreads: rows.pinned,
+    draggableThreadKeys,
+    activeReorderableThreadKeys,
+    activeThreads: rows.active,
+    workingThreads: rows.working,
+    snoozedThreads: rows.snoozed,
+    settledThreads: rows.settled,
+    // Search lists threads, not worktrees.
+    searchableThreads: [
+      ...sections.pinned,
+      ...sections.active,
+      ...sections.working,
+      ...sections.snoozed,
+      ...sections.settled,
+    ],
     visibleThreads: visible,
     snoozeNow: preciseNow,
+    createdAtMs,
+    recencyCutoffMs,
   };
 }
 
@@ -899,6 +1037,19 @@ function readRouteThreadKey(router: AnyRouter): string | null {
   return ref === null ? null : scopedThreadKey(ref);
 }
 
+/** A worktree row titles its worktree, which only a row with a path can hold. */
+function worktreeRowTitleTarget(
+  thread: EnvironmentThreadShell | undefined,
+  isWorktreeRow: boolean,
+) {
+  if (!isWorktreeRow || !thread?.worktreePath) return null;
+  return {
+    environmentId: thread.environmentId,
+    projectId: thread.projectId,
+    worktreePath: thread.worktreePath,
+  };
+}
+
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const {
     projects,
@@ -915,12 +1066,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const threadTabsEnabled = useThreadTabsEnabled();
+  const worktreeMembersRef = useRef<ReadonlyMap<string, readonly EnvironmentThreadShell[]>>(
+    new Map(),
+  );
+  const worktreeRowKeyByThreadKeyRef = useRef<ReadonlyMap<string, string>>(new Map());
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
+    confirmStopRunningThreads,
     unsettleThread,
     snoozeThread,
     unsnoozeThread,
@@ -934,10 +1091,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     markThreadUnread,
     archiveThread,
     deleteThread,
-  } = useThreadActions();
+  } = useWorktreeRowActions(worktreeMembersRef);
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const setWorktreeTitle = useOrchestrationCommand(projectEnvironment.setWorktreeTitle, {
+    reportFailure: false,
+  });
+  const regenerateWorktreeTitle = useOrchestrationCommand(
+    projectEnvironment.regenerateWorktreeTitle,
+    { reportFailure: false },
+  );
+  // Read only when a row menu opens, so a ref is enough.
+  const regeneratingWorktreeKeysRef = useRef(new Set<string>());
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
     reportFailure: false,
   });
@@ -1090,6 +1256,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setPersistedProjectScopeKeys(keys);
     scrollSidebarToTop(sidebarContentRef.current);
   };
+  const [recencyWindow, setPersistedRecencyWindow] = useLocalStorage(
+    RECENCY_WINDOW_KEY,
+    null,
+    RecencyWindowSchema,
+  );
+  const setRecencyWindow = (window: SidebarRecencyWindow | null) => {
+    clearSelection();
+    setPersistedRecencyWindow(window);
+    scrollSidebarToTop(sidebarContentRef.current);
+  };
   // A scope whose project is gone reads as all projects once every snapshot has
   // loaded. The stored keys are left alone, so the scope returns with its project.
   // An archived project's scope reads as all projects, matching the menu.
@@ -1139,6 +1315,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const routeWorktreeKey = (() => {
+    if (!threadTabsEnabled) return null;
+    if (routeDraftThread) return draftWorktreeKey(routeDraftThread);
+    const routeThread =
+      routeRowThreadKey === null
+        ? undefined
+        : threads.find((thread) => threadShellKey(thread) === routeRowThreadKey);
+    return routeThread ? worktreeKey(routeThread) : null;
+  })();
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
 
   // History, the palette and links can open a thread the scope hides or the list
@@ -1172,6 +1357,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setPersistedProjectScopeKeys([]);
   }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
+  // A worktree row stands in for the open tab, whose key the reveal waits on.
+  const revealRouteRow = threadTabsEnabled
+    ? (row: HTMLElement | null) => revealActiveRow(row, routeRowThreadKey ?? "")
+    : revealActiveRow;
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
     thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
@@ -1317,6 +1506,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    createdAtMs,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -1328,6 +1518,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     searchableThreads,
     settledVisibleCount,
     settledCount,
+    settledCountIsLowerBound,
     olderSettledShelf,
     hiddenSettledCount,
     showMoreSettled,
@@ -1351,6 +1542,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     activeKeys,
     pinnedKeysById,
     activeKeysById,
+    routeRowThreadKey: routeRowKey,
+    worktreeMembersByRowKey,
+    worktreeRowKeyByThreadKey,
   } = useSidebarThreads({
     projectScopeKey,
     scopedProjectKeys,
@@ -1360,6 +1554,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads: listedThreads,
     delegatedUnderParent,
     routeRowThreadKey,
+    groupByWorktree: threadTabsEnabled,
+    routeWorktreeKey,
+    recencyWindow,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
         ? // An archived project keeps a folder for its active threads, below the rest.
@@ -1474,6 +1671,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     });
   };
 
+  // A worktree row opens the tab used there last.
+  const navigateToRow = (rowRef: ScopedThreadRef) => {
+    const members = worktreeMembersRef.current.get(scopedThreadKey(rowRef));
+    const now = new Date().toISOString();
+    const lastVisitedAtById = useUiStateStore.getState().threadLastVisitedAtById;
+    const tab =
+      members === undefined
+        ? null
+        : resolveWorktreeReturnTab(
+            members.filter((thread) => isOpenTab(thread, now)),
+            (thread) =>
+              resolveThreadLastVisitedAt(
+                thread.lastVisitedAt,
+                lastVisitedAtById[threadShellKey(thread)],
+              ),
+          );
+    const navigation = navigateToThread(tab ? scopeThreadRef(tab.environmentId, tab.id) : rowRef);
+    setSelectionAnchor(scopedThreadKey(rowRef));
+    return navigation;
+  };
+  // With tabs, the open thread is one of its row's worktree threads.
+  const readRouteRowKey = () => {
+    const key = readRouteThreadKey(router);
+    return key === null ? null : (worktreeRowKeyByThreadKeyRef.current.get(key) ?? key);
+  };
+
   const handleThreadFileDrop = async (threadRef: ScopedThreadRef, files: File[]) => {
     const dropId = queuePendingFileDrop({ threadRef, files });
     const landedBefore =
@@ -1552,12 +1775,52 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     renamingOriginalTitleRef.current = title;
   };
   const cancelThreadRename = () => setRenamingThreadRef(null);
+  const worktreeTitleTarget = (threadRef: ScopedThreadRef) => {
+    const threadKey = scopedThreadKey(threadRef);
+    return worktreeRowTitleTarget(
+      threadByKeyRef.current.get(threadKey),
+      worktreeMembersRef.current.has(threadKey),
+    );
+  };
+  const commitWorktreeTitle = async (
+    target: NonNullable<ReturnType<typeof worktreeTitleTarget>>,
+    title: string | null,
+  ) => {
+    const result = await setWorktreeTitle({
+      environmentId: target.environmentId,
+      input: { projectId: target.projectId, worktreePath: target.worktreePath, title },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to rename worktree",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  };
   const commitThreadRename = (threadRef: ScopedThreadRef, title: string) => {
     const originalTitle = renamingOriginalTitleRef.current;
     void (async () => {
       if (!readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)) return;
       const trimmed = title.trim();
       setRenamingThreadRef(null);
+      const worktree = worktreeTitleTarget(threadRef);
+      if (worktree) {
+        if (trimmed === originalTitle) return;
+        if (trimmed.length > PROJECT_WORKTREE_TITLE_MAX_LENGTH) {
+          toastManager.add({
+            type: "warning",
+            title: `Worktree titles can be at most ${PROJECT_WORKTREE_TITLE_MAX_LENGTH} characters`,
+          });
+          return;
+        }
+        // Clearing the name goes back to the generated title.
+        await commitWorktreeTitle(worktree, trimmed.length === 0 ? null : trimmed);
+        return;
+      }
       if (trimmed.length === 0) {
         toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
         return;
@@ -1598,7 +1861,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isTrailingDoubleClick(event.detail)) {
       return;
     }
-    navigateToThread(threadRef);
+    navigateToRow(threadRef);
   };
 
   // Snapshot navigation before partition mutation; background parks use a null plan.
@@ -1606,7 +1869,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threadKey: string,
     coParkingKeys?: ReadonlySet<string>,
   ): (() => void) | null => {
-    if (readRouteThreadKey(router) !== threadKey) return null;
+    if (readRouteRowKey() !== threadKey) return null;
     const shell = threadByKeyRef.current.get(threadKey);
     const orderedKeys = orderedThreadKeysRef.current;
     const settledKeys = settledThreadKeysRef.current;
@@ -1620,7 +1883,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ) ?? null);
     const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
     return nextThread
-      ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
+      ? () => navigateToRow(scopeThreadRef(nextThread.environmentId, nextThread.id))
       : shell
         ? () => void handleNewThread(scopeProjectRef(shell.environmentId, shell.projectId))
         : () => void router.navigate({ to: "/" });
@@ -1628,14 +1891,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const attemptSettle = (
     threadRef: ScopedThreadRef,
-    opts: { coSettlingKeys?: ReadonlySet<string> } = {},
+    opts: { coSettlingKeys?: ReadonlySet<string>; stopConfirmed?: boolean } = {},
   ) => {
     void (async () => {
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
       const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-      const result = await settleThread(threadRef);
+      const result = await settleThread(threadRef, { stopConfirmed: opts.stopConfirmed === true });
       settlingThreadKeysRef.current.delete(threadKey);
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
@@ -1653,7 +1916,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (
         shouldNavigateAfterThreadPark({
           threadKey,
-          currentThreadKey: readRouteThreadKey(router),
+          currentThreadKey: readRouteRowKey(),
           action: "settle",
           now: new Date().toISOString(),
           thread: readThreadShell(threadRef),
@@ -1664,13 +1927,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
-  useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
-  const settleThreads = (threadKeys: readonly string[]) => {
+  useEffect(
+    () =>
+      registerSettleAndAdvance((threadRef) => {
+        // With tabs, settling goes through the worktree's row, so it settles every tab.
+        const threadKey = scopedThreadKey(
+          scopeThreadRef(
+            threadRef.environmentId,
+            resolveSidebarRowThreadId(threadRef.threadId, threadRef.environmentId, threads),
+          ),
+        );
+        const rowKey = worktreeRowKeyByThreadKeyRef.current.get(threadKey);
+        const row =
+          rowKey === undefined
+            ? undefined
+            : worktreeMembersRef.current
+                .get(rowKey)
+                ?.find((member) => threadShellKey(member) === rowKey);
+        attemptSettle(row ? scopeThreadRef(row.environmentId, row.id) : threadRef);
+      }),
+    [attemptSettle, threads],
+  );
+  const settleThreads = async (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
-    for (const threadKey of threadKeys) {
+    const targets = threadKeys.flatMap((threadKey) => {
       const thread = threadByKeyRef.current.get(threadKey);
-      if (!thread || thread.settledOverride === "settled") continue;
-      attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
+      return !thread || thread.settledOverride === "settled"
+        ? []
+        : [scopeThreadRef(thread.environmentId, thread.id)];
+    });
+    if (!(await confirmStopRunningThreads(targets))) return;
+    for (const threadRef of targets) {
+      attemptSettle(threadRef, { coSettlingKeys, stopConfirmed: true });
     }
   };
   const attemptUnsettle = (threadRef: ScopedThreadRef) => {
@@ -1823,6 +2111,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledThreadKeysRef.current = settledThreadKeys;
     snoozedThreadKeysRef.current = snoozedThreadKeys;
     sectionByThreadKeyRef.current = sectionByThreadKey;
+    worktreeMembersRef.current = worktreeMembersByRowKey;
+    worktreeRowKeyByThreadKeyRef.current = worktreeRowKeyByThreadKey;
   });
   const startActionSweep = useStableCallback(
     (threadRef: ScopedThreadRef, action: SidebarSweepAction, event: PointerEvent) => {
@@ -1862,7 +2152,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         onEnd: () => {
           const keys = sweptKeys.filter(canApply);
           if (action === "settle") {
-            settleThreads(keys);
+            void settleThreads(keys);
             return;
           }
           for (const key of keys) {
@@ -1962,6 +2252,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
+      !settledCountIsLowerBound &&
       pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
@@ -2060,6 +2351,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settledThreads,
           activeThreads,
           workingShelfEnabled,
+          createdAtMs,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
@@ -2069,7 +2361,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
     settledExpanded: settledShelfExpanded,
     settledVisibleCount,
-    routeThreadKey: routeRowThreadKey,
+    routeThreadKey: routeRowKey,
     snoozedThreadCount: snoozedThreads.length,
   });
   const draggedThreadKey = dragState?.activeKey;
@@ -2199,7 +2491,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             settled &&
             shouldNavigateAfterThreadPark({
               threadKey: activeKey,
-              currentThreadKey: readRouteThreadKey(router),
+              currentThreadKey: readRouteRowKey(),
               action: "settle",
               now: new Date().toISOString(),
               thread: readThreadShell(threadRef),
@@ -2270,7 +2562,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (
       shouldNavigateAfterThreadPark({
         threadKey,
-        currentThreadKey: readRouteThreadKey(router),
+        currentThreadKey: readRouteRowKey(),
         action: "snooze",
         now: new Date().toISOString(),
         thread: readThreadShell(threadRef),
@@ -2487,7 +2779,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return;
       }
       if (clicked.value === "settle") {
-        settleThreads(
+        void settleThreads(
           actionTargets.map((thread) =>
             scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           ),
@@ -2618,6 +2910,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         const thread = threadByKeyRef.current.get(threadKey);
         if (!thread) return;
+        const worktreeMembers = worktreeMembersRef.current.get(threadKey);
+        const worktreeTitles = projectByKey.get(
+          `${thread.environmentId}:${thread.projectId}`,
+        )?.worktreeTitles;
+        const worktreeTarget = worktreeRowTitleTarget(thread, worktreeMembers !== undefined);
+        const worktreeTitleKey = worktreeTarget === null ? null : JSON.stringify(worktreeTarget);
+        const worktreeName = `${worktreeMembers?.length ?? 1} threads in "${worktreeLabel(thread, worktreeTitles, worktreeMembers)}"`;
         const threadWorkspacePath =
           thread.worktreePath ??
           projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
@@ -2626,7 +2925,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
-        const isRegeneratingTitle = thread.titleRegeneration != null;
+        const isRegeneratingTitle =
+          worktreeMembers === undefined
+            ? thread.titleRegeneration != null
+            : worktreeTitleKey !== null &&
+              regeneratingWorktreeKeysRef.current.has(worktreeTitleKey);
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
@@ -2665,7 +2968,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
+              isRunning: (worktreeMembers ?? [thread]).some(
+                (member) => !threadRuntimeCanArchive(member.runtime),
+              ),
               canShareWithGuest: appAtomRegistry.get(
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
@@ -2678,6 +2983,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
+              scope: worktreeMembers === undefined ? "thread" : "worktree",
+              creatingWorktree: thread.worktreePath === null && thread.creatingWorktree === true,
+              worktreeTitle:
+                worktreeTarget === null
+                  ? null
+                  : {
+                      isManual:
+                        findWorktreeTitle(worktreeTitles, thread.worktreePath)?.manual != null,
+                    },
             }),
             position,
           ),
@@ -2789,12 +3103,42 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           }
           case "rename":
+            if (worktreeMembers !== undefined) {
+              startThreadRename(threadRef, worktreeLabel(thread, worktreeTitles, worktreeMembers));
+              return;
+            }
             startThreadRename(threadRef, thread.title);
             return;
           case "share-guest":
             openGuestShareDialog(threadRef);
             return;
+          case "reset-title":
+            if (worktreeTarget) await commitWorktreeTitle(worktreeTarget, null);
+            return;
           case "regenerate-title": {
+            if (worktreeMembers !== undefined) {
+              if (worktreeTarget === null || worktreeTitleKey === null) return;
+              if (regeneratingWorktreeKeysRef.current.has(worktreeTitleKey)) return;
+              regeneratingWorktreeKeysRef.current.add(worktreeTitleKey);
+              const result = await regenerateWorktreeTitle({
+                environmentId: worktreeTarget.environmentId,
+                input: {
+                  projectId: worktreeTarget.projectId,
+                  worktreePath: worktreeTarget.worktreePath,
+                },
+              }).finally(() => regeneratingWorktreeKeysRef.current.delete(worktreeTitleKey));
+              if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                const error = squashAtomCommandFailure(result);
+                toastManager.add(
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Failed to regenerate worktree title",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                  }),
+                );
+              }
+              return;
+            }
             if (isRegeneratingTitle) return;
             const toast = titleRegenerationToast([
               await regenerateThreadTitle({
@@ -2837,7 +3181,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+                api.dialogs.confirm(
+                  worktreeMembers === undefined
+                    ? `Archive thread "${thread.title}"?`
+                    : `Archive ${worktreeName}?`,
+                ),
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
@@ -2866,10 +3214,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             if (confirmThreadDelete) {
               const confirmed = await settlePromise(() =>
                 api.dialogs.confirm(
-                  [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
-                  ].join("\n"),
+                  worktreeMembers === undefined
+                    ? [
+                        `Delete thread "${thread.title}"?`,
+                        "This permanently clears conversation history for this thread.",
+                      ].join("\n")
+                    : [
+                        `Delete ${worktreeName}?`,
+                        "This permanently clears conversation history for these threads.",
+                      ].join("\n"),
                   { variant: "destructive" },
                 ),
               );
@@ -2906,6 +3259,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         platform: navigator.platform,
         context: threadShortcutContext(routeThreadRef),
       });
+      // Thread tabs take traversal, and the tabbed layout has no jump shortcuts.
+      if (threadTabsEnabled) return;
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
@@ -2920,7 +3275,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         navigateToThreadKey(
           resolveAdjacentThreadId({
             threadIds: orderedThreadKeys,
-            currentThreadId: routeRowThreadKey,
+            currentThreadId: routeRowKey,
             direction: traversalDirection,
           }),
         );
@@ -2936,12 +3291,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keybindings,
     navigateToThread,
     orderedThreadKeys,
-    routeRowThreadKey,
+    routeRowKey,
     routeThreadRef,
     threadByKey,
+    threadTabsEnabled,
   ]);
 
-  const showJumpHints = useThreadJumpHintsVisible(keybindings, routeThreadRef);
+  const showJumpHints =
+    useThreadJumpHintsVisible(keybindings, routeThreadRef) && !threadTabsEnabled;
+  const hasSettledThreads = settledCount > 0 || settledCountIsLowerBound;
 
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
     if (
@@ -3184,6 +3542,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </ComboboxPopup>
                 </Combobox>
               }
+              recencyFilter={
+                <SidebarRecencyFilter value={recencyWindow} onChange={setRecencyWindow} />
+              }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
@@ -3299,7 +3660,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             workingThreads.length +
             snoozedThreads.length ===
             0 &&
-          (settledCount === 0 || scopedProjectGroups.length > 0) ? (
+          (scopedProjectGroups.length > 0 || (settledCount === 0 && !settledCountIsLowerBound)) ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
                 <>
@@ -3313,14 +3674,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     Add project
                   </button>
                 </>
+              ) : recencyWindow !== null && !hasSettledThreads ? (
+                <>
+                  <span>{`No threads active in the last ${SIDEBAR_RECENCY_LABELS[recencyWindow]}`}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRecencyWindow(null)}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                  >
+                    Show all
+                  </button>
+                </>
               ) : scopedProjectGroups.length > 0 ? (
                 <>
                   <span>
-                    {`No ${settledCount > 0 ? "active threads" : "threads"} in ${
+                    {`No ${hasSettledThreads ? "active threads" : "threads"} in ${
                       scopedProjectGroups.length > 1
                         ? "these projects"
                         : scopedProjectGroups[0]!.displayName
-                    }${settledCount > 0 ? "" : " yet"}`}
+                    }${hasSettledThreads ? "" : " yet"}`}
                   </span>
                   <button
                     type="button"
@@ -3386,9 +3758,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           : isCard
                             ? "card"
                             : "slim";
+                        const worktreeMembers = worktreeMembersByRowKey.get(threadKey);
+                        const worktreeOpenTabs =
+                          worktreeMembers?.filter((member) => isOpenTab(member, snoozeNow)) ?? [];
+                        const worktreeRowProps =
+                          worktreeMembers === undefined
+                            ? {}
+                            : {
+                                worktreeLabel: worktreeLabel(
+                                  thread,
+                                  projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
+                                    ?.worktreeTitles,
+                                  worktreeMembers,
+                                ),
+                                worktreeTabCount: worktreeOpenTabs.length,
+                                worktreeStatusThreadId:
+                                  resolveWorktreeStatusThread(worktreeOpenTabs, (member) =>
+                                    hasUnseenCompletion({
+                                      ...member,
+                                      lastVisitedAt: member.lastVisitedAt ?? undefined,
+                                    }),
+                                  )?.id ?? null,
+                              };
                         return (
                           <SortableThreadRow
                             key={threadKey}
+                            {...worktreeRowProps}
                             sortableId={threadKey}
                             contextDrag={isContextDrag}
                             sortableDisabled={
@@ -3436,10 +3831,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 : null
                             }
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                            isActive={routeRowThreadKey === threadKey}
-                            revealRef={
-                              routeRowThreadKey === threadKey ? revealActiveRow : undefined
-                            }
+                            isActive={routeRowKey === threadKey}
+                            revealRef={routeRowKey === threadKey ? revealRouteRow : undefined}
                             isRouteThread={routeThreadKey === threadKey}
                             openPullRequestsInRightPanel={routeThreadRef !== null}
                             jumpLabel={
@@ -3468,7 +3861,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
+                            onThreadActivate={navigateToRow}
                             onStartRename={startThreadRename}
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}
@@ -3551,6 +3944,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 label="Active"
                                 visible={from !== null}
                                 isDropTarget={dragTargetSection === "active"}
+                                showRule={pinnedThreads.length > 0}
                               />,
                             );
                             break;
@@ -3611,7 +4005,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
                                 )}
                                 label="Settled"
-                                count={settledCount}
+                                count={settledCountIsLowerBound ? `${settledCount}+` : settledCount}
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
                                 toggle={{
@@ -3643,7 +4037,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       }
                       return items;
                     })()}
-                    {settledShelfExpanded && hiddenSettledCount > 0 ? (
+                    {settledShelfExpanded &&
+                    (hiddenSettledCount > 0 || settledCountIsLowerBound) ? (
                       <li className="list-none">
                         <button
                           type="button"
@@ -3663,7 +4058,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             ? "Loading"
                             : olderSettledShelf.failed
                               ? "Could not load older threads. Retry"
-                              : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
+                              : settledCountIsLowerBound &&
+                                  hiddenSettledCount < SETTLED_TAIL_PAGE_COUNT
+                                ? "Show more"
+                                : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
                         </button>
                       </li>
                     ) : null}

@@ -214,6 +214,7 @@ describe("wantedOlderSettledPages", () => {
     readonly environments: ReadonlyMap<EnvironmentId, { readonly pages: OlderSettledPages }>;
     readonly listed: number;
     readonly visible: number;
+    readonly sinceMs?: number;
   }) =>
     wantedOlderSettledPages({
       requested: input.requested ?? new Map(),
@@ -222,6 +223,7 @@ describe("wantedOlderSettledPages", () => {
       ),
       listedCount: input.listed,
       visibleCount: input.visible,
+      sinceMs: input.sinceMs ?? null,
     });
 
   it("reads the next page of the environment holding the shelf back", () => {
@@ -258,6 +260,18 @@ describe("wantedOlderSettledPages", () => {
     expect(wanted({ requested, environments: one(full(before)), listed: 0, visible: 0 })).toBe(
       requested,
     );
+  });
+
+  it("reads back only to a recency filter's cutoff", () => {
+    const environments = new Map([[environmentId, { pages: full("2026-01-10T00:00:00.000Z") }]]);
+    const frontierMs = Date.parse("2026-01-10T00:00:00.000Z");
+    expect(wanted({ environments, listed: 0, visible: 10, sinceMs: frontierMs })).toEqual(
+      new Map([[environmentId, 1]]),
+    );
+    const requested = new Map<EnvironmentId, number>();
+    expect(
+      wanted({ requested, environments, listed: 0, visible: 10, sinceMs: frontierMs + 1 }),
+    ).toBe(requested);
   });
 });
 

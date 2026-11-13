@@ -22,7 +22,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
@@ -41,27 +41,32 @@ const presentationFields = { toolIcon: Schema.optional(ToolActivityIcon) };
 
 const PreviewActionResult = Schema.Struct(presentationFields);
 
+const hideable = <T extends Tool.Any>(tool: T): T =>
+  tool.annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWhileBrowserHidden) as T;
+
 const browserTool = <T extends Tool.Any>(tool: T): T =>
-  tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
+  hideable(tool).annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
 
 const safeBrowserTool = <T extends Tool.Any>(tool: T): T =>
-  tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
+  hideable(tool).annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
 
 const readonlyBrowserTool = <T extends Tool.Any>(tool: T): T =>
   safeBrowserTool(tool).annotate(Tool.Readonly, true).annotate(Tool.Idempotent, true) as T;
 
-const PreviewStatusTool = Tool.make("preview_status", {
-  description:
-    "Report preview tab state: owner, pending dialog, URL, title, loading, viewport, and size. `tabs` lists this thread's tabs. `profiles` lists logins for `preview_open`. Read any listed tab. Act only on your tab, or an unclaimed tab with no human in control.",
-  parameters: PreviewAutomationTabTargetInput,
-  success: PreviewAutomationStatus,
-  failure: PreviewToolFailure,
-  dependencies,
-})
-  .annotate(Tool.Title, "Get preview status")
-  .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.Idempotent, true);
+const PreviewStatusTool = hideable(
+  Tool.make("preview_status", {
+    description:
+      "Report preview tab state: owner, pending dialog, URL, title, loading, viewport, and size. `tabs` lists this thread's tabs. `profiles` lists logins for `preview_open`. Read any listed tab. Act only on your tab, or an unclaimed tab with no human in control.",
+    parameters: PreviewAutomationTabTargetInput,
+    success: PreviewAutomationStatus,
+    failure: PreviewToolFailure,
+    dependencies,
+  })
+    .annotate(Tool.Title, "Get preview status")
+    .annotate(Tool.Readonly, true)
+    .annotate(Tool.Destructive, false)
+    .annotate(Tool.Idempotent, true),
+);
 
 // `url` already covers websites, so open only adds the dev-server target.
 const EnvironmentPortTarget = BrowserNavigationTarget.members[1];

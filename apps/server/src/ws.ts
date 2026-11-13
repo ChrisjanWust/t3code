@@ -75,6 +75,7 @@ import {
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
+  ProjectMutateEntryError,
   ProjectWriteFileError,
   ProjectMutationError,
   ProviderUploadFeedbackError,
@@ -219,6 +220,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import * as WorktreeTitleService from "./project/WorktreeTitleService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
@@ -666,6 +668,22 @@ function filesystemBrowseFailureContext(error: WorkspaceEntries.WorkspaceEntries
   }
 }
 
+const scratchFileError =
+  (input: { readonly cwd: string; readonly relativePath?: string | undefined }) =>
+  (cause: Parameters<typeof projectFileFailureContext>[0]) => {
+    const relativePath = input.relativePath ?? "tmp";
+    const exists =
+      cause._tag === "WorkspaceFileSystemOperationError" &&
+      (cause.cause as NodeJS.ErrnoException | undefined)?.code === "EEXIST";
+    return new ProjectWriteFileError({
+      cwd: input.cwd,
+      relativePath,
+      ...projectFileFailureContext(cause),
+      ...(exists ? { message: `'${relativePath}' already exists. Choose another name.` } : {}),
+      cause,
+    });
+  };
+
 function projectFileFailureContext(
   error:
     | WorkspaceFileSystem.WorkspaceFileSystemError
@@ -695,6 +713,8 @@ function projectFileFailureContext(
         resolvedPath: error.resolvedPath,
         resolvedWorkspaceRoot: error.resolvedWorkspaceRoot,
       };
+    case "WorkspacePathExistsError":
+      return { failure: "path_exists", resolvedPath: error.resolvedPath };
     case "WorkspacePathNotFileError":
       return { failure: "path_not_file", resolvedPath: error.resolvedPath };
     case "WorkspaceBinaryFileError":
@@ -1436,6 +1456,7 @@ export const layerWsRpc = (
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const projectStore = yield* ProjectStore.ProjectStoreV2;
       const projectService = yield* ProjectService.ProjectService;
+      const worktreeTitles = yield* WorktreeTitleService.WorktreeTitleService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
@@ -2972,6 +2993,30 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.projectsMutateEntry]: (input) =>
+          workspaceFileSystem.mutateEntry(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectMutateEntryError({
+                  cwd: input.cwd,
+                  // A collision is at the destination, which is the path worth naming.
+                  relativePath:
+                    cause._tag === "WorkspacePathExistsError"
+                      ? cause.relativePath
+                      : input.relativePath,
+                  ...projectFileFailureContext(cause),
+                  cause,
+                }),
+            ),
+          ),
+        [WS_METHODS.projectsCreateScratchFile]: (input) =>
+          workspaceFileSystem
+            .createScratchFile(input)
+            .pipe(Effect.mapError(scratchFileError(input))),
+        [WS_METHODS.projectsSuggestScratchFile]: (input) =>
+          workspaceFileSystem
+            .suggestScratchFile(input)
+            .pipe(Effect.mapError(scratchFileError(input))),
         [WS_METHODS.projectsMutate]: (mutation) =>
           startup.enqueueCommand(mutateProject(mutation)).pipe(
             Effect.mapError(
@@ -2986,6 +3031,7 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.projectsRegenerateWorktreeTitle]: (input) => worktreeTitles.regenerate(input),
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
         [WS_METHODS.filesystemGetMetadata]: (input) => workspaceFileSystem.getMetadata(input),
         [WS_METHODS.filesystemBrowse]: (input) =>

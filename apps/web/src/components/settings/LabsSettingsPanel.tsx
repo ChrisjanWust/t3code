@@ -2,12 +2,19 @@ import { useAuth } from "@clerk/react";
 import { Link } from "@tanstack/react-router";
 import { managedCapabilityDenial } from "@t3tools/contracts";
 
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import {
+  SettingResetButton,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
@@ -18,6 +25,7 @@ export function LabsSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="beta" title="Beta">
+        <ThreadTabsRow />
         <BoringSidebarRow />
         {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
@@ -27,6 +35,34 @@ export function LabsSettingsPanel() {
         <FastWorktreeCheckoutRow />
       </SettingsSection>
     </SettingsPageContainer>
+  );
+}
+
+function ThreadTabsRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("thread-tabs")}
+      description="List worktrees in the sidebar and open each worktree's threads as tabs above the chat. On desktop, Cmd/Ctrl+T opens a tab and Cmd/Ctrl+W closes it. Off while the boring sidebar is on."
+      resetAction={
+        settings.threadTabsEnabled !== DEFAULT_UNIFIED_SETTINGS.threadTabsEnabled ? (
+          <SettingResetButton
+            label="thread tabs"
+            onClick={() =>
+              updateSettings({ threadTabsEnabled: DEFAULT_UNIFIED_SETTINGS.threadTabsEnabled })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.threadTabsEnabled}
+          onCheckedChange={(checked) => updateSettings({ threadTabsEnabled: Boolean(checked) })}
+          aria-label="Thread tabs"
+        />
+      }
+    />
   );
 }
 

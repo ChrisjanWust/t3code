@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   isListedSettledThread,
+  isSettledShelfComplete,
   settledShelfFrontier,
   sortOlderSettledScopes,
   unloadedOlderSettledCount,
@@ -27,6 +28,8 @@ export function useOlderSettledShelf(input: {
   readonly expanded: boolean;
   /** Rows the shelf shows; pages are read until it lists that many. */
   readonly visibleCount: number;
+  /** A recency filter's cutoff: pages are read no further back. */
+  readonly sinceMs?: number | null;
 }) {
   const scopes = sortOlderSettledScopes(input.scopes);
   const scopeKey = JSON.stringify(scopes);
@@ -61,12 +64,19 @@ export function useOlderSettledShelf(input: {
   const pagesOf = (environmentId: EnvironmentId) => shelf.get(environmentId)?.pages;
   const frontier = settledShelfFrontier([...shelf.values()]);
   const loaded = shelfScopes.filter(({ pages }) => pages > 0);
+  const sinceMs = input.sinceMs ?? null;
+  const complete = sinceMs !== null && isSettledShelfComplete([...shelf.values()], sinceMs);
   return {
     environments: shelf,
     visibleCount: input.expanded ? input.visibleCount : 0,
+    sinceMs,
+    /** A filtered shelf holds every thread settled since its cutoff, so its count is exact. */
+    complete,
     pages,
     grow: (next: ReadonlyMap<EnvironmentId, number>) => setRequested({ scopeKey, pages: next }),
-    isListed: (thread: EnvironmentThreadShell) => isListedSettledThread(thread.source, frontier),
+    // Once complete no page can arrive, so a row below the frontier has nothing to wait for.
+    isListed: (thread: EnvironmentThreadShell) =>
+      complete || isListedSettledThread(thread.source, frontier),
     /** Older settled threads in scope that are not local; add it to the local Settled rows. */
     unloadedCount: (threads: ReadonlyArray<EnvironmentThreadShell>) =>
       unloadedOlderSettledCount({ olderSettled: olderOf, scopes, threads }),
@@ -90,6 +100,7 @@ export function useOlderSettledShelfGrowth(
     environments: shelf.environments,
     listedCount: listedSettledThreads.length,
     visibleCount: shelf.visibleCount,
+    sinceMs: shelf.sinceMs,
   });
   const { grow, pages } = shelf;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- requests more older settled pages when the listed threads cannot fill the visible count

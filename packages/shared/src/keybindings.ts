@@ -73,6 +73,19 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
+  // The tabbed layout gives mod+t and mod+w to thread tabs unless the right panel has focus.
+  {
+    key: "mod+t",
+    command: "tab.new",
+    when: "threadTabs && isDesktop && !previewFocus && !terminalFocus",
+  },
+  {
+    key: "mod+w",
+    command: "tab.close",
+    when: "threadTabs && isDesktop && !previewFocus && !terminalFocus",
+  },
+  { key: "ctrl+tab", command: "tab.next", when: "threadTabs && isDesktop" },
+  { key: "ctrl+shift+tab", command: "tab.previous", when: "threadTabs && isDesktop" },
   { key: "mod+shift+t", command: "view.reopenClosed" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },
@@ -86,6 +99,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
   { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
   { key: "mod+shift+f", command: "projectSearch.toggle", when: "!terminalFocus" },
+  { key: "mod+alt+s", command: "file.newScratch", when: "!terminalFocus" },
   { key: "mod+u", command: "usage.open", when: "!terminalFocus" },
   { key: "mod+alt+a", command: "theme.select", when: "!terminalFocus" },
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },

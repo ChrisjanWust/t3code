@@ -167,6 +167,25 @@ export function useThreadPreviewState(ref: ScopedThreadRef | null | undefined): 
   return useAtomValue(atom);
 }
 
+const previewStatesAtom = Atom.family((threadKeys: string) =>
+  Atom.make((get) =>
+    Object.fromEntries(
+      (JSON.parse(threadKeys) as string[]).map((threadKey) => [
+        threadKey,
+        get(previewStateAtom(threadKey)),
+      ]),
+    ),
+  ).pipe(Atom.withLabel(`preview:threads:${threadKeys}`)),
+);
+
+/** Preview state of several threads, keyed by thread, such as the owners of one shared panel. */
+export function usePreviewStatesForThreads(
+  refs: ReadonlyArray<ScopedThreadRef>,
+): Record<string, ThreadPreviewState> {
+  const threadKeys = [...new Set(refs.map((ref) => scopedThreadKey(ref)))].toSorted();
+  return useAtomValue(previewStatesAtom(JSON.stringify(threadKeys)));
+}
+
 export function useActivePreviewSessions(): Record<string, ThreadPreviewState> {
   return useAtomValue(activePreviewSessionsAtom);
 }

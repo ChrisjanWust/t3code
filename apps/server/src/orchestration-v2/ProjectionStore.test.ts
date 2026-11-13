@@ -6609,12 +6609,12 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       for (const lookup of stopRequestLookups) {
         assert.include(lookup, "orchestration_v2_projection_turn_items_stop_request_idx");
       }
-      // The active, activity, and pending-secret lookups; walking the ordinal index instead
-      // reads every run of an idle thread.
+      // The active, activity, creating-worktree, and pending-secret lookups; walking the
+      // ordinal index instead reads every run of an idle thread.
       const activeRunLookups = plan.filter(
         (detail) => detail.startsWith("SEARCH r ") && detail.includes("(thread_id=?"),
       );
-      assert.lengthOf(activeRunLookups, 4);
+      assert.lengthOf(activeRunLookups, 5);
       for (const lookup of activeRunLookups) {
         assert.include(lookup, "orchestration_v2_projection_runs_thread_status_idx");
       }
@@ -7817,6 +7817,95 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           wakeShell.activityRunStartedAt && DateTime.toEpochMillis(wakeShell.activityRunStartedAt),
           DateTime.toEpochMillis(now),
         );
+      }
+    }),
+  );
+
+  it.effect("flags threads whose first run is still creating a new worktree", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:projection-shell-creating-worktree");
+      const runId = RunId.make("run:projection-shell-creating-worktree");
+      const rootNodeId = NodeId.make("node:projection-shell-creating-worktree");
+      const run = {
+        id: runId,
+        threadId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make("message:projection-shell-creating-worktree"),
+        rootNodeId,
+        activeAttemptId: null,
+        status: "preparing" as const,
+        requestedAt: now,
+        startedAt: null,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-creating-worktree:thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: threadId,
+          projectId: ProjectId.make("project:projection-shell-creating-worktree"),
+          title: "New worktree thread",
+          providerInstanceId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: null,
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          deletedAt: null,
+        },
+      });
+      const shells = Effect.gen(function* () {
+        const projection = yield* projectionStore.getThreadProjection(threadId);
+        const sqlShell = (yield* projectionStore.getShellSnapshot()).threads.find(
+          (row) => row.id === threadId,
+        )!;
+        return [sqlShell, ProjectionStore.threadShellFromProjection(projection)];
+      });
+      const cases = [
+        [{ ...run, workspacePreparation: { type: "worktree", baseRef: "main" } }, true],
+        [{ ...run, workspacePreparation: { type: "root" } }, false],
+        [
+          {
+            ...run,
+            status: "running",
+            startedAt: now,
+            workspacePreparation: { type: "worktree", baseRef: "main" },
+          },
+          false,
+        ],
+      ] as const;
+      for (const [index, [payload, expected]] of cases.entries()) {
+        yield* projectionStore.apply({
+          id: EventId.make(`event:projection-shell-creating-worktree:${index}`),
+          type: index === 0 ? "run.created" : "run.updated",
+          threadId,
+          runId,
+          nodeId: rootNodeId,
+          driver,
+          occurredAt: now,
+          payload,
+        });
+        for (const shell of yield* shells) assert.equal(shell.creatingWorktree, expected);
       }
     }),
   );

@@ -1,5 +1,6 @@
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
+import { openNewScratchFile } from "../lib/newScratchFile";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -53,10 +54,11 @@ import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
-import { useChatShortcuts } from "./chat/useChatShortcuts";
+import { type ChatShortcutCommands, useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   AuthPreviewOperateScope,
@@ -163,13 +165,20 @@ import { FileMetadataThreadProvider } from "../hooks/FileMetadataThreadProvider"
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { PopoverCreateHandle } from "./ui/popover";
 import {
+  panelTerminalIdsOwnedBy,
+  rightPanelKey,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectThreadPanelOpen,
   selectThreadRightPanelState,
+  surfaceOwnerRef,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../previewStateStore";
+import {
+  isPreviewSupportedInRuntime,
+  usePreviewStatesForThreads,
+  useThreadPreviewState,
+} from "../previewStateStore";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import {
   ThreadPreviewMiniPlayer,
@@ -211,6 +220,7 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  useThreadTabsEnabled,
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
@@ -277,6 +287,8 @@ import {
   DeviceSetupDialogHost,
   openBranchRestoreConfirm,
   PullRequestThreadDialogHost,
+  ScratchFileDialogHost,
+  openScratchFileDialog,
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
@@ -288,6 +300,8 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
+import { resolveThreadTabLocation, useThreadTabActions } from "./threadTabs/useThreadTabs";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -438,6 +452,7 @@ export default function ChatView(props: ChatViewProps) {
   const embedded = parentPanel !== undefined;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
+  const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
@@ -1067,17 +1082,66 @@ export default function ChatView(props: ChatViewProps) {
   );
   const activePreviewState = useThreadPreviewState(activeThreadRef);
   const activePreviewServerEpoch = activePreviewState.serverEpoch;
+  // A worktree's tabs share the panel, so its browsers and terminals can be other tabs' sessions.
+  const panelPreviewStates = usePreviewStatesForThreads(
+    activeThreadRef
+      ? rightPanelState.surfaces.flatMap((surface) =>
+          surface.kind === "preview" && surface.resourceId
+            ? [surfaceOwnerRef(surface, activeThreadRef)]
+            : [],
+        )
+      : [],
+  );
+  const panelPreviewSessions = Object.assign(
+    {},
+    activePreviewState.sessions,
+    ...Object.values(panelPreviewStates).map((state) => state.sessions),
+  );
+  const panelDesktopByTabId = Object.assign(
+    {},
+    activePreviewState.desktopByTabId,
+    ...Object.values(panelPreviewStates).map((state) => state.desktopByTabId),
+  );
   const resolvePreviewRuntimeTabId = activeThreadRef
-    ? (tabId: string) => previewRuntimeTabId(activeThreadRef, activePreviewServerEpoch, tabId)
+    ? (tabId: string) => {
+        const owner = surfaceOwnerRef(
+          rightPanelState.surfaces.find(
+            (surface) => surface.kind === "preview" && surface.resourceId === tabId,
+          ),
+          activeThreadRef,
+        );
+        const epoch =
+          panelPreviewStates[scopedThreadKey(owner)]?.serverEpoch ?? activePreviewServerEpoch;
+        return previewRuntimeTabId(owner, epoch, tabId);
+      }
     : undefined;
+  const environmentKnownTerminalSessions = useKnownTerminalSessions({
+    environmentId: activeThread?.environmentId ?? null,
+    threadId: null,
+  });
+  const panelTerminalLabelsById = new Map(
+    activeThreadRef
+      ? rightPanelState.surfaces.flatMap((surface) => {
+          if (surface.kind !== "terminal") return [];
+          const ownerThreadId = surfaceOwnerRef(surface, activeThreadRef).threadId;
+          return surface.terminalIds.map((terminalId) => {
+            const summary =
+              environmentKnownTerminalSessions?.find(
+                (session) =>
+                  session.target.threadId === ownerThreadId &&
+                  session.target.terminalId === terminalId,
+              )?.state.summary ?? null;
+            return [terminalId, resolveTerminalSessionLabel(terminalId, summary)] as const;
+          });
+        })
+      : [],
+  );
   const activePreviewMiniPlayer = usePreviewMiniPlayerStore((state) =>
     selectThreadPreviewMiniPlayer(state.byThreadKey, activeThreadRef),
   );
-  const panelTerminalIds = new Set(
-    rightPanelState.surfaces.flatMap((surface) =>
-      surface.kind === "terminal" ? surface.terminalIds : [],
-    ),
-  );
+  const panelTerminalIds = activeThreadRef
+    ? panelTerminalIdsOwnedBy(rightPanelState.surfaces, activeThreadRef)
+    : new Set<string>();
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
@@ -1731,8 +1795,24 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const hasTimelineTopBanner = Boolean(timelineThreadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const threadTabsEnabled = useThreadTabsEnabled();
+  // A side chat embedded in the right panel belongs to its parent's tab, not a tab of its own.
+  const threadTabLocation =
+    threadTabsEnabled && !embedded
+      ? resolveThreadTabLocation({
+          routeThreadRef,
+          routeDraftId: draftId,
+          shell: serverThreadShell,
+          draft: routeKind === "draft" ? draftThread : null,
+        })
+      : null;
+  const threadTabActions = useThreadTabActions(threadTabLocation);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const saveSelectionToScratchStable = useStableCallback((markdown: string) => {
+    if (!activeThreadRef || !activeThreadKey || !activeWorkspaceRoot) return;
+    void openScratchFileDialog(activeThreadRef, activeThreadKey, activeWorkspaceRoot, markdown);
+  });
   const activeTerminalLaunchContext =
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   const liveIsGitRepo = gitStatusQuery.data?.isRepo;
@@ -1933,6 +2013,7 @@ export default function ChatView(props: ChatViewProps) {
     runningTerminalIds,
     activeServerOrderedTerminalIds,
     activeTerminalLabelsById,
+    panelTerminalLabelsById,
     panelTerminalIds,
     canReuseTerminal,
     gitCwd,
@@ -2022,6 +2103,7 @@ export default function ChatView(props: ChatViewProps) {
   const activeRunningTurnId = activeRuntime?.activeRunId ?? null;
   useProactivePanels({
     threadRef: isServerThread && !embedded ? activeThreadRef : null,
+    sharedPanel: threadTabLocation !== null,
     enabled: settings.proactivePanelsEnabled && !shouldUsePlanSidebarSheet && !embedded,
     settingsHydrated: clientSettingsHydrated,
     threadDetailLoading,
@@ -2053,7 +2135,7 @@ export default function ChatView(props: ChatViewProps) {
     closeAllSurfaces: closeAllRightPanelSurfacesStable,
   } = useRightPanelSurfaceClose({
     threadRef: activeThreadRef,
-    terminalLabelsById: activeTerminalLabelsById,
+    terminalLabelsById: panelTerminalLabelsById,
   });
   const closeRightPanelSurfaceStable = closeRightPanelSurface;
   const persistThreadSettingsForNextTurn = async (input: {
@@ -2716,8 +2798,30 @@ export default function ChatView(props: ChatViewProps) {
     composerRequiresModifier: composerRequiresModifier(settings.sendShortcut, promptRef.current),
     isWeb: !isElectron,
     isDesktop: isElectron,
+    threadTabs: threadTabLocation !== null,
   });
   const getShortcutContextStable = useStableCallback(getShortcutContext);
+  const threadTabShortcuts: ChatShortcutCommands =
+    threadTabLocation === null
+      ? {}
+      : {
+          "tab.new": ({ event }) => {
+            if (!event.repeat) void threadTabActions.newTab();
+          },
+          // Like a browser, closing with nothing left to close closes the desktop window.
+          "tab.close": ({ event }) =>
+            event.repeat || threadTabActions.closeTab(scopedThreadKey(routeThreadRef))
+              ? undefined
+              : false,
+          "thread.previous": () => threadTabActions.selectRelativeTab("previous"),
+          "thread.next": () => threadTabActions.selectRelativeTab("next"),
+          "tab.previous": () => {
+            threadTabActions.selectRelativeTab("previous");
+          },
+          "tab.next": () => {
+            threadTabActions.selectRelativeTab("next");
+          },
+        };
   const timelineSkills = activeProviderStatus
     ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
     : EMPTY_PROVIDER_SKILLS;
@@ -2747,8 +2851,13 @@ export default function ChatView(props: ChatViewProps) {
       ...terminalShortcuts,
       ...rightPanelShortcuts,
       ...threadLifecycleShortcuts,
+      ...threadTabShortcuts,
       "thread.copyReference": ({ event }) => {
         if (!event.repeat) copyActiveThreadReference();
+      },
+      "file.newScratch": ({ event }) => {
+        if (!activeThreadRef || !activeWorkspaceRoot || !canWriteFiles) return false;
+        if (!event.repeat) void openNewScratchFile(activeThreadRef, activeWorkspaceRoot);
       },
       "chat.find": () => {
         if (!isServerThread || serverConfig?.threadFind !== true || activeThreadKey === null)
@@ -2860,6 +2969,7 @@ export default function ChatView(props: ChatViewProps) {
       composerRef,
       composerDraftTarget,
       setThreadError,
+      placeForkTab: threadTabActions.placeForkTab,
     });
   const onCompactContext = () => {
     if (compactDisabled) return;
@@ -3353,22 +3463,33 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
             {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-            <ChatHeader
-              activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadId={activeThread.id}
-              isServerThread={isServerThread}
-              activeThreadTitle={activeThread.title}
-              activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
-              activeProject={activeProject ?? null}
-              parentThreadLink={headerParentThreadLink}
-              onOpenThread={onOpenRelatedThreadStable}
-              rightPanelOpen={inlineRightPanelOwnsTitleBar}
-              onNewThreadInProject={handleNewThreadInActiveProjectStable}
-              {...(activeDraftLogicalProjectKey
-                ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
-                : {})}
-              {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
-            />
+            {threadTabLocation ? (
+              <ThreadTabStrip
+                location={threadTabLocation}
+                keybindings={keybindings}
+                projectCwd={activeProjectCwd}
+                rightPanelOpen={inlineRightPanelOwnsTitleBar}
+                isServerThread={isServerThread}
+                {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+              />
+            ) : (
+              <ChatHeader
+                activeThreadEnvironmentId={activeThread.environmentId}
+                activeThreadId={activeThread.id}
+                isServerThread={isServerThread}
+                activeThreadTitle={activeThread.title}
+                activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
+                activeProject={activeProject ?? null}
+                parentThreadLink={headerParentThreadLink}
+                onOpenThread={onOpenRelatedThreadStable}
+                rightPanelOpen={inlineRightPanelOwnsTitleBar}
+                onNewThreadInProject={handleNewThreadInActiveProjectStable}
+                {...(activeDraftLogicalProjectKey
+                  ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
+                  : {})}
+                {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+              />
+            )}
           </header>
         )}
 
@@ -3431,6 +3552,9 @@ export default function ChatView(props: ChatViewProps) {
                   citationHistory={citationHistory}
                   onCiteAssistantText={citeAssistantTextStable}
                   onReplyToResponse={replyToResponseStable}
+                  onSaveSelectionToScratch={
+                    canWriteFiles && activeWorkspaceRoot ? saveSelectionToScratchStable : undefined
+                  }
                   {...(activeProject
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
                     : {})}
@@ -3973,7 +4097,7 @@ export default function ChatView(props: ChatViewProps) {
         <ChatRightPanel
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
-          widthStorageKey={`t3code:preview-panel-width:${activeThreadKey}`}
+          widthStorageKey={`t3code:preview-panel-width:${rightPanelKey(activeThreadRef)}`}
           sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           onCloseSheet={closePreviewPanelStable}
           open={rightPanelOpen}
@@ -3995,10 +4119,10 @@ export default function ChatView(props: ChatViewProps) {
           environmentId={activeThreadRef.environmentId}
           activeSurfaceId={renderedRightPanelSurface?.id ?? null}
           pendingSurfaceIds={pendingFileSurfaceIds}
-          previewSessions={activePreviewState.sessions}
-          desktopByTabId={activePreviewState.desktopByTabId}
+          previewSessions={panelPreviewSessions}
+          desktopByTabId={panelDesktopByTabId}
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
-          terminalLabelsById={activeTerminalLabelsById}
+          terminalLabelsById={panelTerminalLabelsById}
           onActivate={activateRightPanelSurfaceStable}
           onCloseSurface={closeRightPanelSurfaceStable}
           onRenameDevice={(surfaceId, title) => {
@@ -4041,6 +4165,7 @@ export default function ChatView(props: ChatViewProps) {
       {embedded ? null : <LinkPullRequestDialogHost />}
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
+      <ScratchFileDialogHost threadKey={activeThreadKey} threadRef={activeThreadRef} />
     </div>
   );
   return (

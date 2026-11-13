@@ -28,6 +28,8 @@ const observedThreadPullRequests = new Map<string, ThreadLinkedPullRequest | nul
 export function useProactivePanels(input: {
   // Null for drafts and while the thread is unavailable.
   readonly threadRef: ScopedThreadRef | null;
+  /** Thread tabs share their worktree's panel, so switching tabs must not open anything. */
+  readonly sharedPanel: boolean;
   readonly enabled: boolean;
   readonly settingsHydrated: boolean;
   readonly threadDetailLoading: boolean;
@@ -47,6 +49,7 @@ export function useProactivePanels(input: {
 }) {
   const {
     threadRef,
+    sharedPanel,
     enabled: proactivePanelsEnabledSetting,
     settingsHydrated: clientSettingsHydrated,
     threadDetailLoading,
@@ -80,6 +83,7 @@ export function useProactivePanels(input: {
       threadKey: threadKey,
       runningTurnId: activeRunningTurnId,
       userActionRevision: panels.getUserActionRevision(threadRef),
+      ...(sharedPanel ? { seenOnEntry: { targetKey: proactivePullRequestsKey } } : {}),
     });
     proactivePanelObservationRef.current = observation;
     const {
@@ -201,6 +205,7 @@ export function useProactivePanels(input: {
     proactivePullRequestsKey,
     pullRequestsCapabilityKnown,
     pullRequestsSurfaceAvailable,
+    sharedPanel,
     supportsPullRequests,
     threadDetailLoading,
     threadKey,

@@ -83,3 +83,40 @@ describe("T3 device instructions", () => {
     assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## T3 Code devices");
   });
 });
+
+describe("T3 browser instructions", () => {
+  it("never name T3's browser to an agent whose user hides it", () => {
+    const state = { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: true } as const;
+    const shown = [
+      t3OrchestrationSystemPrompt(true, true),
+      t3OrchestrationPrompt({
+        prompt: "Open the dashboard.",
+        hasT3Mcp: true,
+        hasDeviceTools: true,
+        orchestrationDelivered: false,
+        deviceInstructionsDelivered: false,
+      }),
+      t3AcpPromptWithInstructions({ prompt: "Open the dashboard.", state }),
+    ];
+    const hidden = [
+      t3OrchestrationSystemPrompt(true, true, true),
+      t3OrchestrationPrompt({
+        prompt: "Open the dashboard.",
+        hasT3Mcp: true,
+        hasDeviceTools: true,
+        browserHidden: true,
+        orchestrationDelivered: false,
+        deviceInstructionsDelivered: false,
+      }),
+      t3AcpPromptWithInstructions({
+        prompt: "Open the dashboard.",
+        state: { ...state, browserHidden: true },
+      }),
+    ];
+    for (const text of shown) assert.include(text, "`preview_*`");
+    for (const text of hidden) {
+      assert.notMatch(text ?? "", /preview_|browser/i);
+      assert.include(text, "`html_preview`");
+    }
+  });
+});

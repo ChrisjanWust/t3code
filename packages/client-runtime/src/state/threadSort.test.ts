@@ -7,6 +7,7 @@ import {
   planPinnedReorder,
   resolveSettledThreadTimestamp,
   sortActiveThreadsByOrderKey,
+  threadCreatedAtMs,
   sortSettledThreads,
   sortThreads,
   type SettledThreadTimestampInput,
@@ -254,8 +255,8 @@ describe("generateSpreadPinOrderKeys", () => {
 });
 
 describe("sortActiveThreadsByOrderKey", () => {
-  it("keeps new and reopened threads ahead of the saved order", () => {
-    const sorted = sortActiveThreadsByOrderKey([
+  it("keeps new, reopened and recently run threads ahead of the saved order", () => {
+    const threads = [
       {
         id: "arranged-first",
         createdAt: "2026-03-09T09:00:00.000Z",
@@ -277,13 +278,23 @@ describe("sortActiveThreadsByOrderKey", () => {
         createdAt: "2026-03-01T09:00:00.000Z",
         unsettledAt: "2026-03-09T12:00:00.000Z",
       },
-    ]);
-    expect(sorted.map((thread) => thread.id)).toEqual([
+      {
+        id: "resumed",
+        createdAt: "2026-03-01T08:00:00.000Z",
+        latestRun: { requestedAt: "2026-03-09T11:20:00.000Z", completedAt: null },
+      },
+    ];
+    expect(sortActiveThreadsByOrderKey(threads).map((thread) => thread.id)).toEqual([
       "reopened",
+      "resumed",
       "new",
       "arranged-first",
       "arranged-last",
     ]);
+    // Sorting by creation reorders only the undragged rows.
+    expect(
+      sortActiveThreadsByOrderKey(threads, threadCreatedAtMs).map((thread) => thread.id),
+    ).toEqual(["new", "reopened", "resumed", "arranged-first", "arranged-last"]);
   });
 
   it("breaks equal order keys and timestamps by thread then environment", () => {

@@ -6,7 +6,11 @@ import type {
   FilesystemEntryMetadata,
   FilesystemGetMetadataInput,
   FilesystemGetMetadataResult,
+  ProjectMutateEntryInput,
+  ProjectMutateEntryResult,
+  ProjectCreateScratchFileInput,
   ProjectReadFileInput,
+  ProjectSuggestScratchFileInput,
   ProjectReadFileResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -20,6 +24,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
@@ -28,6 +33,8 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+const SCRATCH_DIRECTORY = "tmp";
+const SCRATCH_FILE_PATTERN = /^scratch_(\d+)\.md$/;
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.
 const isGitMetadataName = (segment: string) => {
@@ -51,6 +58,9 @@ export class WorkspaceFileSystemOperationError extends Schema.TaggedError<Worksp
       "close",
       "make-directory",
       "write-file",
+      "move",
+      "copy",
+      "delete",
     ]),
     cause: Schema.Defect(),
   },
@@ -100,8 +110,22 @@ export class WorkspaceBinaryFileError extends Schema.TaggedError<WorkspaceBinary
   }
 }
 
+export class WorkspacePathExistsError extends Schema.TaggedError<WorkspacePathExistsError>()(
+  "WorkspacePathExistsError",
+  {
+    workspaceRoot: Schema.String,
+    relativePath: Schema.String,
+    resolvedPath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Workspace path '${this.relativePath}' in '${this.workspaceRoot}' already exists: ${this.resolvedPath}`;
+  }
+}
+
 export const WorkspaceFileSystemError = Schema.Union([
   WorkspaceFileSystemOperationError,
+  WorkspacePathExistsError,
   WorkspaceFilePathEscapeError,
   WorkspacePathNotFileError,
   WorkspaceBinaryFileError,
@@ -124,6 +148,33 @@ export class WorkspaceFileSystem extends Context.Service<
     /** Writes inside a known workspace only. */
     readonly writeFile: (
       input: ProjectWriteFileInput,
+    ) => Effect.Effect<
+      ProjectWriteFileResult,
+      | WorkspaceFileSystemError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Creates, moves, copies or deletes a file or folder inside a known workspace. */
+    readonly mutateEntry: (
+      input: ProjectMutateEntryInput,
+    ) => Effect.Effect<
+      ProjectMutateEntryResult,
+      | WorkspaceFileSystemError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Creates the named file, or the next unused `tmp/scratch_N.md`; never overwrites. */
+    readonly createScratchFile: (
+      input: ProjectCreateScratchFileInput,
+    ) => Effect.Effect<
+      ProjectWriteFileResult,
+      | WorkspaceFileSystemError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Names the next unused `tmp/scratch_N.md` without creating it. */
+    readonly suggestScratchFile: (
+      input: ProjectSuggestScratchFileInput,
     ) => Effect.Effect<
       ProjectWriteFileResult,
       | WorkspaceFileSystemError
@@ -461,7 +512,9 @@ export const make = Effect.gen(function* () {
 
   // Resolve existing ancestors and reject dangling links so creation cannot follow symlinks outside root.
   const resolveWriteTarget = Effect.fn("WorkspaceFileSystem.resolveWriteTarget")(function* (
-    input: ProjectWriteFileInput,
+    input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
+    // Entry mutations act on the leaf itself, so only its folders are followed through links.
+    followLeaf = true,
   ) {
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
       workspaceRoot: input.cwd,
@@ -485,7 +538,7 @@ export const make = Effect.gen(function* () {
     const segments = path.relative(input.cwd, target.absolutePath).split(path.sep);
     const realTargetPath = yield* Effect.tryPromise({
       try: async () => {
-        for (let depth = segments.length; depth > 0; depth--) {
+        for (let depth = segments.length - (followLeaf ? 0 : 1); depth > 0; depth--) {
           const candidate = path.join(realWorkspaceRoot, ...segments.slice(0, depth));
           try {
             return path.join(await NodeFSP.realpath(candidate), ...segments.slice(depth));
@@ -593,7 +646,203 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile });
+  // One change at a time: the collision check and the change it guards are separate steps.
+  const mutationLock = yield* Semaphore.make(1);
+  const mutateEntry: WorkspaceFileSystem["Service"]["mutateEntry"] = Effect.fn(
+    "WorkspaceFileSystem.mutateEntry",
+  )(function* (input) {
+    yield* knownWorkspaces.assertContains(input.cwd);
+    const { action } = input;
+    const source = yield* resolveWriteTarget(input, false);
+    const sourcePath = source.realTargetPath;
+    const attempt = <A>(
+      operation: WorkspaceFileSystemOperationError["operation"],
+      operationPath: string,
+      run: () => Promise<A>,
+    ) =>
+      Effect.tryPromise({
+        try: run,
+        catch: (cause) =>
+          new WorkspaceFileSystemOperationError({
+            workspaceRoot: input.cwd,
+            relativePath: input.relativePath,
+            resolvedPath: sourcePath,
+            operationPath,
+            operation,
+            cause,
+          }),
+      });
+    const lstatOrNull = (target: string) =>
+      attempt("stat", target, () =>
+        NodeFSP.lstat(target).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        }),
+      );
+    const alreadyExists = (relativePath: string, resolvedPath: string) =>
+      new WorkspacePathExistsError({ workspaceRoot: input.cwd, relativePath, resolvedPath });
+
+    let relativePath = source.relativePath;
+    if (action.type === "create") {
+      if (yield* lstatOrNull(sourcePath)) {
+        return yield* alreadyExists(source.relativePath, sourcePath);
+      }
+      yield* action.kind === "directory"
+        ? attempt("make-directory", sourcePath, () =>
+            NodeFSP.mkdir(sourcePath, { recursive: true }),
+          )
+        : attempt("write-file", sourcePath, async () => {
+            await NodeFSP.mkdir(path.dirname(sourcePath), { recursive: true });
+            await NodeFSP.writeFile(sourcePath, "", { flag: "wx" });
+          });
+    } else if (action.type === "delete") {
+      yield* attempt("delete", sourcePath, () => NodeFSP.rm(sourcePath, { recursive: true }));
+    } else {
+      const destination = yield* resolveWriteTarget(
+        { cwd: input.cwd, relativePath: action.toRelativePath },
+        false,
+      );
+      let destinationPath = destination.realTargetPath;
+      relativePath = destination.relativePath;
+      // Checked before any folder is created, so a refused change leaves nothing behind.
+      const sourceStat = yield* attempt(action.type, sourcePath, () => NodeFSP.lstat(sourcePath));
+      if (destinationPath.startsWith(`${sourcePath}${path.sep}`)) {
+        return yield* attempt(action.type, destinationPath, () =>
+          Promise.reject(new Error("The destination is inside the entry itself.")),
+        );
+      }
+      const destinationStat = yield* lstatOrNull(destinationPath);
+      if (action.type === "move") {
+        // A case-only rename on a case-insensitive disk finds the entry itself at the destination.
+        const sameEntry =
+          destinationStat !== null &&
+          sourceStat.ino === destinationStat.ino &&
+          sourceStat.dev === destinationStat.dev;
+        if (destinationStat && !sameEntry) {
+          return yield* alreadyExists(destination.relativePath, destinationPath);
+        }
+        const target = destinationPath;
+        yield* attempt("move", target, async () => {
+          await NodeFSP.mkdir(path.dirname(target), { recursive: true });
+          await NodeFSP.rename(sourcePath, target);
+        });
+      } else {
+        if (destinationStat) {
+          const folder = path.dirname(destinationPath);
+          const base = path.basename(destinationPath);
+          const extension = sourceStat.isDirectory() ? "" : path.extname(base);
+          const stem = base.slice(0, base.length - extension.length);
+          for (let copy = 1; ; copy++) {
+            const name = `${stem} copy${copy === 1 ? "" : ` ${copy}`}${extension}`;
+            destinationPath = path.join(folder, name);
+            if (!(yield* lstatOrNull(destinationPath))) {
+              const parent = relativePath.slice(0, relativePath.lastIndexOf("/") + 1);
+              relativePath = `${parent}${name}`;
+              break;
+            }
+          }
+        }
+        const target = destinationPath;
+        yield* attempt("copy", target, async () => {
+          await NodeFSP.mkdir(path.dirname(target), { recursive: true });
+          await NodeFSP.cp(sourcePath, target, {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+            // Relative links inside a copied folder must keep pointing within the copy.
+            verbatimSymlinks: true,
+          });
+        });
+      }
+    }
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath };
+  }, mutationLock.withPermits(1));
+
+  const nextScratchNumber = async (directory: string) => {
+    const names = await NodeFSP.readdir(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    return (
+      Math.max(0, ...names.map((name) => Number(SCRATCH_FILE_PATTERN.exec(name)?.[1] ?? 0))) + 1
+    );
+  };
+
+  const scratchOperation = Effect.fn("WorkspaceFileSystem.scratchOperation")(function* <A>(
+    cwd: string,
+    relativePath: string,
+    run: (realTargetPath: string) => Promise<A>,
+  ) {
+    yield* knownWorkspaces.assertContains(cwd);
+    const target = yield* resolveWriteTarget({ cwd, relativePath });
+    const value = yield* Effect.tryPromise({
+      try: () => run(target.realTargetPath),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: cwd,
+          relativePath,
+          resolvedPath: target.realTargetPath,
+          operationPath: target.realTargetPath,
+          operation: "write-file",
+          cause,
+        }),
+    });
+    return { value, relativePath: target.relativePath };
+  });
+
+  // Exclusive create: an existing file, or a link swapped in after the check, is never written.
+  const createExclusive = async (filePath: string, contents: string) => {
+    await NodeFSP.mkdir(path.dirname(filePath), { recursive: true });
+    await NodeFSP.writeFile(filePath, contents, {
+      flag: NodeFS.constants.O_WRONLY | NodeFS.constants.O_CREAT | NodeFS.constants.O_EXCL,
+    });
+  };
+
+  const suggestScratchFile: WorkspaceFileSystem["Service"]["suggestScratchFile"] = Effect.fn(
+    "WorkspaceFileSystem.suggestScratchFile",
+  )(function* (input) {
+    const { value } = yield* scratchOperation(input.cwd, SCRATCH_DIRECTORY, nextScratchNumber);
+    return { relativePath: `${SCRATCH_DIRECTORY}/scratch_${value}.md` };
+  });
+
+  const createScratchFile: WorkspaceFileSystem["Service"]["createScratchFile"] = Effect.fn(
+    "WorkspaceFileSystem.createScratchFile",
+  )(function* (input) {
+    const contents = input.contents ?? "";
+    let relativePath: string;
+    if (input.relativePath !== undefined) {
+      const created = yield* scratchOperation(input.cwd, input.relativePath, (filePath) =>
+        createExclusive(filePath, contents),
+      );
+      relativePath = created.relativePath;
+    } else {
+      const created = yield* scratchOperation(input.cwd, SCRATCH_DIRECTORY, async (directory) => {
+        // A concurrent request that takes the number moves this one on to the next.
+        for (let number = await nextScratchNumber(directory); ; number++) {
+          const name = `scratch_${number}.md`;
+          try {
+            await createExclusive(path.join(directory, name), contents);
+            return name;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          }
+        }
+      });
+      relativePath = `${SCRATCH_DIRECTORY}/${created.value}`;
+    }
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath };
+  });
+
+  return WorkspaceFileSystem.of({
+    getMetadata,
+    readFile,
+    writeFile,
+    mutateEntry,
+    createScratchFile,
+    suggestScratchFile,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

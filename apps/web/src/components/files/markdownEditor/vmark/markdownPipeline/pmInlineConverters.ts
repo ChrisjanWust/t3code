@@ -1,0 +1,252 @@
+/**
+ * ProseMirror Inline Content Converters (PM → MDAST)
+ *
+ * Purpose: Converts ProseMirror text nodes with marks and inline atom nodes
+ * to MDAST phrasing content for markdown serialization.
+ *
+ * Key decisions:
+ *   - Marks are converted by wrapping the text node from innermost to
+ *     outermost — producing nested MDAST nodes
+ *   - Consecutive inline items sharing a mark are grouped under a single
+ *     MDAST wrapper (groupInlineItems). Wrapping each PM text node's marks
+ *     independently would emit adjacent emphasis siblings, which
+ *     mdast-util-to-markdown renders as `&#x20;`-padded growing `**` runs
+ *     that do not round-trip (#1102).
+ *   - The `code` mark is always applied innermost, regardless of its
+ *     position in the PM marks array. MDAST `inlineCode` is a leaf
+ *     (no children), so applying it later against an already-wrapped
+ *     node would discard the wrapper. Required for `[`text`](url)`
+ *     where PM stores both `link` and `code` marks on the same text.
+ *   - URLs are passed through unchanged; the serializer's custom handlers
+ *     add angle brackets for URLs with spaces
+ *
+ * A link mark carrying `referenceId` is emitted as a `linkReference`, not an
+ * inline link — see resolveReferences.ts.
+ *
+ * @coordinates-with mdastInlineConverters.ts — reverse direction (MDAST → PM)
+ * @coordinates-with pmBlockConverters.ts — handles block-level nodes
+ * @coordinates-with serializer.ts — custom handlers for URL formatting
+ * @module utils/markdownPipeline/pmInlineConverters
+ */
+
+import type { Node as PMNode, Mark } from "@tiptap/pm/model";
+import { buildImageOrReference } from "./imageReferenceEmit";
+import { wrapExpelled } from "./markEdgeWhitespace";
+import type {
+  Text,
+  Strong,
+  Emphasis,
+  Delete,
+  InlineCode,
+  Link,
+  LinkReference,
+  Image,
+  ImageReference,
+  Break,
+  FootnoteReference,
+  PhrasingContent,
+} from "mdast";
+import type { InlineMath } from "mdast-util-math";
+import { mdPipelineWarn } from "~/components/files/markdownEditor/vmark/support/debug";
+
+/**
+ * A pre-converted inline leaf plus the marks still to be applied as nested
+ * MDAST wrappers (innermost first — the last mark becomes the outermost).
+ */
+export interface InlineItem {
+  content: PhrasingContent;
+  marks: readonly Mark[];
+}
+
+/**
+ * Marks eligible for wrapping: `code` is excluded (it becomes the
+ * `inlineCode` leaf itself), and same-type duplicates are dropped so a
+ * malformed doc can never re-grow emphasis runs on save (#1102).
+ */
+function factorableMarks(marks: readonly Mark[]): Mark[] {
+  const seen = new Set<string>();
+  const out: Mark[] = [];
+  for (const mark of marks) {
+    if (mark.type.name === "code" || seen.has(mark.type.name)) continue;
+    seen.add(mark.type.name);
+    out.push(mark);
+  }
+  return out;
+}
+
+/**
+ * Convert a text node to an inline item with its leaf content pre-built.
+ *
+ * MDAST `inlineCode` is a leaf node (no children), so a `code` mark becomes
+ * the leaf itself rather than a wrapper. Required for `[`text`](url)` where
+ * PM stores both `link` and `code` marks on the same text.
+ */
+export function textToInlineItems(node: PMNode): InlineItem[] {
+  const text = node.text || "";
+  if (!text) return [];
+
+  const isCode = node.marks.some((m) => m.type.name === "code");
+  const content: PhrasingContent = isCode
+    ? ({ type: "inlineCode", value: text } as InlineCode)
+    : ({ type: "text", value: text } as Text);
+  return [{ content, marks: factorableMarks(node.marks) }];
+}
+
+/**
+ * An inline image as a groupable item: it carries its own marks, so a link or
+ * emphasis around it is written back (`[![a](p.png)](A.md)`), shared with
+ * neighbouring text where the marks are the same.
+ */
+export function imageToInlineItem(node: PMNode): InlineItem {
+  return { content: convertImage(node), marks: factorableMarks(node.marks) };
+}
+
+/** Length of the run of items starting at `start` that all carry `mark`. */
+function markRunLength(items: readonly InlineItem[], start: number, mark: Mark): number {
+  let end = start;
+  while (end < items.length && items[end]!.marks.some((m) => m.eq(mark))) end++;
+  return end - start;
+}
+
+/**
+ * Group a flat sequence of inline items into nested MDAST phrasing content.
+ *
+ * Greedily factors out the mark whose run extends furthest, so consecutive
+ * items sharing a mark serialize under one wrapper: `**a *b* c**` stays one
+ * strong node instead of three adjacent strong siblings (#1102). On ties the
+ * last mark wins, preserving the historical single-node nesting order.
+ */
+export function groupInlineItems(items: readonly InlineItem[]): PhrasingContent[] {
+  const out: PhrasingContent[] = [];
+  let i = 0;
+  while (i < items.length) {
+    const { content, marks } = items[i]!;
+    if (!marks.length) {
+      out.push(content);
+      i++;
+      continue;
+    }
+    let best = marks[marks.length - 1]!;
+    let bestLen = 0;
+    for (let k = marks.length - 1; k >= 0; k--) {
+      const len = markRunLength(items, i, marks[k]!);
+      if (len > bestLen) {
+        best = marks[k]!;
+        bestLen = len;
+      }
+    }
+    const inner: InlineItem[] = [];
+    for (let j = i; j < i + bestLen; j++) {
+      inner.push({
+        content: items[j]!.content,
+        marks: items[j]!.marks.filter((m) => !m.eq(best)),
+      });
+    }
+    out.push(...wrapWithMark(groupInlineItems(inner), best));
+    i += bestLen;
+  }
+  return out;
+}
+
+function wrapWithMark(content: PhrasingContent[], mark: Mark): PhrasingContent[] {
+  const markName = mark.type.name;
+
+  switch (markName) {
+    case "bold":
+      return [{ type: "strong", children: content } as Strong];
+    case "italic":
+      return [{ type: "emphasis", children: content } as Emphasis];
+    case "strike":
+      return wrapExpelled(content, (children) => ({ type: "delete", children }) as Delete);
+    case "code": {
+      // Inline code wraps text directly
+      const textContent = content
+        .filter((c): c is Text => c.type === "text")
+        .map((t) => t.value)
+        .join("");
+      return [{ type: "inlineCode", value: textContent } as InlineCode];
+    }
+    case "link": {
+      // A link that came from `[text][id]` goes back as `[text][id]`. Emitting
+      // the inline form rewrote the author's reference-style file on the first
+      // debounced edit, then lint W03 warned "Unused link definition" about
+      // VMark's own output. The definition nodes are preserved separately, so
+      // the pair stays consistent.
+      const referenceId = mark.attrs.referenceId as string | null;
+      if (referenceId) {
+        return [
+          {
+            type: "linkReference",
+            identifier: referenceId,
+            label: referenceId,
+            referenceType: asReferenceType(mark.attrs.referenceType),
+            children: content,
+          } satisfies LinkReference,
+        ];
+      }
+      return [
+        {
+          type: "link",
+          url: mark.attrs.href as string,
+          title: (mark.attrs.title as string | null) ?? undefined,
+          children: content,
+        } as Link,
+      ];
+    }
+
+    default:
+      // Unknown mark - return content as-is
+      mdPipelineWarn(`Unknown mark type: ${markName}`);
+      return content;
+  }
+}
+
+/**
+ * Convert a hard break to MDAST break.
+ */
+export function convertHardBreak(): Break {
+  return { type: "break" };
+}
+
+/**
+ * Convert an image node to MDAST image.
+ */
+/**
+ * Narrow a stored reference type to mdast's union.
+ *
+ * The attribute is `string | null` on the mark, so a bare cast let anything
+ * through — `satisfies LinkReference` is what surfaced it. Anything
+ * unrecognised degrades to `shortcut`, the form that needs no extra syntax.
+ */
+function asReferenceType(value: unknown): "shortcut" | "collapsed" | "full" {
+  return value === "full" || value === "collapsed" ? value : "shortcut";
+}
+
+export function convertImage(node: PMNode): Image | ImageReference {
+  // Shared emitter: a node still carrying reference identity serializes as
+  // `![alt][id]`, exactly as links do.
+  return buildImageOrReference(node.attrs as never);
+}
+
+/**
+ * Convert an inline math node to MDAST inline math.
+ * Uses the content attribute (atom node approach).
+ */
+export function convertMathInline(node: PMNode): InlineMath {
+  return {
+    type: "inlineMath",
+    // Use content attribute for atom nodes, fallback to textContent for backwards compatibility
+    value: (node.attrs.content as string) || node.textContent,
+  };
+}
+
+/**
+ * Convert a footnote reference node to MDAST footnote reference.
+ */
+export function convertFootnoteReference(node: PMNode): FootnoteReference {
+  return {
+    type: "footnoteReference",
+    identifier: String(node.attrs.label ?? "1"),
+    label: String(node.attrs.label ?? "1"),
+  };
+}

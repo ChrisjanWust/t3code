@@ -900,7 +900,8 @@ export function ThemeLibrary({
         open={isImportOpen}
       />
       <AlertDialog open={isThemeRemovalOpen} onOpenChange={setIsThemeRemovalOpen}>
-        <AlertDialogPopup>
+        {/* Nothing is selected yet, so start on the first variant checkbox. */}
+        <AlertDialogPopup initialFocus={canRemoveCollection ? true : undefined}>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {canRemoveCollection

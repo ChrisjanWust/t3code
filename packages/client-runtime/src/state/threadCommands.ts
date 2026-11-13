@@ -471,7 +471,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     rowActionsAtom,
     snapshotAtom: optimistic.snapshotAtom,
     pendingThreadIdsAtom: optimistic.pendingThreadIdsAtom,
-    settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
+    settle: optimistic.wrap(commands.settle, (thread, input, now, accepted) =>
       !accepted &&
       (thread.pendingRuntimeRequest !== null ||
         ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status))
@@ -480,7 +480,12 @@ export function createThreadEnvironmentAtoms<R, E>(
             ...thread,
             pendingRuntimeRequest: null,
             settledOverride: "settled",
-            settledAt: thread.settledOverride === "settled" ? (thread.settledAt ?? now) : now,
+            settledAt:
+              thread.settledOverride === "settled"
+                ? (thread.settledAt ?? now)
+                : input.settledAt === undefined
+                  ? now
+                  : DateTime.makeUnsafe(input.settledAt),
             unsettledAt: null,
             activeOrderKey: null,
             pinnedAt: null,
@@ -508,10 +513,11 @@ export function createThreadEnvironmentAtoms<R, E>(
             snoozedAt: now,
           },
     ),
-    unsnooze: optimistic.wrap(commands.unsnooze, (thread) => ({
+    unsnooze: optimistic.wrap(commands.unsnooze, (thread, _input, now) => ({
       ...thread,
       snoozedUntil: null,
       snoozedAt: null,
+      lastSnoozeWakeAt: thread.snoozedUntil == null ? (thread.lastSnoozeWakeAt ?? null) : now,
     })),
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
@@ -530,6 +536,7 @@ export function createThreadEnvironmentAtoms<R, E>(
         : {}),
       snoozedUntil: null,
       snoozedAt: null,
+      lastSnoozeWakeAt: thread.snoozedUntil == null ? (thread.lastSnoozeWakeAt ?? null) : now,
     })),
     unpin: optimistic.wrap(commands.unpin, (thread) => ({
       ...thread,

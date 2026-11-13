@@ -1,0 +1,80 @@
+/**
+ * Markdown Parser (remark-based) — entry point.
+ *
+ * Purpose: Parses markdown text into MDAST (Markdown Abstract Syntax Tree)
+ * with support for GFM, math and frontmatter.
+ *
+ * Pipeline: markdown string → math source guards → normalizeBareListMarkers
+ *   → remark parse → remark transforms → fixNormalizationSpread? → MDAST
+ *
+ * Key decisions:
+ *   - Lazy plugin loading based on content analysis (analyzeContent) — avoids
+ *     loading remark-math/frontmatter/etc. when content doesn't use them
+ *   - remarkValidateMath rejects `$100 and $200` (leading/trailing whitespace)
+ *     to prevent false positives from dollar signs in prose
+ *   - singleTilde disabled in remark-gfm: only `~~x~~` is strikethrough
+ *
+ * @coordinates-with serializer.ts — reverse direction (MDAST → markdown string)
+ * @coordinates-with adapter.ts — wraps this with error handling and perf logging
+ * @coordinates-with parser/processorFactory.ts — builds and caches the unified processor
+ * @module utils/markdownPipeline/parser
+ */
+
+import type { Root } from "mdast";
+import type { MarkdownPipelineOptions } from "./types";
+import { perfStart, perfEnd } from "~/components/files/markdownEditor/vmark/support/perfLog";
+import { normalizeBareListMarkers, fixNormalizationSpread } from "./parser/listNormalization";
+import { escapeUnclosedMathFences, normalizeMathDelimiters } from "./parser/mathSourceGuards";
+import { createProcessor } from "./parser/processorFactory";
+
+import { checkNestingDepth } from "./nestingDepth";
+
+/**
+ * Parse markdown text into MDAST.
+ *
+ * @param markdown - The markdown text to parse
+ * @returns The root MDAST node
+ *
+ * @example
+ * const mdast = parseMarkdownToMdast("# Hello\n\nWorld");
+ * // mdast.type === "root"
+ * // mdast.children[0].type === "heading"
+ * // mdast.children[1].type === "paragraph"
+ */
+export function parseMarkdownToMdast(
+  markdown: string,
+  options: MarkdownPipelineOptions = {},
+): Root {
+  // Refuse a document too deeply nested to survive the parse (#1374). Checked
+  // FIRST, on the text as given: remark-gfm's autolink transform recurses once
+  // per tree level inside from-markdown's compile step, so by the time any
+  // VMark code runs the stack is already gone. See nestingDepth.ts.
+  checkNestingDepth(markdown);
+
+  // Math source guards (#1180/#1181): rewrite `\[ \]`/`\( \)` to
+  // `$`-delimiters and defuse unclosed `$$` fences (pandoc's blank-line
+  // rule) before remark sees the text.
+  const mathGuarded = escapeUnclosedMathFences(normalizeMathDelimiters(markdown));
+  // Normalize bare list markers (e.g., "  -\n") to ensure trailing space
+  const { text: normalized, modified: wasNormalized } = normalizeBareListMarkers(mathGuarded);
+
+  perfStart("createProcessor");
+  const processor = createProcessor(normalized, options);
+  perfEnd("createProcessor");
+
+  perfStart("remarkParse");
+  const result = processor.parse(normalized);
+  perfEnd("remarkParse");
+
+  // Run transforms (plugins that modify the tree)
+  perfStart("remarkRunSync");
+  const transformed = processor.runSync(result);
+  perfEnd("remarkRunSync");
+
+  // Fix spread artifacts only when normalization inserted blank lines
+  if (wasNormalized) {
+    fixNormalizationSpread(transformed as Root);
+  }
+
+  return transformed as Root;
+}

@@ -51,6 +51,7 @@ interface TimelineRewindInput {
   readonly composerRef: ComposerHandleRef;
   readonly composerDraftTarget: ComposerThreadTarget;
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
+  readonly placeForkTab: (threadId: ThreadId) => void;
 }
 
 /**
@@ -76,6 +77,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     composerRef,
     composerDraftTarget,
     setThreadError,
+    placeForkTab,
   } = input;
   const navigate = useNavigate();
   const createAttachmentAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -178,6 +180,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!activeThread || activeEnvironmentUnavailable) return;
     const targetThreadId = newThreadId();
     const targetThreadRef = scopeThreadRef(environmentId, targetThreadId);
+    placeForkTab(targetThreadId);
     const result = await forkThreadFromRun({
       environmentId,
       input: {

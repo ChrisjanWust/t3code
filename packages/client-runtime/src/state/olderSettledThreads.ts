@@ -155,6 +155,20 @@ export function isListedSettledThread(
 }
 
 /**
+ * Whether every environment holds each thread settled at or after `sinceMs`. Unlike the listing
+ * frontier, a failed read still counts as missing.
+ */
+export function isSettledShelfComplete(
+  environments: ReadonlyArray<OlderSettledShelfEnvironment>,
+  sinceMs: number,
+): boolean {
+  return environments.every(
+    ({ older, pages }) =>
+      older === null || pages.frontier === null || Date.parse(pages.frontier.settledAt) < sinceMs,
+  );
+}
+
+/**
  * Older settled threads in scope that this client does not hold: the server's counts minus the
  * older rows it has. Add it to the local rows for the Settled label or a project's thread count.
  */
@@ -199,10 +213,17 @@ export function wantedOlderSettledPages(input: {
   readonly environments: ReadonlyMap<EnvironmentId, OlderSettledShelfEnvironment>;
   readonly listedCount: number;
   readonly visibleCount: number;
+  /** A shelf filtered to threads settled since then reads no further back. */
+  readonly sinceMs?: number | null;
 }): ReadonlyMap<EnvironmentId, number> {
   if (input.listedCount >= input.visibleCount) return input.requested;
   const frontier = settledShelfFrontier([...input.environments.values()]);
-  if (frontier === null) return input.requested;
+  if (
+    frontier === null ||
+    (input.sinceMs != null && Date.parse(frontier.settledAt) < input.sinceMs)
+  ) {
+    return input.requested;
+  }
   let next: Map<EnvironmentId, number> | null = null;
   for (const [environmentId, { older, pages }] of input.environments) {
     if (older === null || pages.status !== "ready" || pages.frontier === null) continue;

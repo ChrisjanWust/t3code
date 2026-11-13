@@ -15,6 +15,7 @@ import type { TerminalContextSelection } from "../lib/terminalContext";
 import { focusActiveDrawerTerminal, focusTerminal } from "../lib/terminalFocus";
 import { cn } from "~/lib/utils";
 import {
+  panelTerminalIdsOwnedBy,
   selectThreadRightPanelState,
   useRightPanelStore,
   type RightPanelSurface,
@@ -121,9 +122,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
   const panelSurfaces = useRightPanelStore(
     (state) => selectThreadRightPanelState(state.byThreadKey, threadRef).surfaces,
   );
-  const panelTerminalIds = new Set(
-    panelSurfaces.flatMap((surface) => (surface.kind === "terminal" ? surface.terminalIds : [])),
-  );
+  const panelTerminalIds = panelTerminalIdsOwnedBy(panelSurfaces, threadRef);
   const drawerTerminalSessions =
     knownTerminalSessions?.filter((session) => !panelTerminalIds.has(session.target.terminalId)) ??
     [];

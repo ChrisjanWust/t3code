@@ -23,13 +23,12 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
 
-A thread does not need a project. To start one without a project, click **or
-start without a project** under a new thread's heading, pick **No project** from
-the project menu in that heading or from **New thread in...** in the command
-palette, or press `mod+alt+n`. On mobile, pick **No project** from the project
-list. It starts on your current machine; before sending, pick another machine
+A thread does not need a project. To start one without a project, pick **No
+project** from the project menu above a new thread's composer or from **New
+thread in...** in the command palette, or press `mod+alt+n`. On mobile, pick
+**No project** from the project list. It starts on your current machine; before sending, pick another machine
 from the machine menu to move it there. To move a draft into a project, pick the
-project in the heading.
+project in that menu.
 
 Each thread without a project works in its own folder under `~/.t3/scratch` (the
 `scratch` folder of your T3 data directory), named after its date, the first words
@@ -108,10 +107,10 @@ On web and desktop, the list also animates section changes made with thread acti
 preference. While dragging, rows follow the insertion gap without replaying a second transition
 after the drop.
 
-New threads appear above the active threads you have arranged. Settling clears a thread's active
+Threads you haven't arranged sit above the ones you have, most recent first: a thread moves up when
+it's created, reopened, sent work, or finishes a turn. Settling clears a thread's active
 position, so using **Un-settle** returns it to the top. Pinning and snoozing preserve its active
-position until you move it again. Thread activity does not change the order. The settled shelf
-continues to use settlement time.
+position until you move it again. The settled shelf continues to use settlement time.
 
 If dragging is unavailable for one environment, update the T3 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
@@ -130,6 +129,36 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
+### Sort by creation date
+
+**Settings → General → Thread order** on web and desktop chooses how sidebar rows are ordered:
+**Recent activity**, the default, or **Created at**, newest first. With thread tabs on, a worktree
+row dates from its oldest open thread, so a new tab in an old worktree does not move it up. Either way,
+pinned threads and active threads you have dragged keep their place, Snoozed stays in wake order,
+and Settled stays in settlement order. Each device keeps its own choice.
+
+### Show only recent work
+
+On web and desktop, the clock button next to the project filter limits the sidebar to work from the
+last 6 hours, 12 hours, 24 hours, 2 days, or 7 days. Activity means a thread was created, messaged,
+ran, or was settled, snoozed, reopened, or woken, and a thread that is running or waiting on you
+always counts. The open thread stays listed either way, and search still finds older threads. With
+thread tabs on, a worktree stays while any of its threads is recent, and opening it shows all of its
+tabs. A Settled count such as **15+** means older pages haven't loaded yet. Each device keeps its own
+choice.
+
+### Name worktrees
+
+With **Settings → Labs → Thread tabs** on, each sidebar row is a worktree. A new worktree gets a
+short title from its first message, written by the model in **Settings → Threads → Text
+generation**. As you start threads in it, the title follows the work, but slowly: it changes
+only after the threads it was written from have been quiet for 20 minutes, at most once every 30
+minutes, and only when the subject has actually moved.
+
+To name a worktree yourself, choose **Rename worktree** from its menu or press F2. Your name stays
+until you clear it, which brings back the generated title, or choose **Reset title**.
+**Regenerate title** writes a fresh title right away and replaces your name.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed
@@ -137,7 +166,7 @@ Threads that are working or waiting on work they will resume from move into a co
 That includes subagents, watched pull requests with checks still running, and background commands or monitors the agent
 says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
 there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
-answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
+answer, or to its creation slot when you sort by creation date. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
 This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
@@ -172,6 +201,9 @@ when the thread settles** enabled in Settings > Projects > Actions. You can also
 `"stopOnSettle": true` on a `t3.json` action and import it there. Start the command through
 that action so T3 can stop its terminal and child processes. Commands started through an
 agent's own shell tools are managed by the provider.
+
+With **Settings → Labs → Thread tabs** on, the `thread.settle` shortcut settles the whole
+worktree, as its sidebar row's **Settle** button does. Closing a tab settles only that tab.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a

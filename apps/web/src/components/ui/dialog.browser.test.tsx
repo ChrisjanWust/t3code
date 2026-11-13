@@ -17,12 +17,13 @@ import {
 
 describe("dialog initial focus", () => {
   it.each([
-    { label: "generic", options: undefined, focused: "Cancel", confirmed: false },
+    // Alert dialogs focus the last footer button, so every confirmation accepts on Enter.
+    { label: "generic", options: undefined, focused: "Confirm", confirmed: true },
     {
       label: "destructive opt-in",
       options: { variant: "destructive", initialFocus: "confirm" },
-      focused: "Cancel",
-      confirmed: false,
+      focused: "Confirm",
+      confirmed: true,
     },
     { label: "opt-in", options: { initialFocus: "confirm" }, focused: "Confirm", confirmed: true },
   ] as const)(

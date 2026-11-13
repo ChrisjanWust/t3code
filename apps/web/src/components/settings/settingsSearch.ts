@@ -440,6 +440,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort projects sidebar manual created recent"],
   },
   {
+    id: "thread-order",
+    title: "Thread order",
+    to: "/settings/general",
+    searchTerms: ["sort threads worktrees sidebar rows created recent activity date"],
+  },
+  {
     id: "snooze-options",
     title: "Snooze options",
     to: "/settings/threads",
@@ -464,6 +470,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("Working section"),
     to: "/settings/general",
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
+  },
+  {
+    id: "thread-tabs",
+    title: "Thread tabs",
+    to: "/settings/labs",
+    searchTerms: ["beta tabs worktree sidebar new tab close tab history paseo"],
   },
   {
     id: "boring-sidebar",
@@ -1016,6 +1028,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/browser",
     scope: "project-defaults",
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
+  },
+  {
+    id: "hide-agent-browser",
+    title: "Hide browser from agents",
+    to: "/settings/browser",
+    scope: "environment-defaults",
+    searchTerms: ["mention instructions preview tools own native codex browser off"],
   },
   {
     id: "device-sources",

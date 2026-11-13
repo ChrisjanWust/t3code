@@ -204,6 +204,24 @@ export const ProjectUpdatePayload = Schema.Struct({
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 
+export const PROJECT_WORKTREE_TITLE_MAX_LENGTH = 80;
+
+/** Worktrees are not records, so their project keeps each one's sidebar title by path. */
+export const ProjectWorktreeTitle = Schema.Struct({
+  worktreePath: TrimmedNonEmptyString,
+  /** Refreshed in the background while no manual title is set. */
+  generated: Schema.NullOr(TrimmedNonEmptyString),
+  manual: Schema.NullOr(TrimmedNonEmptyString),
+  /** The threads `generated` was written from; a different set makes it due a refresh. */
+  sourceThreadIds: Schema.Array(ThreadId),
+  updatedAt: IsoDateTime,
+});
+export type ProjectWorktreeTitle = typeof ProjectWorktreeTitle.Type;
+
+export const ProjectWorktreeTitleText = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_WORKTREE_TITLE_MAX_LENGTH),
+);
+
 export const ProjectMutation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("project.create"),
@@ -223,8 +241,30 @@ export const ProjectMutation = Schema.Union([
     projectId: ProjectId,
     force: Schema.optional(Schema.Boolean),
   }),
+  Schema.Struct({
+    type: Schema.Literal("project.worktree-title.set"),
+    commandId: CommandId,
+    projectId: ProjectId,
+    worktreePath: TrimmedNonEmptyString,
+    /** Null clears the manual title, which brings back the generated one. */
+    title: Schema.NullOr(ProjectWorktreeTitleText),
+  }),
 ]);
 export type ProjectMutation = typeof ProjectMutation.Type;
+
+export const ProjectRegenerateWorktreeTitleInput = Schema.Struct({
+  projectId: ProjectId,
+  worktreePath: TrimmedNonEmptyString,
+});
+export type ProjectRegenerateWorktreeTitleInput = typeof ProjectRegenerateWorktreeTitleInput.Type;
+
+export class ProjectRegenerateWorktreeTitleError extends Schema.TaggedError<ProjectRegenerateWorktreeTitleError>()(
+  "ProjectRegenerateWorktreeTitleError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
 
 export class ProjectMutationError extends Schema.TaggedError<ProjectMutationError>()(
   "ProjectMutationError",
@@ -459,6 +499,7 @@ export const ProjectFileFailure = Schema.Literals([
   "resolved_path_outside_root",
   "path_not_file",
   "binary_file",
+  "path_exists",
   "operation_failed",
 ]);
 export type ProjectFileFailure = typeof ProjectFileFailure.Type;
@@ -472,6 +513,9 @@ export const ProjectFileOperation = Schema.Literals([
   "close",
   "make-directory",
   "write-file",
+  "move",
+  "copy",
+  "delete",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
 
@@ -523,6 +567,46 @@ export const ProjectWriteFileResult = Schema.Struct({
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
+const ProjectEntryPath = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH),
+);
+
+export const ProjectEntryAction = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("create"), kind: ProjectEntryKind }),
+  // A move fails when the destination exists; a copy takes the next free "name copy" instead.
+  Schema.Struct({ type: Schema.Literals(["move", "copy"]), toRelativePath: ProjectEntryPath }),
+  Schema.Struct({ type: Schema.Literal("delete") }),
+]);
+export type ProjectEntryAction = typeof ProjectEntryAction.Type;
+
+export const ProjectMutateEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: ProjectEntryPath,
+  action: ProjectEntryAction,
+});
+export type ProjectMutateEntryInput = typeof ProjectMutateEntryInput.Type;
+
+export const ProjectMutateEntryResult = Schema.Struct({
+  /** Where the entry is now; for a delete, where it was. */
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectMutateEntryResult = typeof ProjectMutateEntryResult.Type;
+
+export const ProjectSuggestScratchFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectSuggestScratchFileInput = typeof ProjectSuggestScratchFileInput.Type;
+
+export const ProjectCreateScratchFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  /** Omitted: the next unused `tmp/scratch_N.md`. */
+  relativePath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  ),
+  contents: Schema.optional(Schema.String),
+});
+export type ProjectCreateScratchFileInput = typeof ProjectCreateScratchFileInput.Type;
+
 export const ProjectEnsureScratchResult = Schema.Struct({
   projectId: ProjectId,
 });
@@ -572,6 +656,36 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export class ProjectMutateEntryError extends Schema.TaggedError<ProjectMutateEntryError>()(
+  "ProjectMutateEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        (props.failure === "path_exists"
+          ? `'${props.relativePath}' already exists.`
+          : props.failure === "workspace_path_outside_root" ||
+              props.failure === "resolved_path_outside_root"
+            ? "The path must stay inside the project and outside '.git'."
+            : `Failed to change '${props.relativePath}' in '${props.cwd}'.`),
     } as any);
   }
 }
