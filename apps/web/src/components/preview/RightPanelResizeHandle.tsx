@@ -7,11 +7,19 @@ interface Props extends Pick<
   "tabIndex" | "onKeyDown" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax"
 > {
   handlers: ResizableWidthHandlers;
+  /** The panel edge the handle straddles. */
+  edge?: "left" | "right";
   className?: string;
   label?: string;
 }
 
-export function RightPanelResizeHandle({ handlers, className, label, ...separatorProps }: Props) {
+export function RightPanelResizeHandle({
+  handlers,
+  edge = "left",
+  className,
+  label,
+  ...separatorProps
+}: Props) {
   return (
     <div
       role="separator"
@@ -19,7 +27,11 @@ export function RightPanelResizeHandle({ handlers, className, label, ...separato
       aria-orientation="vertical"
       {...separatorProps}
       className={cn(
-        "group absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize touch-none select-none any-pointer-coarse:-left-2 any-pointer-coarse:w-4",
+        // no-drag: the desktop title bar would otherwise turn the handle's top into a window drag.
+        "group absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none select-none [-webkit-app-region:no-drag] any-pointer-coarse:w-4",
+        edge === "left"
+          ? "-left-1 any-pointer-coarse:-left-2"
+          : "-right-1 any-pointer-coarse:-right-2",
         className,
       )}
       {...handlers}

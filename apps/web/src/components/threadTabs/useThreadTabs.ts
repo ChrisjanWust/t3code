@@ -22,7 +22,11 @@ import {
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
-import { readThreadShells, useQuietThreadShells } from "../../state/entities";
+import {
+  readThreadShells,
+  useQuietThreadShells,
+  useSelectQuietThreadShells,
+} from "../../state/entities";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../../threadRoutes";
 import { resolveSidebarRowThreadId, useSnoozeWakeClock } from "../Sidebar.logic";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -166,6 +170,32 @@ export function useWorktreeTabs(location: ThreadTabLocation) {
   const now = new Date(useSnoozeWakeClock(threads)).toISOString();
   const order = useThreadTabOrderStore((store) => store.orderByWorktreeKey[location.worktreeKey]);
   return buildTabs(location, threads, readDraftTabs(sessions, withContent), now, order);
+}
+
+const NO_DRAFT_SESSIONS: ComposerDraftState["draftThreadsByThreadKey"] = {};
+const NO_DRAFT_IDS: readonly string[] = [];
+
+/** Whether the worktree has at most one tab. Null skips the work; callers re-render only on a flip. */
+export function useWorktreeHasLoneTab(location: ThreadTabLocation | null): boolean {
+  const sessions = useComposerDraftStore((store) =>
+    location === null ? NO_DRAFT_SESSIONS : store.draftThreadsByThreadKey,
+  );
+  const withContent = useComposerDraftStore(
+    useShallow((store) =>
+      location === null ? NO_DRAFT_IDS : draftIdsWithContent(store.draftsByThreadKey),
+    ),
+  );
+  return useSelectQuietThreadShells(
+    (threads) =>
+      location !== null &&
+      buildTabs(
+        location,
+        threads,
+        readDraftTabs(sessions, withContent),
+        new Date().toISOString(),
+        undefined,
+      ).tabs.length <= 1,
+  );
 }
 
 function readTabs(location: ThreadTabLocation) {

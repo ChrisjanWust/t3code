@@ -165,6 +165,13 @@ export function useQuietThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.quietThreadShellsAtom);
 }
 
+/** A value derived from every quiet thread shell; the caller re-renders only when it changes. */
+export function useSelectQuietThreadShells<A>(
+  select: (threads: ReadonlyArray<EnvironmentThreadShell>) => A,
+): A {
+  return useAtomValue(environmentThreadShells.quietThreadShellsAtom, select);
+}
+
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),

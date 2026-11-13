@@ -213,6 +213,7 @@ import {
   useClientSettingsHydrated,
   useEnvironmentSettings,
   useThreadTabsEnabled,
+  useThreadTabsAutoHidePanel,
   useThreadTabsVertical,
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -294,7 +295,11 @@ import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ThreadTabColumn, ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
-import { resolveThreadTabLocation, useThreadTabActions } from "./threadTabs/useThreadTabs";
+import {
+  resolveThreadTabLocation,
+  useThreadTabActions,
+  useWorktreeHasLoneTab,
+} from "./threadTabs/useThreadTabs";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -1773,7 +1778,12 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const threadTabActions = useThreadTabActions(threadTabLocation);
   // The side panel needs the room a narrow window does not have.
-  const verticalThreadTabs = useThreadTabsVertical() && !isNarrowViewport;
+  const threadTabSidePanelChosen = useThreadTabsVertical() && !isNarrowViewport;
+  const autoHideThreadTabSidePanel = useThreadTabsAutoHidePanel();
+  const threadTabSidePanelAutoHidden = useWorktreeHasLoneTab(
+    threadTabSidePanelChosen && autoHideThreadTabSidePanel ? threadTabLocation : null,
+  );
+  const verticalThreadTabs = threadTabSidePanelChosen && !threadTabSidePanelAutoHidden;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const saveSelectionToScratchStable = useStableCallback((markdown: string) => {
@@ -3430,6 +3440,7 @@ export default function ChatView(props: ChatViewProps) {
               <ThreadTabStrip
                 location={threadTabLocation}
                 vertical={verticalThreadTabs}
+                sidePanelAutoHidden={threadTabSidePanelAutoHidden}
                 keybindings={keybindings}
                 projectCwd={activeProjectCwd}
                 rightPanelOpen={inlineRightPanelOwnsTitleBar}

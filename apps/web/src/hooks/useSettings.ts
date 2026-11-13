@@ -428,6 +428,10 @@ export function useThreadTabsVertical(): boolean {
   return useClientSettings((settings) => settings.threadTabsVertical);
 }
 
+export function useThreadTabsAutoHidePanel(): boolean {
+  return useClientSettings((settings) => settings.threadTabsAutoHidePanel);
+}
+
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,

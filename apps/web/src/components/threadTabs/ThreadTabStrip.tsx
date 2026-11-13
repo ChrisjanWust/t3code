@@ -32,9 +32,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { HistoryIcon, PlusIcon, Rows3Icon } from "lucide-react";
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type CSSProperties, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { isElectron } from "../../env";
+import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "../../hooks/useResizableWidth";
 import { updateClientSettings } from "../../hooks/useSettings";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -49,6 +50,7 @@ import { canShareWithGuestAtom } from "../chat/guestShareAvailability";
 import { GuestShareIndicator } from "../chat/GuestShareControls";
 import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { Button } from "../ui/button";
+import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { ScrollArea } from "../ui/scroll-area";
 import { toastManager } from "../ui/toast";
@@ -127,27 +129,19 @@ function TabStatusDot(props: { readonly tab: ThreadTabItem }) {
   );
 }
 
-function ThreadTab(props: {
-  readonly tab: ThreadTabItem;
-  readonly active: boolean;
-  readonly vertical: boolean;
+interface TabMenuContext {
   readonly projectCwd: string | null;
   readonly environmentId: EnvironmentId;
-  readonly closable: boolean;
-  readonly onSelect: (key: string) => void;
-  readonly onClose: (key: string) => void;
   readonly onFind?: ((threadRef: ScopedThreadRef) => void) | undefined;
-}) {
-  const { tab, active, onSelect, onClose } = props;
+}
+
+/** A tab's right-click thread menu and inline rename, the same wherever the tab shows. */
+function useTabMenu(tab: ThreadTabItem, context: TabMenuContext) {
   const threadRef =
     tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
   const title = tabTitle(tab);
   const [renaming, setRenaming] = useState(false);
-  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.key,
-    disabled: renaming,
-  });
-  const canShareWithGuest = useAtomValue(canShareWithGuestAtom(props.environmentId));
+  const canShareWithGuest = useAtomValue(canShareWithGuestAtom(context.environmentId));
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -157,9 +151,9 @@ function ThreadTab(props: {
   };
   const { openMenu } = useThreadActionMenu({
     threadRef,
-    projectCwd: props.projectCwd,
+    projectCwd: context.projectCwd,
     onStartRename: startRename,
-    onFind: props.onFind,
+    onFind: context.onFind,
     canShareWithGuest,
   });
   const commitRename = (value: string) => {
@@ -179,6 +173,62 @@ function ThreadTab(props: {
       });
     });
   };
+  const onContextMenu = (event: ReactMouseEvent) => {
+    if (!threadRef) return;
+    event.preventDefault();
+    openMenu({ x: event.clientX, y: event.clientY });
+  };
+  return { renaming, startRename, commitRename, onContextMenu };
+}
+
+function TabRenameInput(props: {
+  readonly title: string;
+  readonly className: string;
+  readonly onCommit: (value: string) => void;
+}) {
+  return (
+    <input
+      aria-label="Thread title"
+      dir="auto"
+      className={cn(
+        "min-w-0 rounded-sm bg-background px-1 outline-none ring-1 ring-inset ring-ring",
+        props.className,
+      )}
+      defaultValue={props.title}
+      ref={(element) => {
+        element?.focus();
+        element?.select();
+      }}
+      onBlur={(event) => props.onCommit(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          event.currentTarget.value = props.title;
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+function ThreadTab(
+  props: TabMenuContext & {
+    readonly tab: ThreadTabItem;
+    readonly active: boolean;
+    readonly vertical: boolean;
+    readonly closable: boolean;
+    readonly onSelect: (key: string) => void;
+    readonly onClose: (key: string) => void;
+  },
+) {
+  const { tab, active, onSelect, onClose } = props;
+  const title = tabTitle(tab);
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(tab, props);
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tab.key,
+    disabled: renaming,
+  });
   const statusDot = <TabStatusDot tab={tab} />;
   return (
     <div
@@ -190,11 +240,7 @@ function ThreadTab(props: {
       onAuxClick={(event) => {
         if (event.button === 1) onClose(tab.key);
       }}
-      onContextMenu={(event) => {
-        if (!threadRef) return;
-        event.preventDefault();
-        openMenu({ x: event.clientX, y: event.clientY });
-      }}
+      onContextMenu={onContextMenu}
       {...listeners}
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
@@ -216,27 +262,10 @@ function ThreadTab(props: {
         <span className="flex size-4 shrink-0 items-center justify-center">{statusDot}</span>
       )}
       {renaming ? (
-        <input
-          aria-label="Thread title"
-          dir="auto"
-          className={cn(
-            "min-w-0 rounded-sm bg-background px-1 outline-none ring-1 ring-inset ring-ring",
-            props.vertical ? "flex-1" : "w-32",
-          )}
-          defaultValue={title}
-          ref={(element) => {
-            element?.focus();
-            element?.select();
-          }}
-          onBlur={(event) => commitRename(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") event.currentTarget.blur();
-            if (event.key === "Escape") {
-              event.currentTarget.value = title;
-              event.currentTarget.blur();
-            }
-          }}
+        <TabRenameInput
+          title={title}
+          className={props.vertical ? "flex-1" : "w-32"}
+          onCommit={commitRename}
         />
       ) : (
         <button
@@ -371,9 +400,19 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
 function NeighborTab(props: {
   readonly tab: ThreadTabItem;
   readonly side: "Previous" | "Next";
+  readonly menu: TabMenuContext;
   readonly onSelect: (key: string) => void;
 }) {
   const title = tabTitle(props.tab);
+  const { renaming, commitRename, onContextMenu } = useTabMenu(props.tab, props.menu);
+  if (renaming) {
+    return (
+      <div className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-xs">
+        <TabStatusDot tab={props.tab} />
+        <TabRenameInput title={title} className="w-32" onCommit={commitRename} />
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -381,6 +420,7 @@ function NeighborTab(props: {
       data-neighbor-tab={props.tab.key}
       className="flex h-7 max-w-44 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
       onClick={() => props.onSelect(props.tab.key)}
+      onContextMenu={onContextMenu}
     >
       <TabStatusDot tab={props.tab} />
       <span className="truncate" dir={textDirection(title)}>
@@ -390,12 +430,46 @@ function NeighborTab(props: {
   );
 }
 
+function CurrentTab(props: { readonly tab: ThreadTabItem; readonly menu: TabMenuContext }) {
+  const title = tabTitle(props.tab);
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(props.tab, props.menu);
+  return (
+    <div
+      role="presentation"
+      data-current-tab={props.tab.key}
+      className={cn(
+        "flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-accent px-2 text-xs text-foreground",
+        // A title bar drag rectangle would swallow the right click.
+        isElectron && "[-webkit-app-region:no-drag]",
+      )}
+      onContextMenu={onContextMenu}
+      onDoubleClick={startRename}
+    >
+      <TabStatusDot tab={props.tab} />
+      {renaming ? (
+        <TabRenameInput title={title} className="w-64" onCommit={commitRename} />
+      ) : (
+        <span className="truncate" dir={textDirection(title)}>
+          {title}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** The top bar while the side panel lists the tabs: the open tab, wide, between its neighbors. */
-function ThreadTabNeighbors(props: { readonly location: ThreadTabLocation }) {
+function ThreadTabNeighbors(props: {
+  readonly location: ThreadTabLocation;
+  readonly projectCwd: string | null;
+  readonly onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
+}) {
   const { tabs, routeKey } = useWorktreeTabs(props.location);
   const { selectTab } = useThreadTabActions(props.location);
   const { previous, current, next } = resolveTabNeighbors(tabs, routeKey);
-  const title = current ? tabTitle(current) : "";
+  const menu: TabMenuContext = {
+    projectCwd: props.projectCwd,
+    environmentId: props.location.environmentId,
+  };
   return (
     <div
       role="group"
@@ -403,23 +477,17 @@ function ThreadTabNeighbors(props: { readonly location: ThreadTabLocation }) {
       className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_fit-content(60%)_minmax(0,1fr)] items-center gap-1"
     >
       <div className="flex min-w-0 justify-end">
-        {previous ? <NeighborTab tab={previous} side="Previous" onSelect={selectTab} /> : null}
+        {previous ? (
+          <NeighborTab tab={previous} side="Previous" menu={menu} onSelect={selectTab} />
+        ) : null}
       </div>
       {current ? (
-        <div
-          data-current-tab={current.key}
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-accent px-2 text-xs text-foreground"
-        >
-          <TabStatusDot tab={current} />
-          <span className="truncate" dir={textDirection(title)}>
-            {title}
-          </span>
-        </div>
+        <CurrentTab tab={current} menu={{ ...menu, onFind: props.onFindInThread }} />
       ) : (
         <span />
       )}
       <div className="flex min-w-0 justify-start">
-        {next ? <NeighborTab tab={next} side="Next" onSelect={selectTab} /> : null}
+        {next ? <NeighborTab tab={next} side="Next" menu={menu} onSelect={selectTab} /> : null}
       </div>
     </div>
   );
@@ -430,6 +498,8 @@ export function ThreadTabStrip(
   props: ThreadTabListProps & {
     /** The side panel holds the full list, so the bar shows only the open tab and its neighbors. */
     readonly vertical: boolean;
+    /** The side panel is chosen but stepped aside for a lone tab, so it has nothing to toggle. */
+    readonly sidePanelAutoHidden: boolean;
     readonly rightPanelOpen: boolean;
     readonly isServerThread: boolean;
   },
@@ -447,13 +517,19 @@ export function ThreadTabStrip(
       )}
     >
       {props.vertical ? (
-        <ThreadTabNeighbors location={location} />
+        <ThreadTabNeighbors
+          location={location}
+          projectCwd={props.projectCwd}
+          onFindInThread={props.onFindInThread}
+        />
       ) : (
         <>
           {/* The side panel needs the room a narrow window does not have. */}
-          <span className="flex shrink-0 max-md:hidden">
-            <TabLayoutToggle vertical={false} />
-          </span>
+          {props.sidePanelAutoHidden ? null : (
+            <span className="flex shrink-0 max-md:hidden">
+              <TabLayoutToggle vertical={false} />
+            </span>
+          )}
           <ScrollArea
             radius="none"
             hideScrollbars
@@ -489,23 +565,40 @@ export function ThreadTabStrip(
 
 /** The worktree's tabs as a list beside the chat, folded away by the toggle at its top. */
 export function ThreadTabColumn(props: ThreadTabListProps) {
+  const { width, handlers } = useResizableWidth({
+    storageKey: "t3code.threadTabColumnWidth",
+    defaultWidth: 224,
+    minWidth: 160,
+    maxWidth: 480,
+    edge: "right",
+  });
   return (
     <aside
       data-thread-tab-column
-      className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
+      className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
+      style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}
     >
-      <div
-        className={cn(
-          "flex h-[var(--workspace-topbar-height)] w-56 shrink-0 items-center px-2",
-          isElectron && "drag-region",
-          COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
-        )}
-      >
-        <TabLayoutToggle vertical />
+      <RightPanelResizeHandle edge="right" handlers={handlers} label="Resize tab panel" />
+      {/* Clips the content while the panel opens from zero width; the handle stays outside it
+          so it can straddle the border. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div
+          className={cn(
+            "flex h-[var(--workspace-topbar-height)] w-(--resizable-width) shrink-0 items-center px-2",
+            isElectron && "drag-region",
+            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+          )}
+        >
+          <TabLayoutToggle vertical />
+        </div>
+        <ScrollArea
+          radius="none"
+          className="min-h-0 w-(--resizable-width) flex-1"
+          data-thread-tab-list
+        >
+          <ThreadTabList {...props} vertical />
+        </ScrollArea>
       </div>
-      <ScrollArea radius="none" className="min-h-0 w-56 flex-1" data-thread-tab-list>
-        <ThreadTabList {...props} vertical />
-      </ScrollArea>
     </aside>
   );
 }
