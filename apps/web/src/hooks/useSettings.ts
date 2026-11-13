@@ -424,6 +424,10 @@ export function useThreadTabsEnabled(): boolean {
   return settingsHydrated && enabled;
 }
 
+export function useThreadTabsVertical(): boolean {
+  return useClientSettings((settings) => settings.threadTabsVertical);
+}
+
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,
