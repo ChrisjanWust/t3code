@@ -588,6 +588,21 @@ export const ProjectMutateEntryResult = Schema.Struct({
 });
 export type ProjectMutateEntryResult = typeof ProjectMutateEntryResult.Type;
 
+export const ProjectSuggestScratchFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectSuggestScratchFileInput = typeof ProjectSuggestScratchFileInput.Type;
+
+export const ProjectCreateScratchFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  /** Omitted: the next unused `tmp/scratch_N.md`. */
+  relativePath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  ),
+  contents: Schema.optional(Schema.String),
+});
+export type ProjectCreateScratchFileInput = typeof ProjectCreateScratchFileInput.Type;
+
 export const ProjectEnsureScratchResult = Schema.Struct({
   projectId: ProjectId,
 });

@@ -7,8 +7,10 @@ import type {
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
+import { useId, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { openNewScratchFile, suggestScratchFilePath } from "~/lib/newScratchFile";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { DeviceSetup } from "../device/DeviceSetup";
 import { PullRequestThreadDialog } from "../PullRequestThreadDialog";
@@ -22,7 +24,16 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { Dialog } from "../ui/dialog";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
+import { Input } from "../ui/input";
 import { WizardPopup } from "../ui/wizard";
 import { registerThreadOverlay } from "./threadOverlayRetention";
 
@@ -224,5 +235,127 @@ export function RevertConfirmHost(props: {
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>
+  );
+}
+
+const scratchFileDialogAtom = makeThreadOverlayAtom<{
+  readonly cwd: string;
+  readonly initialPath: string;
+  readonly contents: string;
+  readonly key: number;
+}>("scratch-file-dialog");
+
+// A suggestion that lands after a newer request, or after its thread's route was left, is dropped.
+let scratchFileDialogRequest = 0;
+registerThreadOverlay(() => {
+  scratchFileDialogRequest += 1;
+});
+
+/** Asks the server for the next scratch name, then opens the confirm dialog with it. */
+export async function openScratchFileDialog(
+  threadRef: ScopedThreadRef,
+  threadKey: string,
+  cwd: string,
+  contents: string,
+): Promise<void> {
+  const request = ++scratchFileDialogRequest;
+  const initialPath = await suggestScratchFilePath(threadRef, cwd);
+  if (initialPath === null || request !== scratchFileDialogRequest) return;
+  appAtomRegistry.set(scratchFileDialogAtom, {
+    threadKey,
+    value: { cwd, initialPath, contents, key: Date.now() },
+  });
+}
+
+export function ScratchFileDialogHost(props: {
+  readonly threadKey: string | null;
+  readonly threadRef: ScopedThreadRef | null;
+}) {
+  const state = useThreadOverlay(scratchFileDialogAtom, props.threadKey);
+  const { threadRef } = props;
+  if (state === null || threadRef === null) return null;
+  const close = () => closeThreadOverlay(scratchFileDialogAtom);
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogPopup className="max-w-xl">
+        <ScratchFileForm
+          key={state.key}
+          cwd={state.cwd}
+          initialPath={state.initialPath}
+          onCancel={close}
+          onCreate={async (relativePath) => {
+            const created = await openNewScratchFile(threadRef, state.cwd, {
+              relativePath,
+              contents: `${state.contents}\n`,
+            });
+            if (created) close();
+          }}
+        />
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function ScratchFileForm(props: {
+  readonly cwd: string;
+  readonly initialPath: string;
+  readonly onCancel: () => void;
+  readonly onCreate: (relativePath: string) => Promise<void>;
+}) {
+  const [path, setPath] = useState(props.initialPath);
+  const [creating, setCreating] = useState(false);
+  const inputId = useId();
+  const trimmed = path.trim();
+  return (
+    <form
+      className="contents"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (trimmed === "" || creating) return;
+        setCreating(true);
+        void props.onCreate(trimmed).finally(() => setCreating(false));
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>Create scratch file</DialogTitle>
+        <DialogDescription>
+          Saves the selection to a new file in <code>{props.cwd}</code>. Missing folders are
+          created.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogPanel>
+        <label htmlFor={inputId} className="grid gap-1.5">
+          <span className="text-xs font-medium text-foreground">Workspace path</span>
+          <Input
+            id={inputId}
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder={props.initialPath}
+            spellCheck={false}
+            autoFocus
+            disabled={creating}
+          />
+        </label>
+      </DialogPanel>
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={props.onCancel}
+          disabled={creating}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={trimmed === "" || creating}>
+          {creating ? "Creating..." : "Create"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
