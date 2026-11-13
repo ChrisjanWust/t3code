@@ -5,6 +5,11 @@ import {
   queuedRunEditBlockedReason,
 } from "@t3tools/client-runtime/queued-run-edit";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  moveQueuedRun,
+  type PendingQueuedRunOrder,
+  shownQueuedRunOrder,
+} from "@t3tools/client-runtime/state/thread-workflows";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import type { ChatAttachment, EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
@@ -13,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -20,11 +26,13 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../../components/ui/Button";
+import { DragHandle } from "../../components/ui/DragHandle";
 import { SheetHeader } from "../../components/ui/SheetHeader";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { Menu } from "../../components/ui/Menu";
 import { ScreenContent } from "../../components/ui/ScreenContent";
+import { cn } from "../../lib/cn";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useAssetUrl } from "../../state/assets";
 import { useQuietThreadShell } from "../../state/entities";
@@ -44,6 +52,9 @@ const REMOVE_ACTION_WIDTH = 76;
 const THUMBNAIL_LIMIT = 3;
 const EMPTY_QUEUED_COUNT_ATOM = Atom.make(0).pipe(
   Atom.withLabel("mobile-thread-queue-count:empty"),
+);
+const UNWATCHED_SEQUENCE_ATOM = Atom.make(0).pipe(
+  Atom.withLabel("mobile-thread-queue-sequence:unwatched"),
 );
 
 type QueueTarget = { readonly environmentId: EnvironmentId; readonly threadId: ThreadId };
@@ -130,10 +141,37 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const promote = useAtomCommand(threadEnvironment.promoteQueuedRun, "promote queued message");
   const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun, "remove queued message");
   const resume = useAtomCommand(threadEnvironment.resumeThreadQueue, "resume queue");
+  const reorder = useAtomCommand(threadEnvironment.reorderQueuedRun, "reorder queued message");
+  const [pendingOrder, setPendingOrder] = useState<PendingQueuedRunOrder | null>(null);
+  // Streaming moves the sequence on every event; only an accepted reorder waits on it.
+  const threadSequence = useAtomValue(
+    pendingOrder?.sequence == null
+      ? UNWATCHED_SEQUENCE_ATOM
+      : environmentThreadDetails.sequenceAtom(target),
+  );
+  const [drag, setDrag] = useState<{
+    readonly runId: RunId;
+    readonly translation: number;
+    /** The queue order the drag measures its rows from. */
+    readonly orderKey: string;
+  } | null>(null);
+  const [heights, setHeights] = useState<ReadonlyMap<RunId, number>>(() => new Map());
+  // Remount dropped rows so data order and cleared drag offsets change together without flashing.
+  const [drops, setDrops] = useState(0);
   const [resuming, setResuming] = useState(false);
   const [busyRunId, setBusyRunId] = useState<RunId | null>(null);
   const busyRef = useRef(false);
-  const queuedRuns = workflow?.queuedRuns ?? [];
+  const serverQueuedRuns = workflow?.queuedRuns ?? [];
+  const shownOrder = shownQueuedRunOrder(pendingOrder, {
+    order: serverQueuedRuns.map(({ run }) => run.id),
+    sequence: threadSequence,
+  });
+  // Dropped during render so a stale order never outlives the reorder it was for.
+  if (pendingOrder !== null && shownOrder === null) setPendingOrder(null);
+  const queuedById = new Map(serverQueuedRuns.map((entry) => [entry.run.id, entry]));
+  const queuedRuns =
+    shownOrder === null ? serverQueuedRuns : shownOrder.flatMap((id) => queuedById.get(id) ?? []);
+  const order = queuedRuns.map(({ run }) => run.id);
 
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pops the navigator once the server-side queue empties after it had runs
@@ -196,6 +234,45 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     setBusyRunId(null);
   };
 
+  const moveRun = async (runId: RunId, toIndex: number) => {
+    const move = moveQueuedRun(order, runId, toIndex);
+    if (move === null || busyRef.current) return;
+    void Haptics.selectionAsync();
+    const submitted: PendingQueuedRunOrder = { order: move.order, sequence: null };
+    setPendingOrder(submitted);
+    const result = await reorder({
+      ...target,
+      input: { threadId: target.threadId, runId, beforeRunId: move.beforeRunId },
+    });
+    // A later drop owns the pending order; this result only settles its own.
+    setPendingOrder((current) =>
+      current !== submitted
+        ? current
+        : result._tag === "Success"
+          ? { ...submitted, sequence: result.value.sequence }
+          : null,
+    );
+  };
+  const dropIndex = (from: number, translation: number) => {
+    const step = translation > 0 ? 1 : -1;
+    let to = from;
+    let remaining = Math.abs(translation);
+    while (to + step >= 0 && to + step < order.length) {
+      const next = heights.get(order[to + step]!) ?? 0;
+      if (next === 0 || remaining < next / 2) break;
+      remaining -= next;
+      to += step;
+    }
+    return to;
+  };
+  // A queue that changed under the drag, such as its head starting, ends the drag: the rows it
+  // measured from have moved.
+  const orderKey = order.join("\n");
+  const activeDrag = drag !== null && drag.orderKey === orderKey ? drag : null;
+  const dragFrom = activeDrag === null ? -1 : order.indexOf(activeDrag.runId);
+  const dragTo = activeDrag === null ? -1 : dropIndex(dragFrom, activeDrag.translation);
+  const liftedHeight = dragFrom === -1 ? 0 : (heights.get(order[dragFrom]!) ?? 0);
+
   const content = (
     <ScrollView
       nestedScrollEnabled
@@ -245,10 +322,28 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
         });
         const title =
           controls.displayText || (attachments.length > 0 ? "Attachments" : "Queued message");
+        const lifted = index === dragFrom;
+        const shift =
+          dragFrom === -1 || lifted
+            ? 0
+            : dragFrom < dragTo && index > dragFrom && index <= dragTo
+              ? -liftedHeight
+              : dragFrom > dragTo && index < dragFrom && index >= dragTo
+                ? liftedHeight
+                : 0;
         return (
-          <View key={run.id} className="flex-row items-center border-b border-border bg-sheet">
+          <QueueDragRow
+            key={`${run.id}:${drops}`}
+            offset={lifted ? (activeDrag?.translation ?? 0) : shift}
+            lifted={lifted}
+            onHeight={(height) =>
+              setHeights((current) =>
+                current.get(run.id) === height ? current : new Map(current).set(run.id, height),
+              )
+            }
+          >
             <QueueRowSwipeable
-              enabled={busyRunId === null && controls.canDismiss}
+              enabled={busyRunId === null && controls.canDismiss && dragFrom === -1}
               background={theme["--color-sheet"]}
               onRemove={() => void act(run.id, "remove")}
             >
@@ -348,9 +443,33 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                     </View>
                   </Pressable>
                 ) : null}
+                {queuedRuns.length > 1 ? (
+                  <DragHandle
+                    title={`queued message ${index + 1}`}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < queuedRuns.length - 1}
+                    onStart={() => {
+                      void Haptics.selectionAsync();
+                      setDrag({ runId: run.id, translation: 0, orderKey });
+                    }}
+                    onMove={(translation) =>
+                      setDrag((current) => (current === null ? null : { ...current, translation }))
+                    }
+                    onEnd={(translation, cancelled) => {
+                      setDrag(null);
+                      setDrops((count) => count + 1);
+                      if (!cancelled && activeDrag !== null) {
+                        void moveRun(run.id, dropIndex(index, translation));
+                      }
+                    }}
+                    onStep={(direction) =>
+                      void moveRun(run.id, direction === "up" ? index - 1 : index + 1)
+                    }
+                  />
+                ) : null}
               </View>
             </QueueRowSwipeable>
-          </View>
+          </QueueDragRow>
         );
       })}
     </ScrollView>
@@ -363,6 +482,35 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
         <ScreenContent>{content}</ScreenContent>
       </View>
     </GestureHandlerRootView>
+  );
+}
+
+/** A queue row that follows the drag while lifted and slides aside for the lifted row. */
+function QueueDragRow(props: {
+  readonly offset: number;
+  readonly lifted: boolean;
+  readonly onHeight: (height: number) => void;
+  readonly children: React.ReactNode;
+}) {
+  const { lifted, offset } = props;
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: lifted
+          ? offset
+          : withTiming(offset, { duration: 160, reduceMotion: ReduceMotion.System }),
+      },
+    ],
+    zIndex: lifted ? 1 : 0,
+  }));
+  return (
+    <Reanimated.View
+      style={style}
+      onLayout={(event) => props.onHeight(event.nativeEvent.layout.height)}
+      className={cn("flex-row items-center border-b border-border bg-sheet", lifted && "shadow-md")}
+    >
+      {props.children}
+    </Reanimated.View>
   );
 }
 

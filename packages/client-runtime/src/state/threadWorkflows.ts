@@ -3,6 +3,7 @@ import {
   isCompactionCommandMessage,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ProviderCapabilities,
+  type RunId,
 } from "@t3tools/contracts";
 import { copySorted } from "@t3tools/shared/Array";
 
@@ -176,6 +177,44 @@ export function deriveThreadQueueWorkflowState(projection: Projection): ThreadQu
           capabilities?.supportsSteeringByInterruptRestart === true)),
     promoteSkipsCompaction,
   };
+}
+
+/**
+ * Moves a queued run to `toIndex` of the visible queue. Its `beforeRunId` is the run that
+ * ends up behind it; null sends it behind everything still queued, hidden deliveries included.
+ */
+export function moveQueuedRun(
+  order: ReadonlyArray<RunId>,
+  runId: RunId,
+  toIndex: number,
+): { readonly order: ReadonlyArray<RunId>; readonly beforeRunId: RunId | null } | null {
+  const fromIndex = order.indexOf(runId);
+  if (fromIndex === -1 || toIndex === fromIndex || toIndex < 0 || toIndex >= order.length) {
+    return null;
+  }
+  const next = order.filter((id) => id !== runId);
+  next.splice(toIndex, 0, runId);
+  return { order: next, beforeRunId: next[toIndex + 1] ?? null };
+}
+
+/** A queue order shown ahead of the server so a dropped message does not snap back. */
+export interface PendingQueuedRunOrder {
+  readonly order: ReadonlyArray<RunId>;
+  /** The reorder's commit sequence, once the server has accepted it. */
+  readonly sequence: number | null;
+}
+
+/** The pending order while the thread has not applied its reorder; null once the server's order applies. */
+export function shownQueuedRunOrder(
+  pending: PendingQueuedRunOrder | null,
+  server: { readonly order: ReadonlyArray<RunId>; readonly sequence: number },
+): ReadonlyArray<RunId> | null {
+  if (pending === null) return null;
+  if (pending.sequence !== null && server.sequence >= pending.sequence) return null;
+  // A run that started, left, or joined the queue meanwhile makes the pending order stale.
+  if (pending.order.length !== server.order.length) return null;
+  const queued = new Set(server.order);
+  return pending.order.every((id) => queued.has(id)) ? pending.order : null;
 }
 
 export function canForkProjectedAssistantItem(input: {
