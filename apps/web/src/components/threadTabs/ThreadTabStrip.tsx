@@ -1,9 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -36,11 +38,13 @@ import { type CSSProperties, useState, type MouseEvent as ReactMouseEvent } from
 
 import { isElectron } from "../../env";
 import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "../../hooks/useResizableWidth";
+import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { updateClientSettings } from "../../hooks/useSettings";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { cn } from "../../lib/utils";
+import { shouldShowInstanceBadge } from "../../providerInstances";
 import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
 import { readEnvironmentScope } from "../../state/session";
 import { threadEnvironment } from "../../state/threads";
@@ -48,7 +52,9 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { textDirection } from "../../textDirection";
 import { canShareWithGuestAtom } from "../chat/guestShareAvailability";
 import { GuestShareIndicator } from "../chat/GuestShareControls";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
+import { sidebarProviderEntriesAtom } from "../sidebar/sidebarProviderEntries";
 import { Button } from "../ui/button";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
@@ -127,6 +133,51 @@ function TabStatusDot(props: { readonly tab: ThreadTabItem }) {
       )}
     />
   );
+}
+
+const TAB_PROVIDER_ICON_SLOT = <span aria-hidden className="size-3.5 shrink-0" />;
+
+/** The provider running the thread; drafts and unknown providers keep the slot so titles align. */
+function TabProviderIcon(props: { readonly thread: EnvironmentThreadShell | null }) {
+  const entriesByEnvironment = useAtomValue(sidebarProviderEntriesAtom);
+  const { thread } = props;
+  if (thread === null) return TAB_PROVIDER_ICON_SLOT;
+  const entries = entriesByEnvironment.get(thread.environmentId);
+  const entry = entries?.get(
+    thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
+  );
+  if (entries === undefined || entry === undefined) return TAB_PROVIDER_ICON_SLOT;
+  return (
+    <ProviderInstanceIcon
+      driverKind={entry.driverKind}
+      displayName={entry.displayName}
+      accentColor={entry.accentColor}
+      acpRegistryAgentId={entry.acpRegistryAgentId}
+      acpRegistryIconUrl={entry.acpRegistryIconUrl}
+      showBadge={shouldShowInstanceBadge(entry, entries.values())}
+      size="compact"
+      iconClassName="opacity-60"
+    />
+  );
+}
+
+// Re-renders only when the label changes: each minute for the first hour, then hourly, then daily.
+function TabActivityTime(props: { readonly thread: EnvironmentThreadShell }) {
+  const status = resolveSidebarThreadStatus(props.thread);
+  // A running turn's newest timestamp is its start, which would count up as if the thread were idle.
+  const running = status === "preparing" || status === "working";
+  const relative = useRelativeTimeState(
+    running ? null : resolveThreadActivityTimestamp(props.thread),
+  );
+  const label = running
+    ? "now"
+    : relative.status !== "relative"
+      ? null
+      : relative.suffix === null
+        ? "now"
+        : relative.value;
+  if (label === null) return null;
+  return <span className="shrink-0 text-muted-foreground tabular-nums">{label}</span>;
 }
 
 interface TabMenuContext {
@@ -245,7 +296,8 @@ function ThreadTab(
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "group/tab flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
+        // Isolated so the provider icon's z-index stays under a tab dragged across it.
+        "group/tab isolate flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
         props.vertical ? "w-full" : "max-w-52 min-w-24",
         isElectron && "[-webkit-app-region:no-drag]",
         active || isDragging
@@ -271,17 +323,22 @@ function ThreadTab(
         <button
           type="button"
           role="tab"
+          aria-label={title}
           aria-selected={active}
           className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center",
+            "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-start",
             tab.kind === "thread" && tab.closed && "italic",
           )}
           onClick={() => onSelect(tab.key)}
           onDoubleClick={startRename}
         >
-          <span className="truncate" dir={textDirection(title)}>
+          {props.vertical ? (
+            <TabProviderIcon thread={tab.kind === "thread" ? tab.thread : null} />
+          ) : null}
+          <span data-tab-title className="min-w-0 flex-1 truncate" dir={textDirection(title)}>
             {title}
           </span>
+          {props.vertical && tab.kind === "thread" ? <TabActivityTime thread={tab.thread} /> : null}
         </button>
       )}
     </div>

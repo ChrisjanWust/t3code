@@ -108,7 +108,7 @@ const tabTitles = () =>
   tabList()
     .getByRole("tab")
     .elements()
-    .map((element) => element.textContent);
+    .map((element) => element.querySelector("[data-tab-title]")?.textContent);
 // A row's accessible name leads with its label, then its status and project.
 const sidebarRow = (label: string) =>
   page.getByRole("button", { name: new RegExp(`^${label}(,|$)`) });
