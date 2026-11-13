@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "../../lib/storage";
 
 interface ThreadTabOrderState {
-  /** Thread ids by worktree key, in the order the user last dragged them into. */
+  /** Thread ids by worktree key, in the order the user's last drag or fork left them. */
   readonly orderByWorktreeKey: Readonly<Record<string, readonly string[]>>;
   readonly setOrder: (worktreeKey: string, order: readonly string[]) => void;
 }

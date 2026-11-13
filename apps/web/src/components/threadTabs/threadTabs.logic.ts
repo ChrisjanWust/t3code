@@ -87,10 +87,21 @@ export function moveWorktreeTab(
   return arrayMove(tabs.map(tabThreadId), from, to);
 }
 
+/** The strip's order with a thread not yet created, such as a fork, right after `afterKey`'s tab. */
+export function insertTabAfter(
+  tabs: readonly WorktreeTab<WorktreeThread>[],
+  afterKey: string,
+  threadId: string,
+): string[] | null {
+  const index = tabs.findIndex((tab) => tab.key === afterKey);
+  if (index === -1) return null;
+  return tabs.map(tabThreadId).toSpliced(index + 1, 0, threadId);
+}
+
 /**
  * The strip shows the worktree's open threads, plus the open route when it is closed or
  * snoozed, so viewing a thread from History never hides its tab. Drafts follow: the open
- * one, and others the user has typed into. Tabs the user has dragged come first, in
+ * one, and others the user has typed into. Tabs placed by a drag or a fork come first, in
  * `order`; any others stay at the end.
  */
 export function buildWorktreeTabs<T extends WorktreeThread>(input: {
@@ -102,7 +113,7 @@ export function buildWorktreeTabs<T extends WorktreeThread>(input: {
   readonly now: string;
   readonly order?: readonly string[] | undefined;
 }): WorktreeTab<T>[] {
-  // New tabs and forks open at the end, so the strip never reorders under the user.
+  // New tabs open at the end, so the strip never reorders under the user.
   const threadTabs = input.threads
     .filter((thread) => worktreeKey(thread) === input.worktreeKey && isWorktreeMember(thread))
     .flatMap((thread) => {
