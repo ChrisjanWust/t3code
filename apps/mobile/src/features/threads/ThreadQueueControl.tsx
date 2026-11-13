@@ -53,6 +53,9 @@ const THUMBNAIL_LIMIT = 3;
 const EMPTY_QUEUED_COUNT_ATOM = Atom.make(0).pipe(
   Atom.withLabel("mobile-thread-queue-count:empty"),
 );
+const UNWATCHED_SEQUENCE_ATOM = Atom.make(0).pipe(
+  Atom.withLabel("mobile-thread-queue-sequence:unwatched"),
+);
 
 type QueueTarget = { readonly environmentId: EnvironmentId; readonly threadId: ThreadId };
 type QueueAction = "steer" | "edit" | "remove";
@@ -139,8 +142,13 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const cancel = useAtomCommand(threadEnvironment.cancelQueuedRun, "remove queued message");
   const resume = useAtomCommand(threadEnvironment.resumeThreadQueue, "resume queue");
   const reorder = useAtomCommand(threadEnvironment.reorderQueuedRun, "reorder queued message");
-  const threadSequence = useAtomValue(environmentThreadDetails.sequenceAtom(target));
   const [pendingOrder, setPendingOrder] = useState<PendingQueuedRunOrder | null>(null);
+  // Streaming moves the sequence on every event; only an accepted reorder waits on it.
+  const threadSequence = useAtomValue(
+    pendingOrder?.sequence == null
+      ? UNWATCHED_SEQUENCE_ATOM
+      : environmentThreadDetails.sequenceAtom(target),
+  );
   const [drag, setDrag] = useState<{
     readonly runId: RunId;
     readonly translation: number;

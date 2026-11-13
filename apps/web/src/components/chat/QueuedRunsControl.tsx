@@ -10,7 +10,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
   SortableContext,
   sortableKeyboardCoordinates,
@@ -336,7 +336,8 @@ export function QueuedRunsControl({
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
-        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        // Bounding the whole row to the list would stop a tall message short of a short neighbour.
+        modifiers={[restrictToVerticalAxis]}
         // Scrolling would fight the timeline's follow-to-bottom; the queue is short.
         autoScroll={false}
         accessibility={{ announcements }}
