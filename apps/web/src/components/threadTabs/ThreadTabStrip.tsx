@@ -19,13 +19,23 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import {
+  restrictToFirstScrollableAncestor,
+  restrictToHorizontalAxis,
+  restrictToVerticalAxis,
+} from "@dnd-kit/modifiers";
+import {
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { HistoryIcon, PlusIcon } from "lucide-react";
+import { HistoryIcon, PlusIcon, Rows3Icon } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { isElectron } from "../../env";
+import { updateClientSettings } from "../../hooks/useSettings";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { useStableCallback } from "../../hooks/useStableCallback";
@@ -43,7 +53,8 @@ import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { ScrollArea } from "../ui/scroll-area";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { isBlankLastTab } from "./threadTabs.logic";
+import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
+import { isBlankLastTab, resolveTabNeighbors } from "./threadTabs.logic";
 import {
   type ThreadTabItem,
   type ThreadTabLocation,
@@ -52,6 +63,7 @@ import {
 } from "./useThreadTabs";
 
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
+const VERTICAL_TAB_DRAG_MODIFIERS = [restrictToVerticalAxis, restrictToFirstScrollableAncestor];
 
 // The modifiers stop a wide tab's center short of a narrow first tab, so target by the pointer.
 const closestTabToPointer: CollisionDetection = (args) =>
@@ -101,9 +113,24 @@ function tabTitle(tab: ThreadTabItem): string {
   return tab.kind === "thread" ? tab.thread.title : "New thread";
 }
 
+function TabStatusDot(props: { readonly tab: ThreadTabItem }) {
+  const { tab } = props;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        tabStatusClassName(tab) ?? "bg-muted-foreground/30",
+        tab.kind === "thread" && tab.closed && "bg-transparent ring-1 ring-muted-foreground/50",
+      )}
+    />
+  );
+}
+
 function ThreadTab(props: {
   readonly tab: ThreadTabItem;
   readonly active: boolean;
+  readonly vertical: boolean;
   readonly projectCwd: string | null;
   readonly environmentId: EnvironmentId;
   readonly closable: boolean;
@@ -152,17 +179,7 @@ function ThreadTab(props: {
       });
     });
   };
-  const statusClassName = tabStatusClassName(tab);
-  const statusDot = (
-    <span
-      aria-hidden
-      className={cn(
-        "size-1.5 rounded-full",
-        statusClassName ?? "bg-muted-foreground/30",
-        tab.kind === "thread" && tab.closed && "bg-transparent ring-1 ring-muted-foreground/50",
-      )}
-    />
-  );
+  const statusDot = <TabStatusDot tab={tab} />;
   return (
     <div
       role="presentation"
@@ -182,7 +199,8 @@ function ThreadTab(props: {
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "group/tab flex h-7 max-w-52 min-w-24 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
+        "group/tab flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
+        props.vertical ? "w-full" : "max-w-52 min-w-24",
         isElectron && "[-webkit-app-region:no-drag]",
         active || isDragging
           ? "bg-accent text-foreground"
@@ -201,7 +219,10 @@ function ThreadTab(props: {
         <input
           aria-label="Thread title"
           dir="auto"
-          className="w-32 min-w-0 rounded-sm bg-background px-1 outline-none ring-1 ring-inset ring-ring"
+          className={cn(
+            "min-w-0 rounded-sm bg-background px-1 outline-none ring-1 ring-inset ring-ring",
+            props.vertical ? "flex-1" : "w-32",
+          )}
           defaultValue={title}
           ref={(element) => {
             element?.focus();
@@ -238,16 +259,42 @@ function ThreadTab(props: {
   );
 }
 
-/** The open worktree's threads as tabs, in place of the thread breadcrumb. */
-export function ThreadTabStrip(props: {
+const toggleVerticalTabs = (vertical: boolean) =>
+  void updateClientSettings({ threadTabsVertical: !vertical });
+
+function TabLayoutToggle(props: { readonly vertical: boolean }) {
+  const label = props.vertical ? "Show tabs in the top bar" : "Show tabs in a side panel";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label={label}
+            aria-pressed={props.vertical}
+            className="shrink-0"
+            size="icon-xs"
+            variant="ghost-muted"
+            onClick={() => toggleVerticalTabs(props.vertical)}
+          />
+        }
+      >
+        <Rows3Icon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+interface ThreadTabListProps {
   readonly location: ThreadTabLocation;
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly projectCwd: string | null;
-  readonly rightPanelOpen: boolean;
-  readonly isServerThread: boolean;
   readonly onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
-}) {
-  const { location } = props;
+}
+
+/** The worktree's tabs and its new-tab button, draggable along the list's axis. */
+function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean }) {
+  const { location, vertical } = props;
   const { tabs, routeKey } = useWorktreeTabs(location);
   const tabActions = useThreadTabActions(location);
   const { newTab, selectTab, moveTab } = tabActions;
@@ -258,12 +305,139 @@ export function ThreadTabStrip(props: {
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (over) moveTab(String(active.id), String(over.id));
   };
-  const historyOpen = useRightPanelStore(
-    (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
-  );
   const newTabLabel = shortcutLabelForCommand(props.keybindings, "tab.new", {
     context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },
   });
+  return (
+    <DndContext
+      sensors={dragSensors}
+      collisionDetection={vertical ? closestCenter : closestTabToPointer}
+      modifiers={vertical ? VERTICAL_TAB_DRAG_MODIFIERS : TAB_DRAG_MODIFIERS}
+      onDragEnd={handleDragEnd}
+    >
+      <div
+        role="tablist"
+        aria-label="Thread tabs"
+        aria-orientation={vertical ? "vertical" : "horizontal"}
+        className={cn(
+          "flex gap-1",
+          vertical ? "flex-col items-start p-2" : "h-full w-max items-center",
+        )}
+      >
+        <SortableContext
+          items={tabs.map((tab) => tab.key)}
+          strategy={vertical ? verticalListSortingStrategy : horizontalListSortingStrategy}
+        >
+          {tabs.map((tab) => (
+            <ThreadTab
+              key={tab.key}
+              tab={tab}
+              active={tab.key === routeKey}
+              vertical={vertical}
+              projectCwd={props.projectCwd}
+              environmentId={location.environmentId}
+              closable={!isBlankLastTab(tabs)}
+              onSelect={selectTab}
+              onClose={closeTab}
+              {...(tab.key === routeKey ? { onFind: props.onFindInThread } : {})}
+            />
+          ))}
+        </SortableContext>
+        <Tooltip>
+          <TooltipTrigger render={<span className="flex shrink-0" />}>
+            <Button
+              aria-label="New tab"
+              size="icon-xs"
+              variant="ghost-muted"
+              disabled={location.creatingWorktree}
+              onClick={() => newTab()}
+            >
+              <PlusIcon className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipPopup side={vertical ? "right" : "bottom"}>
+            {location.creatingWorktree
+              ? "New tabs open here once the worktree is ready"
+              : newTabLabel
+                ? `New tab (${newTabLabel})`
+                : "New tab"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
+    </DndContext>
+  );
+}
+
+function NeighborTab(props: {
+  readonly tab: ThreadTabItem;
+  readonly side: "Previous" | "Next";
+  readonly onSelect: (key: string) => void;
+}) {
+  const title = tabTitle(props.tab);
+  return (
+    <button
+      type="button"
+      aria-label={`${props.side} tab: ${title}`}
+      data-neighbor-tab={props.tab.key}
+      className="flex h-7 max-w-44 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+      onClick={() => props.onSelect(props.tab.key)}
+    >
+      <TabStatusDot tab={props.tab} />
+      <span className="truncate" dir={textDirection(title)}>
+        {title}
+      </span>
+    </button>
+  );
+}
+
+/** The top bar while the side panel lists the tabs: the open tab, wide, between its neighbors. */
+function ThreadTabNeighbors(props: { readonly location: ThreadTabLocation }) {
+  const { tabs, routeKey } = useWorktreeTabs(props.location);
+  const { selectTab } = useThreadTabActions(props.location);
+  const { previous, current, next } = resolveTabNeighbors(tabs, routeKey);
+  const title = current ? tabTitle(current) : "";
+  return (
+    <div
+      role="group"
+      aria-label="Open tab and its neighbors"
+      className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_fit-content(60%)_minmax(0,1fr)] items-center gap-1"
+    >
+      <div className="flex min-w-0 justify-end">
+        {previous ? <NeighborTab tab={previous} side="Previous" onSelect={selectTab} /> : null}
+      </div>
+      {current ? (
+        <div
+          data-current-tab={current.key}
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-accent px-2 text-xs text-foreground"
+        >
+          <TabStatusDot tab={current} />
+          <span className="truncate" dir={textDirection(title)}>
+            {title}
+          </span>
+        </div>
+      ) : (
+        <span />
+      )}
+      <div className="flex min-w-0 justify-start">
+        {next ? <NeighborTab tab={next} side="Next" onSelect={selectTab} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/** The open worktree's threads as tabs, in place of the thread breadcrumb. */
+export function ThreadTabStrip(
+  props: ThreadTabListProps & {
+    /** The side panel holds the full list, so the bar shows only the open tab and its neighbors. */
+    readonly vertical: boolean;
+    readonly rightPanelOpen: boolean;
+    readonly isServerThread: boolean;
+  },
+) {
+  const { location } = props;
+  const historyOpen = useRightPanelStore(
+    (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
+  );
   const toggleHistory = () => useRightPanelStore.getState().toggle(location.routeThreadRef, "tabs");
   return (
     <div
@@ -272,65 +446,25 @@ export function ThreadTabStrip(props: {
         props.rightPanelOpen ? "pr-10" : "pr-24",
       )}
     >
-      <ScrollArea
-        radius="none"
-        hideScrollbars
-        scrollFade
-        className="min-w-0 flex-1"
-        data-thread-tab-list
-      >
-        <DndContext
-          sensors={dragSensors}
-          collisionDetection={closestTabToPointer}
-          modifiers={TAB_DRAG_MODIFIERS}
-          onDragEnd={handleDragEnd}
-        >
-          <div
-            role="tablist"
-            aria-label="Thread tabs"
-            className="flex h-full w-max items-center gap-1"
+      {props.vertical ? (
+        <ThreadTabNeighbors location={location} />
+      ) : (
+        <>
+          {/* The side panel needs the room a narrow window does not have. */}
+          <span className="flex shrink-0 max-md:hidden">
+            <TabLayoutToggle vertical={false} />
+          </span>
+          <ScrollArea
+            radius="none"
+            hideScrollbars
+            scrollFade
+            className="min-w-0 flex-1"
+            data-thread-tab-list
           >
-            <SortableContext
-              items={tabs.map((tab) => tab.key)}
-              strategy={horizontalListSortingStrategy}
-            >
-              {tabs.map((tab) => (
-                <ThreadTab
-                  key={tab.key}
-                  tab={tab}
-                  active={tab.key === routeKey}
-                  projectCwd={props.projectCwd}
-                  environmentId={location.environmentId}
-                  closable={!isBlankLastTab(tabs)}
-                  onSelect={selectTab}
-                  onClose={closeTab}
-                  {...(tab.key === routeKey ? { onFind: props.onFindInThread } : {})}
-                />
-              ))}
-            </SortableContext>
-            <Tooltip>
-              <TooltipTrigger render={<span className="flex shrink-0" />}>
-                <Button
-                  aria-label="New tab"
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  disabled={location.creatingWorktree}
-                  onClick={() => newTab()}
-                >
-                  <PlusIcon className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">
-                {location.creatingWorktree
-                  ? "New tabs open here once the worktree is ready"
-                  : newTabLabel
-                    ? `New tab (${newTabLabel})`
-                    : "New tab"}
-              </TooltipPopup>
-            </Tooltip>
-          </div>
-        </DndContext>
-      </ScrollArea>
+            <ThreadTabList {...props} vertical={false} />
+          </ScrollArea>
+        </>
+      )}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -350,5 +484,28 @@ export function ThreadTabStrip(props: {
       </Tooltip>
       {props.isServerThread ? <GuestShareIndicator threadRef={location.routeThreadRef} /> : null}
     </div>
+  );
+}
+
+/** The worktree's tabs as a list beside the chat, folded away by the toggle at its top. */
+export function ThreadTabColumn(props: ThreadTabListProps) {
+  return (
+    <aside
+      data-thread-tab-column
+      className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
+    >
+      <div
+        className={cn(
+          "flex h-[var(--workspace-topbar-height)] w-56 shrink-0 items-center px-2",
+          isElectron && "drag-region",
+          COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+        )}
+      >
+        <TabLayoutToggle vertical />
+      </div>
+      <ScrollArea radius="none" className="min-h-0 w-56 flex-1" data-thread-tab-list>
+        <ThreadTabList {...props} vertical />
+      </ScrollArea>
+    </aside>
   );
 }

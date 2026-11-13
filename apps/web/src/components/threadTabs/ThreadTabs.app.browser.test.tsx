@@ -164,8 +164,8 @@ async function dragTab(fromTitle: string, toTitle: string) {
   document.dispatchEvent(
     new PointerEvent("pointermove", {
       ...pointer,
-      clientX: start.clientX + (end.clientX > start.clientX ? 10 : -10),
-      clientY: start.clientY,
+      clientX: start.clientX + Math.sign(end.clientX - start.clientX) * 10,
+      clientY: start.clientY + Math.sign(end.clientY - start.clientY) * 10,
     }),
   );
   const target = tab(toTitle).element().closest<HTMLElement>("[data-thread-tab]")!;
@@ -209,6 +209,40 @@ it("drags a tab either way to reorder the strip, and closing and new tabs follow
   addServerThread(inWorktree("tab-fork"));
   await vi.waitFor(() =>
     expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-fork"]),
+  );
+});
+
+it("lists the tabs in a side panel, leaving the open tab and its neighbors in the top bar", async () => {
+  using _environment = setup();
+  const { screen, router } = await mountApp("tab-a");
+  await using _screen = screen;
+  await expect.element(tab("Thread tab-c")).toBeVisible();
+  const neighbors = () =>
+    [...document.querySelectorAll("[data-neighbor-tab], [data-current-tab]")].map(
+      (element) => element.textContent,
+    );
+
+  await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
+  expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]);
+  // The first tab's left neighbor wraps to the last.
+  expect(neighbors()).toEqual(["Thread tab-c", "Thread tab-a", "Thread tab-b"]);
+
+  await userEvent.click(page.getByRole("button", { name: "Previous tab: Thread tab-c" }));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-c`));
+  await vi.waitFor(() =>
+    expect(neighbors()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
+  );
+
+  await userEvent.click(page.getByRole("button", { name: "Show tabs in the top bar" }));
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "horizontal");
+  expect(neighbors()).toEqual([]);
+
+  await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
+  await dragTab("Thread tab-a", "Thread tab-c");
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
   );
 });
 

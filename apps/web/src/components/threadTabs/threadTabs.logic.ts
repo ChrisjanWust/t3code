@@ -159,6 +159,23 @@ export function isBlankLastTab(tabs: readonly WorktreeTab<unknown>[]): boolean {
   return rest.length === 0 && only?.kind === "draft" && !only.hasContent;
 }
 
+/** The open tab's neighbors for the three-tab top bar, wrapping at the ends without repeating a tab. */
+export function resolveTabNeighbors<T extends { readonly key: string }>(
+  tabs: readonly T[],
+  key: string,
+): { readonly previous: T | null; readonly current: T | null; readonly next: T | null } {
+  const index = tabs.findIndex((tab) => tab.key === key);
+  const current = tabs[index] ?? null;
+  if (current === null || tabs.length < 2) return { previous: null, current, next: null };
+  // Two tabs have one neighbor, shown on the side it sits in the list.
+  if (tabs.length === 2) {
+    return index === 0
+      ? { previous: null, current, next: tabs[1]! }
+      : { previous: tabs[0]!, current, next: null };
+  }
+  return { previous: tabs.at(index - 1)!, current, next: tabs[(index + 1) % tabs.length]! };
+}
+
 export function resolveWorktreeMembers<T extends WorktreeThread>(
   threads: readonly T[],
   key: string,
