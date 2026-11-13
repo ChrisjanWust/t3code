@@ -10,6 +10,7 @@ import {
   isBlankLastTab,
   moveWorktreeTab,
   resolveTabAfterClose,
+  resolveTabNeighbors,
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
@@ -361,6 +362,27 @@ describe("resolveTabAfterClose", () => {
     expect(resolveTabAfterClose(["a", "b", "c"], "b")).toBe("c");
     expect(resolveTabAfterClose(["a", "b", "c"], "c")).toBe("b");
     expect(resolveTabAfterClose(["a"], "a")).toBeNull();
+  });
+});
+
+describe("resolveTabNeighbors", () => {
+  const keys = (list: readonly string[], key: string) => {
+    const { previous, current, next } = resolveTabNeighbors(
+      list.map((item) => ({ key: item })),
+      key,
+    );
+    return [previous?.key ?? null, current?.key ?? null, next?.key ?? null];
+  };
+
+  it("wraps at both ends and never repeats a tab", () => {
+    expect(keys(["a", "b", "c", "d"], "b")).toEqual(["a", "b", "c"]);
+    expect(keys(["a", "b", "c", "d"], "a")).toEqual(["d", "a", "b"]);
+    expect(keys(["a", "b", "c", "d"], "d")).toEqual(["c", "d", "a"]);
+    expect(keys(["a", "b", "c"], "a")).toEqual(["c", "a", "b"]);
+    expect(keys(["a", "b"], "a")).toEqual([null, "a", "b"]);
+    expect(keys(["a", "b"], "b")).toEqual(["a", "b", null]);
+    expect(keys(["a"], "a")).toEqual([null, "a", null]);
+    expect(keys(["a", "b"], "missing")).toEqual([null, null, null]);
   });
 });
 

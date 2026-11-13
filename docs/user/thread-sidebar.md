@@ -159,6 +159,13 @@ To name a worktree yourself, choose **Rename worktree** from its menu or press F
 until you clear it, which brings back the generated title, or choose **Reset title**.
 **Regenerate title** writes a fresh title right away and replaces your name.
 
+### List tabs in a side panel
+
+With thread tabs on, the button at the left end of the tabs moves them into a panel beside the
+chat, one tab per line. The top bar then shows only the open tab between its two neighbors. The
+same button at the top of the panel moves the tabs back. Narrow windows always keep the tabs in
+the top bar.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed

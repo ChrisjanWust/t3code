@@ -213,6 +213,7 @@ import {
   useClientSettingsHydrated,
   useEnvironmentSettings,
   useThreadTabsEnabled,
+  useThreadTabsVertical,
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
@@ -292,7 +293,7 @@ import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
-import { ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
+import { ThreadTabColumn, ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
 import { resolveThreadTabLocation, useThreadTabActions } from "./threadTabs/useThreadTabs";
 import { useSideChat } from "./chat/useSideChat";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -708,6 +709,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [isWorkspaceFileDragActive]);
   const prefersPlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const isMobileViewport = useMediaQuery("max-sm");
+  const isNarrowViewport = useMediaQuery("max-md");
   const [workspaceLayoutElement, setWorkspaceLayoutElement] = useState<HTMLDivElement | null>(null);
   const threadPanelPopoverAnchorRef = useRef<HTMLElement | null>(null);
   const [terminalUiLaunchContext, setTerminalUiLaunchContext] =
@@ -1770,6 +1772,8 @@ export default function ChatView(props: ChatViewProps) {
         })
       : null;
   const threadTabActions = useThreadTabActions(threadTabLocation);
+  // The side panel needs the room a narrow window does not have.
+  const verticalThreadTabs = useThreadTabsVertical() && !isNarrowViewport;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const saveSelectionToScratchStable = useStableCallback((markdown: string) => {
@@ -3410,7 +3414,8 @@ export default function ChatView(props: ChatViewProps) {
                       "wco:pr-(--workspace-native-controls-inset)",
                   )
                 : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+              // The tab panel sits at the window's edge instead, and clears the controls there.
+              !(threadTabLocation && verticalThreadTabs) && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             )}
           >
             {isElectron && rightPanelControlsAtRoot ? (
@@ -3424,6 +3429,7 @@ export default function ChatView(props: ChatViewProps) {
             {threadTabLocation ? (
               <ThreadTabStrip
                 location={threadTabLocation}
+                vertical={verticalThreadTabs}
                 keybindings={keybindings}
                 projectCwd={activeProjectCwd}
                 rightPanelOpen={inlineRightPanelOwnsTitleBar}
@@ -4125,7 +4131,19 @@ export default function ChatView(props: ChatViewProps) {
       cwd={activeWorkspaceRoot}
       checkpoints={serverProjection?.checkpoints}
     >
-      {content}
+      {/* The tab panel sits beside the row the right panel measures, so that panel's width cap
+          still leaves the chat its minimum. Always wrapped, so toggling never remounts the chat. */}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {threadTabLocation && verticalThreadTabs && !rightPanelMaximized ? (
+          <ThreadTabColumn
+            location={threadTabLocation}
+            keybindings={keybindings}
+            projectCwd={activeProjectCwd}
+            {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+          />
+        ) : null}
+        {content}
+      </div>
     </FileMetadataThreadProvider>
   );
 }
