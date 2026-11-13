@@ -3391,14 +3391,6 @@ export default function ChatView(props: ChatViewProps) {
         />
       )}
       {rightPanelControlsAtRoot && !embedded ? panelLayoutControls : null}
-      {threadTabLocation && verticalThreadTabs && !rightPanelMaximized ? (
-        <ThreadTabColumn
-          location={threadTabLocation}
-          keybindings={keybindings}
-          projectCwd={activeProjectCwd}
-          {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
-        />
-      ) : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -4139,7 +4131,19 @@ export default function ChatView(props: ChatViewProps) {
       cwd={activeWorkspaceRoot}
       checkpoints={serverProjection?.checkpoints}
     >
-      {content}
+      {/* The tab panel sits beside the row the right panel measures, so that panel's width cap
+          still leaves the chat its minimum. Always wrapped, so toggling never remounts the chat. */}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {threadTabLocation && verticalThreadTabs && !rightPanelMaximized ? (
+          <ThreadTabColumn
+            location={threadTabLocation}
+            keybindings={keybindings}
+            projectCwd={activeProjectCwd}
+            {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+          />
+        ) : null}
+        {content}
+      </div>
     </FileMetadataThreadProvider>
   );
 }
