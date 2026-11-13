@@ -474,6 +474,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta tabs worktree sidebar new tab close tab history paseo"],
   },
   {
+    id: "thread-tabs-auto-hide-panel",
+    title: "Hide the tab panel for one tab",
+    to: "/settings/labs",
+    // Shown inside the thread tabs row only while it is on, so search lands on the parent.
+    targetId: "thread-tabs",
+    searchTerms: ["beta tabs side panel vertical single lone one tab auto hide collapse"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",

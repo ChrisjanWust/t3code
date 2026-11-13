@@ -19,6 +19,9 @@ export const DEFAULT_CODE_FONT_STACK =
 
 export const TYPOGRAPHY_ADVANCED_STORAGE_KEY = "t3code:typography-advanced";
 
+// Declared in index.css: a baseline U+2026 for custom interface fonts that center theirs.
+const BASELINE_ELLIPSIS_FAMILY = '"T3 Baseline Ellipsis"';
+
 export function resolveTerminalFontPreference(input: {
   readonly advanced: boolean;
   readonly code: string;
@@ -74,17 +77,19 @@ export function applyAppearanceFontVariables(
   root: HTMLElement,
   preferences: AppearanceFontPreferences,
 ): void {
-  const families: ReadonlyArray<readonly [variable: string, custom: string, fallback: string]> = [
-    ["--font-sans", preferences.sans, DEFAULT_SANS_FONT_STACK],
+  const families: ReadonlyArray<
+    readonly [variable: string, custom: string, fallback: string, prefix?: string]
+  > = [
+    ["--font-sans", preferences.sans, DEFAULT_SANS_FONT_STACK, `${BASELINE_ELLIPSIS_FAMILY}, `],
     ["--font-mono", preferences.code, DEFAULT_CODE_FONT_STACK],
     ["--font-composer", preferences.separate ? preferences.composer : "", "var(--font-sans)"],
   ];
-  for (const [variable, custom, fallback] of families) {
+  for (const [variable, custom, fallback, prefix = ""] of families) {
     const list = cssFontFamilies(custom);
     if (list === null) {
       root.style.removeProperty(variable);
     } else {
-      root.style.setProperty(variable, `${list}, ${fallback}`);
+      root.style.setProperty(variable, `${prefix}${list}, ${fallback}`);
     }
   }
 
