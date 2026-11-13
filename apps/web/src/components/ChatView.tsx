@@ -2930,6 +2930,7 @@ export default function ChatView(props: ChatViewProps) {
       composerRef,
       composerDraftTarget,
       setThreadError,
+      placeForkTab: threadTabActions.placeForkTab,
     });
   const onCompactContext = () => {
     if (compactDisabled) return;
