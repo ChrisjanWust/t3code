@@ -624,6 +624,22 @@ function filesystemBrowseFailureContext(error: WorkspaceEntries.WorkspaceEntries
   }
 }
 
+const scratchFileError =
+  (input: { readonly cwd: string; readonly relativePath?: string | undefined }) =>
+  (cause: Parameters<typeof projectFileFailureContext>[0]) => {
+    const relativePath = input.relativePath ?? "tmp";
+    const exists =
+      cause._tag === "WorkspaceFileSystemOperationError" &&
+      (cause.cause as NodeJS.ErrnoException | undefined)?.code === "EEXIST";
+    return new ProjectWriteFileError({
+      cwd: input.cwd,
+      relativePath,
+      ...projectFileFailureContext(cause),
+      ...(exists ? { message: `'${relativePath}' already exists. Choose another name.` } : {}),
+      cause,
+    });
+  };
+
 function projectFileFailureContext(
   error:
     | WorkspaceFileSystem.WorkspaceFileSystemError
@@ -3048,6 +3064,14 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.projectsCreateScratchFile]: (input) =>
+          workspaceFileSystem
+            .createScratchFile(input)
+            .pipe(Effect.mapError(scratchFileError(input))),
+        [WS_METHODS.projectsSuggestScratchFile]: (input) =>
+          workspaceFileSystem
+            .suggestScratchFile(input)
+            .pipe(Effect.mapError(scratchFileError(input))),
         [WS_METHODS.projectsMutate]: (mutation) =>
           startup.enqueueCommand(mutateProject(mutation)).pipe(
             Effect.mapError(

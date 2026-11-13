@@ -43,6 +43,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   AuthFilesystemReadScope,
@@ -61,6 +62,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
+  FilePlusIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -99,6 +101,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { copyThreadReference } from "../lib/copyThreadReference";
+import { openNewScratchFile } from "../lib/newScratchFile";
 import {
   queueWorkspaceFocusFromPalette,
   restoreWorkspaceFocusFromPalette,
@@ -684,6 +687,10 @@ function OpenCommandPaletteDialog(props: {
   const currentProjectEnvironmentId =
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const canWriteCurrentProjectFiles = useEnvironmentScope(
+    currentProjectEnvironmentId,
+    AuthFilesystemWriteScope,
+  );
   const scratchTargetEnvironmentId = scratchEnvironmentId(currentProjectEnvironmentId);
   const supportsTriage = (environmentId: EnvironmentId | null) =>
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
@@ -1516,6 +1523,27 @@ function OpenCommandPaletteDialog(props: {
       openChildSearch("files", { query, linkedThreadSearch });
     },
   });
+
+  const scratchCwd = (activeThread ?? activeDraftThread)?.worktreePath ?? currentProjectCwd;
+  const scratchThreadRef = activeThread
+    ? scopeThreadRef(activeThread.environmentId, activeThread.id)
+    : activeDraftThread
+      ? scopeThreadRef(activeDraftThread.environmentId, activeDraftThread.threadId)
+      : null;
+  if (scratchThreadRef && scratchCwd && canWriteCurrentProjectFiles) {
+    const threadRef = scratchThreadRef;
+    actionItems.push({
+      kind: "action",
+      value: "action:new-scratch-file",
+      searchTerms: ["new scratch file", "temporary file", "temp", "notes", "scratchpad"],
+      title: "New scratch file",
+      icon: <FilePlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "file.newScratch",
+      run: async () => {
+        await openNewScratchFile(threadRef, scratchCwd);
+      },
+    });
+  }
 
   actionItems.push({
     kind: "action",

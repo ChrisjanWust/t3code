@@ -509,6 +509,67 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("creates scratch files numbered after the highest existing one", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+
+        expect(yield* workspaceFileSystem.suggestScratchFile({ cwd })).toEqual({
+          relativePath: "tmp/scratch_1.md",
+        });
+        expect(yield* fileSystem.exists(path.join(cwd, "tmp"))).toBe(false);
+        expect(yield* workspaceFileSystem.createScratchFile({ cwd })).toEqual({
+          relativePath: "tmp/scratch_1.md",
+        });
+        yield* writeTextFile(cwd, "tmp/scratch_4.md", "keep me\n");
+        yield* writeTextFile(cwd, "tmp/scratch_9.txt");
+
+        expect(yield* workspaceFileSystem.suggestScratchFile({ cwd })).toEqual({
+          relativePath: "tmp/scratch_5.md",
+        });
+        expect(yield* workspaceFileSystem.createScratchFile({ cwd, contents: "# Note\n" })).toEqual(
+          { relativePath: "tmp/scratch_5.md" },
+        );
+        expect(yield* fileSystem.readFileString(path.join(cwd, "tmp/scratch_5.md"))).toBe(
+          "# Note\n",
+        );
+      }),
+    );
+
+    it.effect("creates a scratch file at a chosen path without overwriting", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "notes/kept.md", "keep me\n");
+
+        expect(
+          yield* workspaceFileSystem.createScratchFile({
+            cwd,
+            relativePath: "notes/deep/idea.md",
+            contents: "idea\n",
+          }),
+        ).toEqual({ relativePath: "notes/deep/idea.md" });
+        expect(yield* fileSystem.readFileString(path.join(cwd, "notes/deep/idea.md"))).toBe(
+          "idea\n",
+        );
+
+        const exists = yield* workspaceFileSystem
+          .createScratchFile({ cwd, relativePath: "notes/kept.md", contents: "lost\n" })
+          .pipe(Effect.flip);
+        expect(exists).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileSystemOperationError);
+        expect(yield* fileSystem.readFileString(path.join(cwd, "notes/kept.md"))).toBe("keep me\n");
+
+        const escape = yield* workspaceFileSystem
+          .createScratchFile({ cwd, relativePath: "../outside.md", contents: "x" })
+          .pipe(Effect.flip);
+        expect(escape).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+      }),
+    );
+
     it.effect("invalidates workspace entry search cache after writes", () =>
       Effect.gen(function* () {
         const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;

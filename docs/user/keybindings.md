@@ -178,6 +178,12 @@ field gets its own undo back. Terminals always keep their native shortcut.
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
+`file.newScratch` (`mod+alt+s` by default) creates an empty `tmp/scratch_1.md` in the
+thread's working directory and opens it for editing. Each press makes the next
+number; existing files are never overwritten. It is also **New scratch file** in the
+command palette. To start one from a reply instead, select text in it and choose
+**Scratch file**; you confirm the path before it is created.
+
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`

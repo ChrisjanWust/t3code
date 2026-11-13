@@ -8,7 +8,9 @@ import type {
   FilesystemGetMetadataResult,
   ProjectMutateEntryInput,
   ProjectMutateEntryResult,
+  ProjectCreateScratchFileInput,
   ProjectReadFileInput,
+  ProjectSuggestScratchFileInput,
   ProjectReadFileResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -31,6 +33,8 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+const SCRATCH_DIRECTORY = "tmp";
+const SCRATCH_FILE_PATTERN = /^scratch_(\d+)\.md$/;
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.
 const isGitMetadataName = (segment: string) => {
@@ -155,6 +159,24 @@ export class WorkspaceFileSystem extends Context.Service<
       input: ProjectMutateEntryInput,
     ) => Effect.Effect<
       ProjectMutateEntryResult,
+      | WorkspaceFileSystemError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Creates the named file, or the next unused `tmp/scratch_N.md`; never overwrites. */
+    readonly createScratchFile: (
+      input: ProjectCreateScratchFileInput,
+    ) => Effect.Effect<
+      ProjectWriteFileResult,
+      | WorkspaceFileSystemError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Names the next unused `tmp/scratch_N.md` without creating it. */
+    readonly suggestScratchFile: (
+      input: ProjectSuggestScratchFileInput,
+    ) => Effect.Effect<
+      ProjectWriteFileResult,
       | WorkspaceFileSystemError
       | WorkspacePaths.WorkspacePathOutsideRootError
       | KnownWorkspaces.UnknownWorkspaceError
@@ -736,7 +758,90 @@ export const make = Effect.gen(function* () {
     return { relativePath };
   }, mutationLock.withPermits(1));
 
-  return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile, mutateEntry });
+  const nextScratchNumber = async (directory: string) => {
+    const names = await NodeFSP.readdir(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    return (
+      Math.max(0, ...names.map((name) => Number(SCRATCH_FILE_PATTERN.exec(name)?.[1] ?? 0))) + 1
+    );
+  };
+
+  const scratchOperation = Effect.fn("WorkspaceFileSystem.scratchOperation")(function* <A>(
+    cwd: string,
+    relativePath: string,
+    run: (realTargetPath: string) => Promise<A>,
+  ) {
+    yield* knownWorkspaces.assertContains(cwd);
+    const target = yield* resolveWriteTarget({ cwd, relativePath });
+    const value = yield* Effect.tryPromise({
+      try: () => run(target.realTargetPath),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: cwd,
+          relativePath,
+          resolvedPath: target.realTargetPath,
+          operationPath: target.realTargetPath,
+          operation: "write-file",
+          cause,
+        }),
+    });
+    return { value, relativePath: target.relativePath };
+  });
+
+  // Exclusive create: an existing file, or a link swapped in after the check, is never written.
+  const createExclusive = async (filePath: string, contents: string) => {
+    await NodeFSP.mkdir(path.dirname(filePath), { recursive: true });
+    await NodeFSP.writeFile(filePath, contents, {
+      flag: NodeFS.constants.O_WRONLY | NodeFS.constants.O_CREAT | NodeFS.constants.O_EXCL,
+    });
+  };
+
+  const suggestScratchFile: WorkspaceFileSystem["Service"]["suggestScratchFile"] = Effect.fn(
+    "WorkspaceFileSystem.suggestScratchFile",
+  )(function* (input) {
+    const { value } = yield* scratchOperation(input.cwd, SCRATCH_DIRECTORY, nextScratchNumber);
+    return { relativePath: `${SCRATCH_DIRECTORY}/scratch_${value}.md` };
+  });
+
+  const createScratchFile: WorkspaceFileSystem["Service"]["createScratchFile"] = Effect.fn(
+    "WorkspaceFileSystem.createScratchFile",
+  )(function* (input) {
+    const contents = input.contents ?? "";
+    let relativePath: string;
+    if (input.relativePath !== undefined) {
+      const created = yield* scratchOperation(input.cwd, input.relativePath, (filePath) =>
+        createExclusive(filePath, contents),
+      );
+      relativePath = created.relativePath;
+    } else {
+      const created = yield* scratchOperation(input.cwd, SCRATCH_DIRECTORY, async (directory) => {
+        // A concurrent request that takes the number moves this one on to the next.
+        for (let number = await nextScratchNumber(directory); ; number++) {
+          const name = `scratch_${number}.md`;
+          try {
+            await createExclusive(path.join(directory, name), contents);
+            return name;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          }
+        }
+      });
+      relativePath = `${SCRATCH_DIRECTORY}/${created.value}`;
+    }
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath };
+  });
+
+  return WorkspaceFileSystem.of({
+    getMetadata,
+    readFile,
+    writeFile,
+    mutateEntry,
+    createScratchFile,
+    suggestScratchFile,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);
