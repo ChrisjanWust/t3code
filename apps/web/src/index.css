@@ -164,6 +164,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   );
 }
 
+/* CJK fonts such as Hiragino center U+2026, so truncated text ends in a "···" that reads as a
+   menu button. `appearanceFonts.ts` puts this face ahead of a custom interface font; lacking a
+   space, it never becomes the primary font, so only the ellipsis glyph changes. */
+@font-face {
+  font-family: "T3 Baseline Ellipsis";
+  src:
+    local("Helvetica Neue"), local("HelveticaNeue"), local("Segoe UI"), local("Arial"),
+    local("Roboto"), local("Noto Sans"), local("DejaVu Sans");
+  unicode-range: U+2026;
+}
+
 /* The font tokens are declared outside the inline theme so utilities reference
    the variables and Settings -> Appearance can override them at runtime. The
    default stacks are mirrored in `appearanceFonts.ts`. */

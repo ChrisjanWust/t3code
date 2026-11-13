@@ -8,7 +8,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import { AppRoot } from "~/AppRoot";
-import { __setClientSettingsForTests } from "~/hooks/useSettings";
+import { __setClientSettingsForTests, updateClientSettings } from "~/hooks/useSettings";
 import { isMacPlatform } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { getRouter } from "~/router";
@@ -68,6 +68,7 @@ function setup(
     closeRevisionByThreadKey: {},
   });
   useThreadTabOrderStore.setState({ orderByWorktreeKey: {} });
+  localStorage.removeItem("t3code.threadTabColumnWidth");
   __setClientSettingsForTests({
     ...DEFAULT_CLIENT_SETTINGS,
     onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
@@ -228,6 +229,36 @@ it("lists the tabs in a side panel, leaving the open tab and its neighbors in th
   // The first tab's left neighbor wraps to the last.
   expect(neighbors()).toEqual(["Thread tab-c", "Thread tab-a", "Thread tab-b"]);
 
+  // The open tab in the top bar has the same thread menu as the tabs in the panel.
+  document
+    .querySelector("[data-current-tab]")!
+    .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Rename thread" }));
+  const titleInput = page.getByRole("textbox", { name: "Thread title" });
+  await userEvent.clear(titleInput);
+  await userEvent.type(titleInput, "Renamed tab{Enter}");
+  await vi.waitFor(() =>
+    expect(dispatchedCommands()).toContainEqual(
+      expect.objectContaining({
+        type: "thread.metadata.update",
+        threadId: "tab-a",
+        title: "Renamed tab",
+      }),
+    ),
+  );
+
+  // Dragging the panel's right edge widens it by as much.
+  const column = document.querySelector<HTMLElement>("[data-thread-tab-column]")!;
+  await vi.waitFor(() => expect(column.getBoundingClientRect().width).toBe(224));
+  const handle = page.getByRole("separator", { name: "Resize tab panel" }).element();
+  // Synthetic drag events have no active browser pointer to capture.
+  using _capture = vi.spyOn(handle, "setPointerCapture").mockImplementation(() => {});
+  const pointer = { bubbles: true, pointerId: 1, button: 0 };
+  handle.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, clientX: 500 }));
+  handle.dispatchEvent(new PointerEvent("pointerup", { ...pointer, clientX: 560 }));
+  await vi.waitFor(() => expect(column.getBoundingClientRect().width).toBe(284));
+  expect(column.querySelector("[data-thread-tab-list]")!.getBoundingClientRect().width).toBe(284);
+
   await userEvent.click(page.getByRole("button", { name: "Previous tab: Thread tab-c" }));
   await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-c`));
   await vi.waitFor(() =>
@@ -244,6 +275,33 @@ it("lists the tabs in a side panel, leaving the open tab and its neighbors in th
   await vi.waitFor(() =>
     expect(tabTitles()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
   );
+});
+
+it("can keep a lone tab in the top bar, bringing the side panel back for a second", async () => {
+  using _environment = setup();
+  await updateClientSettings({ threadTabsVertical: true, threadTabsAutoHidePanel: true });
+  const { screen, router } = await mountApp("checkout");
+  await using _screen = screen;
+  const column = () => document.querySelector("[data-thread-tab-column]");
+
+  await expect.element(tab("Thread checkout")).toBeVisible();
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "horizontal");
+  expect(column()).toBeNull();
+  // The panel is already chosen, so the strip has no layout button to offer.
+  expect(page.getByRole("button", { name: "Show tabs in a side panel" }).elements()).toHaveLength(
+    0,
+  );
+
+  await userEvent.click(page.getByRole("button", { name: "New tab" }));
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
+  expect(tabTitles()).toEqual(["Thread checkout", "New thread"]);
+
+  await userEvent.click(page.getByRole("button", { name: "Close New thread" }));
+  await vi.waitFor(() =>
+    expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/checkout`),
+  );
+  await expect.element(tabList()).toHaveAttribute("aria-orientation", "horizontal");
+  expect(column()).toBeNull();
 });
 
 it("closes a tab by settling it and reopens it from the history panel", async () => {

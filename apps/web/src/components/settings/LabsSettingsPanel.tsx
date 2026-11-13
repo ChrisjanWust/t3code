@@ -62,6 +62,33 @@ function ThreadTabsRow() {
           aria-label="Thread tabs"
         />
       }
+    >
+      {settings.threadTabsEnabled ? (
+        <div className="mt-2 mb-2 border-l-2 border-border/60 ps-3">
+          <ThreadTabsAutoHidePanelRow />
+        </div>
+      ) : null}
+    </SettingsRow>
+  );
+}
+
+function ThreadTabsAutoHidePanelRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("thread-tabs-auto-hide-panel")}
+      className="px-0 py-2 sm:px-0"
+      description="With tabs in the side panel, hide the panel while a worktree has only one tab. Its tab shows in the top bar until you open a second."
+      control={
+        <Switch
+          checked={settings.threadTabsAutoHidePanel}
+          onCheckedChange={(checked) =>
+            updateSettings({ threadTabsAutoHidePanel: Boolean(checked) })
+          }
+          aria-label="Hide the tab panel for one tab"
+        />
+      }
     />
   );
 }
