@@ -64,7 +64,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
-import { isBlankLastTab, resolveTabNeighbors, tabsInLayoutOrder } from "./threadTabs.logic";
+import { isBlankLastTab, tabsInLayoutOrder } from "./threadTabs.logic";
 import {
   type ThreadTabItem,
   type ThreadTabLocation,
@@ -373,6 +373,39 @@ function TabLayoutToggle(props: { readonly vertical: boolean }) {
   );
 }
 
+function NewTabButton(props: {
+  readonly location: ThreadTabLocation;
+  readonly keybindings: ResolvedKeybindingsConfig;
+}) {
+  const { location } = props;
+  const { newTab } = useThreadTabActions(location);
+  const shortcut = shortcutLabelForCommand(props.keybindings, "tab.new", {
+    context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },
+  });
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex shrink-0" />}>
+        <Button
+          aria-label="New tab"
+          size="icon-xs"
+          variant="ghost-muted"
+          disabled={location.creatingWorktree}
+          onClick={() => newTab()}
+        >
+          <PlusIcon className="size-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">
+        {location.creatingWorktree
+          ? "New tabs open here once the worktree is ready"
+          : shortcut
+            ? `New tab (${shortcut})`
+            : "New tab"}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 interface ThreadTabListProps {
   readonly location: ThreadTabLocation;
   readonly keybindings: ResolvedKeybindingsConfig;
@@ -386,7 +419,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   const { tabs: savedOrder, routeKey } = useWorktreeTabs(location);
   const tabs = tabsInLayoutOrder(savedOrder, vertical);
   const tabActions = useThreadTabActions(location);
-  const { newTab, selectTab, moveTab } = tabActions;
+  const { selectTab, moveTab } = tabActions;
   const closeTab = useStableCallback(tabActions.closeTab);
   const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -394,31 +427,6 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (over) moveTab(String(active.id), String(over.id));
   };
-  const newTabLabel = shortcutLabelForCommand(props.keybindings, "tab.new", {
-    context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },
-  });
-  const newTabButton = (
-    <Tooltip>
-      <TooltipTrigger render={<span className="flex shrink-0" />}>
-        <Button
-          aria-label="New tab"
-          size="icon-xs"
-          variant="ghost-muted"
-          disabled={location.creatingWorktree}
-          onClick={() => newTab()}
-        >
-          <PlusIcon className="size-3.5" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipPopup side={vertical ? "right" : "bottom"}>
-        {location.creatingWorktree
-          ? "New tabs open here once the worktree is ready"
-          : newTabLabel
-            ? `New tab (${newTabLabel})`
-            : "New tab"}
-      </TooltipPopup>
-    </Tooltip>
-  );
   return (
     <DndContext
       sensors={dragSensors}
@@ -435,8 +443,6 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
           vertical ? "flex-col items-start p-2" : "h-full w-max items-center",
         )}
       >
-        {/* Next to where the new tab opens: the strip's end, the panel's top. */}
-        {vertical ? newTabButton : null}
         <SortableContext
           items={tabs.map((tab) => tab.key)}
           strategy={vertical ? verticalListSortingStrategy : horizontalListSortingStrategy}
@@ -456,42 +462,10 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
             />
           ))}
         </SortableContext>
-        {vertical ? null : newTabButton}
+        {/* The panel's own button sits at the right of its header, like the sidebar's. */}
+        {vertical ? null : <NewTabButton location={location} keybindings={props.keybindings} />}
       </div>
     </DndContext>
-  );
-}
-
-function NeighborTab(props: {
-  readonly tab: ThreadTabItem;
-  readonly side: "Previous" | "Next";
-  readonly menu: TabMenuContext;
-  readonly onSelect: (key: string) => void;
-}) {
-  const title = tabTitle(props.tab);
-  const { renaming, commitRename, onContextMenu } = useTabMenu(props.tab, props.menu);
-  if (renaming) {
-    return (
-      <div className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-xs">
-        <TabStatusDot tab={props.tab} />
-        <TabRenameInput title={title} className="w-32" onCommit={commitRename} />
-      </div>
-    );
-  }
-  return (
-    <button
-      type="button"
-      aria-label={`${props.side} tab: ${title}`}
-      data-neighbor-tab={props.tab.key}
-      className="flex h-7 max-w-44 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-      onClick={() => props.onSelect(props.tab.key)}
-      onContextMenu={onContextMenu}
-    >
-      <TabStatusDot tab={props.tab} />
-      <span className="truncate" dir={textDirection(title)}>
-        {title}
-      </span>
-    </button>
   );
 }
 
@@ -522,51 +496,27 @@ function CurrentTab(props: { readonly tab: ThreadTabItem; readonly menu: TabMenu
   );
 }
 
-/** The top bar while the side panel lists the tabs: the open tab, wide, between its neighbors. */
-function ThreadTabNeighbors(props: {
+/** The top bar while the side panel lists the tabs: only the open tab. */
+function ThreadTabCurrent(props: {
   readonly location: ThreadTabLocation;
   readonly projectCwd: string | null;
   readonly onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }) {
   const { tabs, routeKey } = useWorktreeTabs(props.location);
-  const { selectTab } = useThreadTabActions(props.location);
-  // Shown only beside the side panel, so the neighbors are the tabs above and below.
-  const { previous, current, next } = resolveTabNeighbors(tabsInLayoutOrder(tabs, true), routeKey);
-  const menu: TabMenuContext = {
-    projectCwd: props.projectCwd,
-    environmentId: props.location.environmentId,
-  };
+  const current = tabs.find((tab) => tab.key === routeKey);
   return (
-    <div
-      role="group"
-      aria-label="Open tab and its neighbors"
-      className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_fit-content(60%)_minmax(0,1fr)] items-center gap-1"
-    >
-      <div className="flex min-w-0 justify-end">
-        {previous ? (
-          <NeighborTab
-            key={previous.key}
-            tab={previous}
-            side="Previous"
-            menu={menu}
-            onSelect={selectTab}
-          />
-        ) : null}
-      </div>
+    <div className="flex min-w-0 flex-1 justify-center">
       {current ? (
         <CurrentTab
           key={current.key}
           tab={current}
-          menu={{ ...menu, onFind: props.onFindInThread }}
+          menu={{
+            projectCwd: props.projectCwd,
+            environmentId: props.location.environmentId,
+            onFind: props.onFindInThread,
+          }}
         />
-      ) : (
-        <span />
-      )}
-      <div className="flex min-w-0 justify-start">
-        {next ? (
-          <NeighborTab key={next.key} tab={next} side="Next" menu={menu} onSelect={selectTab} />
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -574,7 +524,7 @@ function ThreadTabNeighbors(props: {
 /** The open worktree's threads as tabs, in place of the thread breadcrumb. */
 export function ThreadTabStrip(
   props: ThreadTabListProps & {
-    /** The side panel holds the full list, so the bar shows only the open tab and its neighbors. */
+    /** The side panel holds the full list, so the bar shows only the open tab. */
     readonly vertical: boolean;
     /** The side panel is chosen but stepped aside for a lone tab, so it has nothing to toggle. */
     readonly sidePanelAutoHidden: boolean;
@@ -595,7 +545,7 @@ export function ThreadTabStrip(
       )}
     >
       {props.vertical ? (
-        <ThreadTabNeighbors
+        <ThreadTabCurrent
           location={location}
           projectCwd={props.projectCwd}
           onFindInThread={props.onFindInThread}
@@ -641,7 +591,8 @@ export function ThreadTabStrip(
   );
 }
 
-const TAB_COLUMN_MIN_WIDTH = 160;
+// Fits both header buttons after the ~130px macOS title bar inset a collapsed sidebar leaves.
+const TAB_COLUMN_MIN_WIDTH = 192;
 const TAB_COLUMN_MAX_WIDTH = 480;
 
 /** The worktree's tabs as a list beside the chat, folded away by the toggle at its top. */
@@ -680,12 +631,13 @@ export function ThreadTabColumn(props: ThreadTabListProps) {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div
           className={cn(
-            "flex h-[var(--workspace-topbar-height)] w-(--resizable-width) shrink-0 items-center px-2",
+            "flex h-[var(--workspace-topbar-height)] w-(--resizable-width) shrink-0 items-center justify-between px-2",
             isElectron && "drag-region",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
           <TabLayoutToggle vertical />
+          <NewTabButton location={props.location} keybindings={props.keybindings} />
         </div>
         <ScrollArea
           radius="none"
