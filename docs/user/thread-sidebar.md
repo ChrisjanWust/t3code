@@ -169,6 +169,10 @@ panel moves the tabs back. Narrow windows always keep the tabs in the top bar. T
 for worktrees with a single tab, turn on **Settings → Labs → Thread tabs → Hide the tab panel for
 one tab**; the panel returns when you open a second tab.
 
+Each tab in the panel shows its provider's icon. Worktree rows in the sidebar leave it out; to
+show it there too, turn off **Settings → Labs → Thread tabs → Hide provider icons in the
+sidebar**.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed

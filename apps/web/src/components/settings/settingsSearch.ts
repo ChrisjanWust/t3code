@@ -486,6 +486,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta tabs side panel vertical single lone one tab auto hide collapse"],
   },
   {
+    id: "thread-tabs-hide-sidebar-provider-icons",
+    title: "Hide provider icons in the sidebar",
+    to: "/settings/labs",
+    targetId: "thread-tabs",
+    searchTerms: ["beta tabs worktree sidebar rows provider agent model icon logo hide show"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",
