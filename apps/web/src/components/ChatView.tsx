@@ -214,7 +214,6 @@ import {
   useEnvironmentSettings,
   useThreadTabsEnabled,
   useThreadTabsAutoHidePanel,
-  useThreadTabsVertical,
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
@@ -298,6 +297,7 @@ import { ThreadTabColumn, ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
 import {
   resolveThreadTabLocation,
   useThreadTabActions,
+  useThreadTabSidePanelChosen,
   useWorktreeHasLoneTab,
 } from "./threadTabs/useThreadTabs";
 import { useSideChat } from "./chat/useSideChat";
@@ -714,7 +714,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [isWorkspaceFileDragActive]);
   const prefersPlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const isMobileViewport = useMediaQuery("max-sm");
-  const isNarrowViewport = useMediaQuery("max-md");
   const [workspaceLayoutElement, setWorkspaceLayoutElement] = useState<HTMLDivElement | null>(null);
   const threadPanelPopoverAnchorRef = useRef<HTMLElement | null>(null);
   const [terminalUiLaunchContext, setTerminalUiLaunchContext] =
@@ -1777,8 +1776,7 @@ export default function ChatView(props: ChatViewProps) {
         })
       : null;
   const threadTabActions = useThreadTabActions(threadTabLocation);
-  // The side panel needs the room a narrow window does not have.
-  const threadTabSidePanelChosen = useThreadTabsVertical() && !isNarrowViewport;
+  const threadTabSidePanelChosen = useThreadTabSidePanelChosen();
   const autoHideThreadTabSidePanel = useThreadTabsAutoHidePanel();
   const threadTabSidePanelAutoHidden = useWorktreeHasLoneTab(
     threadTabSidePanelChosen && autoHideThreadTabSidePanel ? threadTabLocation : null,

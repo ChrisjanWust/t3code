@@ -62,7 +62,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
-import { isBlankLastTab, resolveTabNeighbors } from "./threadTabs.logic";
+import { isBlankLastTab, resolveTabNeighbors, tabsInLayoutOrder } from "./threadTabs.logic";
 import {
   type ThreadTabItem,
   type ThreadTabLocation,
@@ -381,7 +381,8 @@ interface ThreadTabListProps {
 /** The worktree's tabs and its new-tab button, draggable along the list's axis. */
 function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean }) {
   const { location, vertical } = props;
-  const { tabs, routeKey } = useWorktreeTabs(location);
+  const { tabs: savedOrder, routeKey } = useWorktreeTabs(location);
+  const tabs = tabsInLayoutOrder(savedOrder, vertical);
   const tabActions = useThreadTabActions(location);
   const { newTab, selectTab, moveTab } = tabActions;
   const closeTab = useStableCallback(tabActions.closeTab);
@@ -394,6 +395,28 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   const newTabLabel = shortcutLabelForCommand(props.keybindings, "tab.new", {
     context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },
   });
+  const newTabButton = (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex shrink-0" />}>
+        <Button
+          aria-label="New tab"
+          size="icon-xs"
+          variant="ghost-muted"
+          disabled={location.creatingWorktree}
+          onClick={() => newTab()}
+        >
+          <PlusIcon className="size-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipPopup side={vertical ? "right" : "bottom"}>
+        {location.creatingWorktree
+          ? "New tabs open here once the worktree is ready"
+          : newTabLabel
+            ? `New tab (${newTabLabel})`
+            : "New tab"}
+      </TooltipPopup>
+    </Tooltip>
+  );
   return (
     <DndContext
       sensors={dragSensors}
@@ -410,6 +433,8 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
           vertical ? "flex-col items-start p-2" : "h-full w-max items-center",
         )}
       >
+        {/* Next to where the new tab opens: the strip's end, the panel's top. */}
+        {vertical ? newTabButton : null}
         <SortableContext
           items={tabs.map((tab) => tab.key)}
           strategy={vertical ? verticalListSortingStrategy : horizontalListSortingStrategy}
@@ -429,26 +454,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
             />
           ))}
         </SortableContext>
-        <Tooltip>
-          <TooltipTrigger render={<span className="flex shrink-0" />}>
-            <Button
-              aria-label="New tab"
-              size="icon-xs"
-              variant="ghost-muted"
-              disabled={location.creatingWorktree}
-              onClick={() => newTab()}
-            >
-              <PlusIcon className="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipPopup side={vertical ? "right" : "bottom"}>
-            {location.creatingWorktree
-              ? "New tabs open here once the worktree is ready"
-              : newTabLabel
-                ? `New tab (${newTabLabel})`
-                : "New tab"}
-          </TooltipPopup>
-        </Tooltip>
+        {vertical ? null : newTabButton}
       </div>
     </DndContext>
   );
@@ -522,7 +528,8 @@ function ThreadTabNeighbors(props: {
 }) {
   const { tabs, routeKey } = useWorktreeTabs(props.location);
   const { selectTab } = useThreadTabActions(props.location);
-  const { previous, current, next } = resolveTabNeighbors(tabs, routeKey);
+  // Shown only beside the side panel, so the neighbors are the tabs above and below.
+  const { previous, current, next } = resolveTabNeighbors(tabsInLayoutOrder(tabs, true), routeKey);
   const menu: TabMenuContext = {
     projectCwd: props.projectCwd,
     environmentId: props.location.environmentId,
