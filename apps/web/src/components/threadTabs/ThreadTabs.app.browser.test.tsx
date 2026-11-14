@@ -213,21 +213,17 @@ it("drags a tab either way to reorder the strip, and closing and new tabs follow
   );
 });
 
-it("lists the tabs newest first in a side panel, leaving the open tab and its neighbors in the top bar", async () => {
+it("lists the tabs newest first in a side panel, leaving only the open tab in the top bar", async () => {
   using _environment = setup();
   const { screen, router } = await mountApp("tab-a");
   await using _screen = screen;
   await expect.element(tab("Thread tab-c")).toBeVisible();
-  const neighbors = () =>
-    [...document.querySelectorAll("[data-neighbor-tab], [data-current-tab]")].map(
-      (element) => element.textContent,
-    );
+  const topBarTab = () => document.querySelector("[data-current-tab]")?.textContent ?? null;
 
   await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
   expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-a"]);
-  // The neighbors are the tabs above and below, and the bottom tab's next one wraps to the top.
-  expect(neighbors()).toEqual(["Thread tab-b", "Thread tab-a", "Thread tab-c"]);
+  expect(topBarTab()).toBe("Thread tab-a");
 
   // The open tab in the top bar has the same thread menu as the tabs in the panel.
   document
@@ -259,11 +255,9 @@ it("lists the tabs newest first in a side panel, leaving the open tab and its ne
   await vi.waitFor(() => expect(column.getBoundingClientRect().width).toBe(284));
   expect(column.querySelector("[data-thread-tab-list]")!.getBoundingClientRect().width).toBe(284);
 
-  await userEvent.click(page.getByRole("button", { name: "Previous tab: Thread tab-b" }));
+  await userEvent.click(tab("Thread tab-b"));
   await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`));
-  await vi.waitFor(() =>
-    expect(neighbors()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-a"]),
-  );
+  await vi.waitFor(() => expect(topBarTab()).toBe("Thread tab-b"));
   // Switching and closing step through the tabs as the panel lists them.
   const pressWithModShift = (key: string) =>
     userEvent.keyboard(
@@ -288,7 +282,7 @@ it("lists the tabs newest first in a side panel, leaving the open tab and its ne
   await userEvent.click(page.getByRole("button", { name: "Show tabs in the top bar" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "horizontal");
   expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-c", "New thread"]);
-  expect(neighbors()).toEqual([]);
+  expect(topBarTab()).toBeNull();
 
   await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
