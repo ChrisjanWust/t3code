@@ -143,6 +143,11 @@ export interface McpInvocationScope {
   readonly linkedEnvironments?: boolean;
   /** The user hides T3's browser from this thread's agent, so it never sees the preview tools. */
   readonly browserHidden?: boolean;
+  /**
+   * The origin this `/mcp` request reached, e.g. a T3 Connect tunnel. Hosted clients cannot
+   * see the URL they were configured with, so links they must fetch carry it. Unset in-process.
+   */
+  readonly origin?: string | undefined;
 }
 
 /**

@@ -117,6 +117,7 @@ export interface SettleThreadInput extends ThreadCommandInput {
 
 export interface UnsettleThreadInput extends ThreadCommandInput {
   readonly reason: "user";
+  readonly restoreUnsettledAt?: string | null;
 }
 
 export interface PinThreadInput extends ThreadCommandInput {
@@ -671,6 +672,9 @@ export const unsettleThread = Effect.fn("EnvironmentCommands.unsettleThread")(fu
     commandId: yield* allocateCommandId(input),
     threadId: input.threadId,
     reason: input.reason,
+    ...(input.restoreUnsettledAt === undefined
+      ? {}
+      : { restoreUnsettledAt: input.restoreUnsettledAt }),
   });
 });
 
