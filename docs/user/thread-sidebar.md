@@ -163,10 +163,11 @@ until you clear it, which brings back the generated title, or choose **Reset tit
 ### List tabs in a side panel
 
 With thread tabs on, the button at the left end of the tabs moves them into a panel beside the
-chat, one tab per line. The top bar then shows only the open tab between its two neighbors. The
-same button at the top of the panel moves the tabs back. Narrow windows always keep the tabs in
-the top bar. To skip the panel for worktrees with a single tab, turn on **Settings → Labs → Thread
-tabs → Hide the tab panel for one tab**; the panel returns when you open a second tab.
+chat, one tab per line, newest first, so a new tab opens at the top. Switching to the next tab
+moves down the list. The top bar then shows only the open tab between its two neighbors in the
+list. The same button at the top of the panel moves the tabs back. Narrow windows always keep the
+tabs in the top bar. To skip the panel for worktrees with a single tab, turn on **Settings → Labs →
+Thread tabs → Hide the tab panel for one tab**; the panel returns when you open a second tab.
 
 ### Fold working threads (beta)
 

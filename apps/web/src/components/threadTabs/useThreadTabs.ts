@@ -20,6 +20,8 @@ import {
   useComposerDraftStore,
 } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useThreadTabsVertical } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import {
@@ -37,6 +39,7 @@ import {
   isBlankLastTab,
   moveWorktreeTab,
   resolveTabAfterClose,
+  tabsInLayoutOrder,
   tabThreadId,
   worktreeKey,
   type WorktreeTab,
@@ -226,6 +229,12 @@ function forgetHiddenDraftPlaces(location: ThreadTabLocation) {
   );
 }
 
+/** The side panel needs the room a narrow window does not have, so those keep the top bar. */
+export function useThreadTabSidePanelChosen(): boolean {
+  const narrow = useMediaQuery("max-md");
+  return useThreadTabsVertical() && !narrow;
+}
+
 const tabRef = (tab: ThreadTabItem): ScopedThreadRef | null =>
   tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
 
@@ -234,6 +243,9 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
   const { settleThread, confirmStopRunningThreads, pinThread } = useThreadActions();
+  // Switching and closing step through the tabs as they are listed. A panel hidden for a lone
+  // tab still counts: with one tab there is nowhere to step.
+  const sidePanel = useThreadTabSidePanelChosen();
 
   const openTab = (tab: ThreadTabItem) =>
     tab.kind === "thread"
@@ -269,7 +281,8 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
 
   const selectRelativeTab = (direction: "previous" | "next") => {
     if (location === null) return false;
-    const { tabs, routeKey } = readTabs(location);
+    const { tabs: savedOrder, routeKey } = readTabs(location);
+    const tabs = tabsInLayoutOrder(savedOrder, sidePanel);
     if (tabs.length < 2) return false;
     const index = tabs.findIndex((tab) => tab.key === routeKey);
     const next = tabs.at((index + (direction === "next" ? 1 : -1)) % tabs.length);
@@ -279,7 +292,7 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
 
   const leaveTab = (tabs: readonly ThreadTabItem[], key: string) => {
     const nextKey = resolveTabAfterClose(
-      tabs.map((tab) => tab.key),
+      tabsInLayoutOrder(tabs, sidePanel).map((tab) => tab.key),
       key,
     );
     const next = tabs.find((tab) => tab.key === nextKey);
