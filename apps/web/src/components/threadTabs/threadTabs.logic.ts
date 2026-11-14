@@ -159,6 +159,11 @@ export function isBlankLastTab(tabs: readonly WorktreeTab<unknown>[]): boolean {
   return rest.length === 0 && only?.kind === "draft" && !only.hasContent;
 }
 
+/** The side panel lists the newest tab first, so a new tab opens at its top; the saved order stays oldest first. */
+export function tabsInLayoutOrder<T>(tabs: readonly T[], sidePanel: boolean): readonly T[] {
+  return sidePanel ? tabs.toReversed() : tabs;
+}
+
 /** The open tab's neighbors for the three-tab top bar, wrapping at the ends without repeating a tab. */
 export function resolveTabNeighbors<T extends { readonly key: string }>(
   tabs: readonly T[],

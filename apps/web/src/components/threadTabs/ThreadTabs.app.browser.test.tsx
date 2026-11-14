@@ -213,7 +213,7 @@ it("drags a tab either way to reorder the strip, and closing and new tabs follow
   );
 });
 
-it("lists the tabs in a side panel, leaving the open tab and its neighbors in the top bar", async () => {
+it("lists the tabs newest first in a side panel, leaving the open tab and its neighbors in the top bar", async () => {
   using _environment = setup();
   const { screen, router } = await mountApp("tab-a");
   await using _screen = screen;
@@ -225,9 +225,9 @@ it("lists the tabs in a side panel, leaving the open tab and its neighbors in th
 
   await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
-  expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]);
-  // The first tab's left neighbor wraps to the last.
-  expect(neighbors()).toEqual(["Thread tab-c", "Thread tab-a", "Thread tab-b"]);
+  expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-a"]);
+  // The neighbors are the tabs above and below, and the bottom tab's next one wraps to the top.
+  expect(neighbors()).toEqual(["Thread tab-b", "Thread tab-a", "Thread tab-c"]);
 
   // The open tab in the top bar has the same thread menu as the tabs in the panel.
   document
@@ -259,21 +259,42 @@ it("lists the tabs in a side panel, leaving the open tab and its neighbors in th
   await vi.waitFor(() => expect(column.getBoundingClientRect().width).toBe(284));
   expect(column.querySelector("[data-thread-tab-list]")!.getBoundingClientRect().width).toBe(284);
 
-  await userEvent.click(page.getByRole("button", { name: "Previous tab: Thread tab-c" }));
-  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-c`));
+  await userEvent.click(page.getByRole("button", { name: "Previous tab: Thread tab-b" }));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`));
   await vi.waitFor(() =>
-    expect(neighbors()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
+    expect(neighbors()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-a"]),
   );
+  // Switching and closing step through the tabs as the panel lists them.
+  const pressWithModShift = (key: string) =>
+    userEvent.keyboard(
+      isMacPlatform(navigator.platform)
+        ? `{Meta>}{Shift>}${key}{/Shift}{/Meta}`
+        : `{Control>}{Shift>}${key}{/Shift}{/Control}`,
+    );
+  await pressWithModShift("]");
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-a`));
+  // user-event reads "[[" as a literal "[".
+  await pressWithModShift("[[");
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`));
+  await userEvent.click(page.getByRole("button", { name: "Close Thread tab-b" }));
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-a`));
+  await vi.waitFor(() => expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-a"]));
 
+  await userEvent.click(page.getByRole("button", { name: "New tab" }));
+  await expect.element(tab("New thread")).toHaveAttribute("aria-selected", "true");
+  expect(tabTitles()).toEqual(["New thread", "Thread tab-c", "Thread tab-a"]);
+
+  // The top bar keeps the oldest tab first.
   await userEvent.click(page.getByRole("button", { name: "Show tabs in the top bar" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "horizontal");
+  expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-c", "New thread"]);
   expect(neighbors()).toEqual([]);
 
   await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
   await dragTab("Thread tab-a", "Thread tab-c");
   await vi.waitFor(() =>
-    expect(tabTitles()).toEqual(["Thread tab-b", "Thread tab-c", "Thread tab-a"]),
+    expect(tabTitles()).toEqual(["New thread", "Thread tab-a", "Thread tab-c"]),
   );
 });
 
@@ -294,7 +315,7 @@ it("can keep a lone tab in the top bar, bringing the side panel back for a secon
 
   await userEvent.click(page.getByRole("button", { name: "New tab" }));
   await expect.element(tabList()).toHaveAttribute("aria-orientation", "vertical");
-  expect(tabTitles()).toEqual(["Thread checkout", "New thread"]);
+  expect(tabTitles()).toEqual(["New thread", "Thread checkout"]);
 
   await userEvent.click(page.getByRole("button", { name: "Close New thread" }));
   await vi.waitFor(() =>
