@@ -574,6 +574,37 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("ad-hoc signs unsigned macOS builds so Gatekeeper does not call them damaged", () =>
+    Effect.gen(function* () {
+      const unsigned = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.0",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const signed = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.0",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
+      const unsignedMac = unsigned.mac as Record<string, unknown>;
+      const signedMac = signed.mac as Record<string, unknown>;
+      assert.strictEqual(unsignedMac.identity, "-");
+      assert.strictEqual(unsignedMac.hardenedRuntime, false);
+      assert.isUndefined(unsignedMac.sign);
+      assert.isUndefined(signedMac.identity);
+      assert.isUndefined(signedMac.hardenedRuntime);
+      assert.isString(signedMac.sign);
+    }),
+  );
+
   // pnpm writes "set this to true or false" placeholders into allowBuilds when a
   // tarball changes. pnpm ignores them, but the release build decode rejects them.
   it.effect("decodes the repo allowBuilds and every file: tarball it names exists", () =>

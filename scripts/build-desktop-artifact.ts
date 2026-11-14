@@ -2871,7 +2871,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           role: "Viewer",
         },
       ],
-      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      // Unsigned builds keep only Electron's linker signature, which Gatekeeper calls
+      // "damaged" once downloaded. Ad-hoc signing seals the bundle; hardened runtime
+      // would then block loading Electron's frameworks, which have no team ID.
+      ...(signed
+        ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") }
+        : { identity: "-", hardenedRuntime: false }),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
