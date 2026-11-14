@@ -66,9 +66,31 @@ function ThreadTabsRow() {
       {settings.threadTabsEnabled ? (
         <div className="mt-2 mb-2 border-l-2 border-border/60 ps-3">
           <ThreadTabsAutoHidePanelRow />
+          <ThreadTabsHideSidebarProviderIconsRow />
         </div>
       ) : null}
     </SettingsRow>
+  );
+}
+
+function ThreadTabsHideSidebarProviderIconsRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("thread-tabs-hide-sidebar-provider-icons")}
+      className="px-0 py-2 sm:px-0"
+      description="Leave the provider icon off worktree rows in the sidebar. The tab panel still shows each tab's provider."
+      control={
+        <Switch
+          checked={settings.threadTabsHideSidebarProviderIcons}
+          onCheckedChange={(checked) =>
+            updateSettings({ threadTabsHideSidebarProviderIcons: Boolean(checked) })
+          }
+          aria-label="Hide provider icons in the sidebar"
+        />
+      }
+    />
   );
 }
 

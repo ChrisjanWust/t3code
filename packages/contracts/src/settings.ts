@@ -547,6 +547,9 @@ export const ClientSettingsSchema = Schema.Struct({
   threadTabsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   threadTabsVertical: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   threadTabsAutoHidePanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  threadTabsHideSidebarProviderIcons: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
   sidebarWorkingShelfEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -2100,6 +2103,7 @@ export const ClientSettingsPatch = Schema.Struct({
   threadTabsEnabled: Schema.optionalKey(Schema.Boolean),
   threadTabsVertical: Schema.optionalKey(Schema.Boolean),
   threadTabsAutoHidePanel: Schema.optionalKey(Schema.Boolean),
+  threadTabsHideSidebarProviderIcons: Schema.optionalKey(Schema.Boolean),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(

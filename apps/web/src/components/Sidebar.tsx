@@ -1022,6 +1022,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const hideWorktreeProviderIcons = useClientSettings((s) => s.threadTabsHideSidebarProviderIcons);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -3720,6 +3721,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   worktreeMembers,
                                 ),
                                 worktreeTabCount: worktreeOpenTabs.length,
+                                hideProviderIcon: hideWorktreeProviderIcons,
                                 worktreeStatusThreadId:
                                   resolveWorktreeStatusThread(worktreeOpenTabs, (member) =>
                                     hasUnseenCompletion({
