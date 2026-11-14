@@ -37,12 +37,14 @@ import { HistoryIcon, PlusIcon, Rows3Icon } from "lucide-react";
 import { type CSSProperties, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { isElectron } from "../../env";
+import { SIBLING_COLUMN_MIN_WIDTH } from "../../hooks/usePreviewPanelInlineSize";
 import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "../../hooks/useResizableWidth";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { updateClientSettings } from "../../hooks/useSettings";
 import { useThreadActionMenu } from "../../hooks/useThreadActionMenu";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { observeResize } from "../../lib/observeResize";
 import { cn } from "../../lib/utils";
 import { shouldShowInstanceBadge } from "../../providerInstances";
 import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
@@ -535,16 +537,28 @@ function ThreadTabNeighbors(props: {
     >
       <div className="flex min-w-0 justify-end">
         {previous ? (
-          <NeighborTab tab={previous} side="Previous" menu={menu} onSelect={selectTab} />
+          <NeighborTab
+            key={previous.key}
+            tab={previous}
+            side="Previous"
+            menu={menu}
+            onSelect={selectTab}
+          />
         ) : null}
       </div>
       {current ? (
-        <CurrentTab tab={current} menu={{ ...menu, onFind: props.onFindInThread }} />
+        <CurrentTab
+          key={current.key}
+          tab={current}
+          menu={{ ...menu, onFind: props.onFindInThread }}
+        />
       ) : (
         <span />
       )}
       <div className="flex min-w-0 justify-start">
-        {next ? <NeighborTab tab={next} side="Next" menu={menu} onSelect={selectTab} /> : null}
+        {next ? (
+          <NeighborTab key={next.key} tab={next} side="Next" menu={menu} onSelect={selectTab} />
+        ) : null}
       </div>
     </div>
   );
@@ -620,17 +634,35 @@ export function ThreadTabStrip(
   );
 }
 
+const TAB_COLUMN_MIN_WIDTH = 160;
+const TAB_COLUMN_MAX_WIDTH = 480;
+
 /** The worktree's tabs as a list beside the chat, folded away by the toggle at its top. */
 export function ThreadTabColumn(props: ThreadTabListProps) {
+  const [maxWidth, setMaxWidth] = useState(TAB_COLUMN_MAX_WIDTH);
   const { width, handlers } = useResizableWidth({
     storageKey: "t3code.threadTabColumnWidth",
     defaultWidth: 224,
-    minWidth: 160,
-    maxWidth: 480,
+    minWidth: TAB_COLUMN_MIN_WIDTH,
+    maxWidth,
     edge: "right",
   });
   return (
     <aside
+      ref={(host) => {
+        const row = host?.parentElement;
+        if (!row) return;
+        // The chat beside the panel keeps the width its composer needs.
+        const measure = () =>
+          setMaxWidth(
+            Math.max(
+              TAB_COLUMN_MIN_WIDTH,
+              Math.min(TAB_COLUMN_MAX_WIDTH, row.clientWidth - SIBLING_COLUMN_MIN_WIDTH),
+            ),
+          );
+        measure();
+        return observeResize(row, measure);
+      }}
       data-thread-tab-column
       className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
       style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}

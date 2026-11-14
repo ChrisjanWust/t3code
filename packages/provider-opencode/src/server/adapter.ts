@@ -281,6 +281,7 @@ interface ActiveOpenCodeTurn {
   admissionMessageId: string | null;
   interrupted: boolean;
   finalized: boolean;
+  contextOverflow: OrchestrationV2ProviderFailure | null;
   planId: PlanId | null;
   admissionGeneration: number;
   admissionReconciliationGeneration: number | null;
@@ -377,7 +378,8 @@ interface OpenCodeThreadState {
   readonly messageRoles: Map<string, "user" | "assistant">;
   readonly userMessageIds: Array<string>;
   parentSubagent: OpenCodeSubagentContext | null;
-  nextChildTurnOrdinal: number;
+  // null: a child resumed after a restart, whose next ordinal is recovered from OpenCode.
+  nextChildTurnOrdinal: number | null;
   nextAdmissionGeneration: number;
   permission: PermissionRuleset;
   /** Parent rules last written into this child's `permission`; empty for root sessions. */
@@ -1003,6 +1005,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
         const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event, Cause.Done>();
         let nativeStreamFailure: OrchestrationV2ProviderFailure | null = null;
         const threads = new Map<string, OpenCodeThreadState>();
+        const variantCache: OpenCodeRuntime.OpenCodeVariantCache = new Map();
         const commandReceipts = new Map<string, Deferred.Deferred<void>>();
         const commandControllers = new Map<string, Set<AbortController>>();
         const pendingRequests = new Map<string, PendingOpenCodeRequest>();
@@ -1307,6 +1310,22 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           });
         });
 
+        // A child turn's ordinal never exceeds its user message's position in the session, and that
+        // position survives restarts, so it stays above every ordinal allocated before.
+        const storedUserMessagePosition = Effect.fnUntraced(function* (
+          childSessionId: string,
+          messageId: string,
+        ) {
+          const response = yield* sdkCall("session.messages", { sessionID: childSessionId }, () =>
+            client.session.messages({ sessionID: childSessionId }),
+          );
+          const userMessageIds = unwrapData("session.messages", response).flatMap((entry) =>
+            entry.info.role === "user" ? [entry.info.id] : [],
+          );
+          const index = userMessageIds.indexOf(messageId);
+          return (index === -1 ? userMessageIds.length : index) + 1;
+        });
+
         const emitSubagent = Effect.fnUntraced(function* (
           state: OpenCodeThreadState,
           turn: ActiveOpenCodeTurn,
@@ -1348,7 +1367,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           const childSessionId = taskSessionId(part);
           if (childSessionId !== null && context.childSessionId === null) {
             context.childSessionId = childSessionId;
-            context.childThreadId = idAllocator.derive.threadFromProviderThread({
+            context.childThreadId = idAllocator.derive.subagentThread({
               driver: OPENCODE_PROVIDER,
               nativeThreadId: childSessionId,
             });
@@ -1415,6 +1434,15 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   permission: childPermission,
                 }),
             );
+            // A Task call with task_id resumes the child, whose earlier turns already hold ordinals.
+            const knownChild = threads.get(childSessionId);
+            const resumedChild = knownChild?.parentSubagent == null ? undefined : knownChild;
+            const nextChildTurnOrdinal =
+              resumedChild === undefined
+                ? recordString(input, "task_id") === childSessionId
+                  ? null
+                  : 1
+                : resumedChild.nextChildTurnOrdinal;
             threads.set(childSessionId, {
               nativeSessionId: childSessionId,
               providerThread: childProviderThread,
@@ -1422,10 +1450,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               activeTurn: null,
               providerTurns: new Map(),
               runtimeRequests: new Map(),
-              messageRoles: new Map(),
-              userMessageIds: [],
+              messageRoles: resumedChild?.messageRoles ?? new Map(),
+              userMessageIds: resumedChild?.userMessageIds ?? [],
               parentSubagent: context,
-              nextChildTurnOrdinal: 1,
+              nextChildTurnOrdinal,
               nextAdmissionGeneration: 1,
               permission: childPermission,
               inheritedPermission: openCodePermissionRules(turn.runtimePolicy),
@@ -2046,6 +2074,12 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             status = "failed";
             terminal = { failure: nativeStreamFailure, threadDisposition: "broken" };
           }
+          let lastError = sessionEntity.lastError;
+          if (status === "completed" && turn.contextOverflow !== null) {
+            status = "failed";
+            terminal = { failure: turn.contextOverflow };
+            lastError = turn.contextOverflow.message;
+          }
           turn.finalized = true;
           const completedAt = yield* DateTime.now;
           for (const part of turn.parts.values()) {
@@ -2100,7 +2134,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           );
           yield* updateProviderSession(
             anotherTurnIsActive ? "running" : status === "failed" ? "error" : "ready",
-            status === "failed" ? sessionEntity.lastError : null,
+            status === "failed" ? lastError : null,
           );
           yield* emitProviderEvent(
             status === "failed"
@@ -2215,6 +2249,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           message: Extract<OpenCodeMessage, { role: "user" }>,
         ) {
           if (state.appThread === null || state.parentSubagent === null) return null;
+          const ordinal =
+            state.nextChildTurnOrdinal ??
+            (yield* storedUserMessagePosition(state.nativeSessionId, message.id));
+          state.nextChildTurnOrdinal = ordinal + 1;
           const now = yield* DateTime.now;
           const startedAt = dateTimeFromEpoch(message.time.created, now);
           const rootNodeId = idAllocator.derive.nodeFromProviderItem({
@@ -2231,7 +2269,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             nodeId: rootNodeId,
             runAttemptId: null,
             nativeTurnRef: providerRef(message.id, "weak"),
-            ordinal: state.nextChildTurnOrdinal++,
+            ordinal,
             status: "running",
             startedAt,
             completedAt: null,
@@ -2259,6 +2297,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             admissionMessageId: null,
             interrupted: false,
             finalized: false,
+            contextOverflow: null,
             planId: null,
             admissionGeneration: 0,
             admissionReconciliationGeneration: null,
@@ -2556,6 +2595,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             case "session.compacted": {
               const state = threads.get(event.properties.sessionID);
               if (state?.activeTurn !== undefined && state.activeTurn !== null) {
+                state.activeTurn.contextOverflow = null;
                 yield* emitCompactionItem(state, state.activeTurn);
               }
               return;
@@ -2658,6 +2698,20 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               return;
             }
             case "session.error": {
+              const overflowTurn =
+                event.properties.error?.name === "ContextOverflowError" &&
+                event.properties.sessionID !== undefined
+                  ? threads.get(event.properties.sessionID)?.activeTurn
+                  : undefined;
+              if (overflowTurn !== undefined && overflowTurn !== null) {
+                // OpenCode stays busy and auto-compacts; the turn fails only if it idles uncompacted.
+                overflowTurn.contextOverflow = makeProviderFailure({
+                  message: openCodeErrorMessage(event),
+                  code: "ContextOverflowError",
+                  class: "provider_error",
+                });
+                return;
+              }
               const states =
                 event.properties.sessionID === undefined
                   ? Array.from(threads.values()).filter((state) => state.activeTurn !== null)
@@ -2977,12 +3031,24 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
         const submitPrompt = Effect.fn("OpenCode.submitPrompt")(function* (
           state: OpenCodeThreadState,
           turn: ActiveOpenCodeTurn,
-          payload: Parameters<typeof client.session.promptAsync>[0] & {
+          inputPayload: Parameters<typeof client.session.promptAsync>[0] & {
             messageID: string;
             sessionID: string;
           },
           abortController: AbortController,
         ) {
+          const { variant, ...payloadWithoutVariant } = inputPayload;
+          const selectedVariant = yield* OpenCodeRuntime.resolveOpenCodeVariant(
+            client,
+            inputPayload.model,
+            variant,
+            abortController.signal,
+            variantCache,
+          );
+          const payload = {
+            ...payloadWithoutVariant,
+            ...(selectedVariant === undefined ? {} : { variant: selectedVariant }),
+          };
           const text = payload.parts
             ?.filter((part) => part.type === "text")
             .map((part) => part.text)
@@ -3245,6 +3311,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 admissionMessageId,
                 interrupted: false,
                 finalized: false,
+                contextOverflow: null,
                 planId: null,
                 admissionGeneration: state.nextAdmissionGeneration++,
                 admissionReconciliationGeneration: null,
@@ -3281,7 +3348,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                     ),
                 ).pipe(
                   Effect.tap(() =>
-                    turn.interrupted || turn.finalized || nativeStreamFailure !== null
+                    turn.interrupted ||
+                    turn.finalized ||
+                    turn.contextOverflow !== null ||
+                    nativeStreamFailure !== null
                       ? Effect.void
                       : emitCompactionItem(state, turn),
                   ),
@@ -3395,8 +3465,20 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 ...(text.length === 0 ? [] : [{ type: "text" as const, text }]),
                 ...files,
               ];
+              const admissionMessageId = yield* makeOpenCodeMessageId(messageIdClock);
+              while (turn.admissionAbortController !== null) {
+                const pendingAdmission = turn.admissionSettled;
+                yield* Deferred.await(pendingAdmission);
+                // Another waiting steer may have claimed admission first.
+                if (turn.admissionSettled === pendingAdmission) break;
+              }
+              if (state.activeTurn !== turn || turn.finalized || turn.interrupted) {
+                return yield* protocolError(
+                  `OpenCode turn ${steerInput.providerTurnId} is not active`,
+                );
+              }
               turn.admissionGeneration = state.nextAdmissionGeneration++;
-              turn.admissionMessageId = yield* makeOpenCodeMessageId(messageIdClock);
+              turn.admissionMessageId = admissionMessageId;
               turn.admissionPending = true;
               turn.admissionAccepted = false;
               turn.admissionMessageObserved = false;
@@ -3431,7 +3513,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   ]).pipe(Effect.asVoid),
                 ),
               );
-              if (state.activeTurn === turn && !turn.finalized) {
+              if (state.activeTurn === turn && !turn.finalized && !turn.interrupted) {
                 const admissionAction = advanceOpenCodePromptAdmission(turn, "accepted");
                 if (admissionAction === "reconcile-idle") {
                   yield* reconcilePromptAdmission(state, turn);

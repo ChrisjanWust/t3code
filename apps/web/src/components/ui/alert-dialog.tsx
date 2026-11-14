@@ -1,5 +1,5 @@
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
-import { useRef } from "react";
+import { useRender } from "@base-ui/react/use-render";
 
 import { cn } from "~/lib/utils";
 import {
@@ -7,7 +7,12 @@ import {
   DIALOG_MOBILE_SHEET_CLASS,
   DIALOG_POPUP_CLASS,
 } from "~/components/ui/dialog-styles";
-import { ControlledOpenContext, renderRetainedPopup } from "~/components/ui/dialog";
+import {
+  ControlledOpenContext,
+  DialogAction,
+  renderRetainedPopup,
+  useDialogActionInitialFocus,
+} from "~/components/ui/dialog";
 
 function AlertDialog<Payload>(props: AlertDialogPrimitive.Root.Props<Payload>) {
   return (
@@ -54,40 +59,50 @@ function AlertDialogPopup({
   bottomStickOnMobile?: boolean;
   portalContainer?: AlertDialogPrimitive.Portal.Props["container"];
 }) {
-  const popupRef = useRef<HTMLDivElement>(null);
+  const { popupRef, initialFocus: focusDialogAction } = useDialogActionInitialFocus();
+  const popup = useRender({
+    ref: popupRef,
+    render: (
+      <AlertDialogPrimitive.Popup
+        className={cn(
+          DIALOG_POPUP_CLASS,
+          "row-start-2 max-h-full max-w-lg text-popover-foreground",
+          bottomStickOnMobile && DIALOG_MOBILE_SHEET_CLASS,
+          className,
+        )}
+        data-slot="alert-dialog-popup"
+        initialFocus={
+          initialFocus ??
+          ((openType) => {
+            const target = focusDialogAction(openType);
+            if (target !== true) return target;
+            // Footers end with the primary action; focusing it lets Enter confirm.
+            return (
+              [
+                ...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
+                  '[data-slot="alert-dialog-footer"] button:not(:disabled)',
+                ) ?? []),
+              ].at(-1) ?? true
+            );
+          })
+        }
+        onKeyDownCapture={(event) => {
+          // A held Enter that opened the dialog would otherwise repeat onto the focused action.
+          if (event.key === "Enter" && event.repeat) event.preventDefault();
+          onKeyDownCapture?.(event);
+        }}
+        render={renderRetainedPopup}
+        {...props}
+      />
+    ),
+  });
   return (
     <AlertDialogPortal container={portalContainer}>
       <AlertDialogBackdrop />
       <AlertDialogViewport
         className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}
       >
-        <AlertDialogPrimitive.Popup
-          className={cn(
-            DIALOG_POPUP_CLASS,
-            "row-start-2 max-h-full max-w-lg text-popover-foreground",
-            bottomStickOnMobile && DIALOG_MOBILE_SHEET_CLASS,
-            className,
-          )}
-          data-slot="alert-dialog-popup"
-          // Footers end with the primary action; focusing it lets Enter confirm.
-          initialFocus={
-            initialFocus ??
-            (() =>
-              [
-                ...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
-                  '[data-slot="alert-dialog-footer"] button:not(:disabled)',
-                ) ?? []),
-              ].at(-1) ?? true)
-          }
-          ref={popupRef}
-          onKeyDownCapture={(event) => {
-            // A held Enter that opened the dialog would otherwise repeat onto the focused action.
-            if (event.key === "Enter" && event.repeat) event.preventDefault();
-            onKeyDownCapture?.(event);
-          }}
-          render={renderRetainedPopup}
-          {...props}
-        />
+        {popup}
       </AlertDialogViewport>
     </AlertDialogPortal>
   );
@@ -166,5 +181,6 @@ export {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogClose,
+  DialogAction as AlertDialogAction,
   AlertDialogViewport,
 };
