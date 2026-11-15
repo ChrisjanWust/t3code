@@ -301,6 +301,7 @@ export function DraftHeroHeadline({
           render={
             <ComboboxTrigger
               render={<InlineButton tone="picker" />}
+              data-draft-project-trigger=""
               className="pointer-events-auto min-w-0 max-w-full"
             />
           }
