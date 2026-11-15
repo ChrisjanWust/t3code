@@ -375,6 +375,15 @@ describe("resolveWorktreeStatusThread", () => {
       "approval",
     );
     expect(resolveWorktreeStatusThread([done, working], () => false)?.id).toBe("working");
+    const seenFailure = thread("seen-failure", {
+      runtime: { status: "failed" } as SidebarThreadSummary["runtime"],
+      latestRun: {
+        status: "failed",
+        completedAt: "2026-10-26T10:05:00.000Z",
+      } as SidebarThreadSummary["latestRun"],
+      lastVisitedAt: "2026-10-26T10:06:00.000Z",
+    });
+    expect(resolveWorktreeStatusThread([seenFailure, working], () => false)?.id).toBe("working");
     expect(
       resolveWorktreeStatusThread([thread("read"), done], (candidate) => candidate === done)?.id,
     ).toBe("done");

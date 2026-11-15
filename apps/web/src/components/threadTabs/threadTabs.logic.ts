@@ -4,7 +4,7 @@ import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
 
 import type { SidebarThreadSummary } from "../../types";
-import { resolveSidebarThreadStatus, type SidebarSection } from "../Sidebar.logic";
+import { resolveSidebarRowStatus, type SidebarSection } from "../Sidebar.logic";
 
 type WorktreeLocation = Pick<SidebarThreadSummary, "environmentId" | "projectId" | "worktreePath"> &
   Partial<Pick<SidebarThreadSummary, "id" | "creatingWorktree">>;
@@ -265,12 +265,12 @@ const STATUS_URGENCY = [
 
 /** The worktree row shows the open tab that most needs the user. */
 export function resolveWorktreeStatusThread<
-  T extends Parameters<typeof resolveSidebarThreadStatus>[0],
+  T extends Parameters<typeof resolveSidebarRowStatus>[0],
 >(openThreads: readonly T[], isUnread: (thread: T) => boolean): T | null {
   let best: T | null = null;
   let bestRank = Number.POSITIVE_INFINITY;
   for (const thread of openThreads) {
-    const status = resolveSidebarThreadStatus(thread);
+    const status = resolveSidebarRowStatus(thread);
     const urgency = STATUS_URGENCY.indexOf(status as (typeof STATUS_URGENCY)[number]);
     const rank =
       urgency !== -1

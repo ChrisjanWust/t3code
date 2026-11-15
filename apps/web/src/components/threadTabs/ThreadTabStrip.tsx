@@ -55,7 +55,11 @@ import { textDirection } from "../../textDirection";
 import { canShareWithGuestAtom } from "../chat/guestShareAvailability";
 import { GuestShareIndicator } from "../chat/GuestShareControls";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
+import {
+  hasUnseenCompletion,
+  resolveSidebarRowStatus,
+  resolveSidebarThreadStatus,
+} from "../Sidebar.logic";
 import { sidebarProviderEntriesAtom } from "../sidebar/sidebarProviderEntries";
 import { Button } from "../ui/button";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
@@ -96,7 +100,7 @@ function preventMiddleButtonDefault(event: ReactMouseEvent) {
 // Static colors only: a pulsing dot per tab would repaint the header continuously.
 function tabStatusClassName(tab: ThreadTabItem): string | null {
   if (tab.kind === "draft" || tab.closed) return null;
-  const status = resolveSidebarThreadStatus(tab.thread);
+  const status = resolveSidebarRowStatus(tab.thread);
   switch (status) {
     case "approval":
     case "input":
