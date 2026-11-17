@@ -1,7 +1,13 @@
 import { arrayMove } from "@dnd-kit/sortable";
-import { isListedThreadLineage, type ProjectWorktreeTitle } from "@t3tools/contracts";
+import {
+  isListedThreadLineage,
+  type ProjectWorktreeTitle,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
+import { resolveListedAncestorThreadRef } from "@t3tools/client-runtime/state/threads";
 
 import type { SidebarThreadSummary } from "../../types";
 import { resolveSidebarRowStatus, type SidebarSection } from "../Sidebar.logic";
@@ -38,6 +44,18 @@ export function draftWorktreeKey(
   draft: WorktreeLocation & { readonly envMode: "local" | "worktree" },
 ): string | null {
   return draft.envMode === "worktree" && draft.worktreePath === null ? null : worktreeKey(draft);
+}
+
+/**
+ * The tab that stands for `ref`: a subagent's or side chat's listed parent. A task a linked
+ * environment delegated here keeps its own tab, since its parent's tabs are on that machine.
+ */
+export function tabThreadKey(
+  ref: ScopedThreadRef,
+  threads: Parameters<typeof resolveListedAncestorThreadRef>[1],
+): string {
+  const local = threads.filter((thread) => thread.environmentId === ref.environmentId);
+  return scopedThreadKey(resolveListedAncestorThreadRef(ref, local));
 }
 
 function isWorktreeMember(thread: WorktreeThread): boolean {

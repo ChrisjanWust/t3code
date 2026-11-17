@@ -141,6 +141,7 @@ import {
   isOpenTab,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
+  tabThreadKey,
   worktreeKey,
   worktreeLabel,
 } from "./threadTabs/threadTabs.logic";
@@ -1864,7 +1865,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     () =>
       registerSettleAndAdvance((threadRef) => {
         // With tabs, settling goes through the worktree's row, so it settles every tab.
-        const threadKey = scopedThreadKey(resolveListedAncestorThreadRef(threadRef, threads));
+        const threadKey = tabThreadKey(threadRef, threads);
         const rowKey = worktreeRowKeyByThreadKeyRef.current.get(threadKey);
         const row =
           rowKey === undefined

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { sortThreadsByCreatedAt } from "@t3tools/client-runtime/state/thread-sort";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { SidebarThreadSummary } from "../../types";
 import {
   buildWorktreeTabs,
@@ -13,6 +15,7 @@ import {
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
+  tabThreadKey,
   worktreeCreatedAtMs,
   worktreeKey,
   worktreeLabel,
@@ -233,6 +236,30 @@ describe("buildWorktreeTabs", () => {
     expect(isBlankLastTab(tabs([], [draft("blank")]))).toBe(true);
     expect(isBlankLastTab(tabs([], [draft("blank", { hasContent: true })]))).toBe(false);
     expect(isBlankLastTab(tabs([thread("open")], [draft("blank")]))).toBe(false);
+  });
+});
+
+describe("tabThreadKey", () => {
+  it("gives a subagent its parent's tab, but a task delegated from a linked environment its own", () => {
+    const ref = (environmentId: string, id: string) =>
+      scopeThreadRef(EnvironmentId.make(environmentId), ThreadId.make(id));
+    const threads = [
+      thread("remote-parent", { environmentId: EnvironmentId.make("env-2") }),
+      thread("task", {
+        delegatedFrom: {
+          environmentId: EnvironmentId.make("env-2"),
+          threadId: ThreadId.make("remote-parent"),
+          title: "Parent",
+        },
+      }),
+      thread("task-subagent", {
+        lineage: { relationshipToParent: "subagent", parentThreadId: "task" },
+      } as Partial<SidebarThreadSummary>),
+    ];
+    const taskKey = scopedThreadKey(ref("env-1", "task"));
+
+    expect(tabThreadKey(ref("env-1", "task-subagent"), threads)).toBe(taskKey);
+    expect(tabThreadKey(ref("env-1", "task"), threads)).toBe(taskKey);
   });
 });
 

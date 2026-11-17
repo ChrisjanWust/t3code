@@ -8,7 +8,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { resolveListedAncestorThreadRef } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -42,6 +41,7 @@ import {
   resolveTabAfterClose,
   tabsInLayoutOrder,
   tabThreadId,
+  tabThreadKey,
   worktreeKey,
   type WorktreeTab,
   type WorktreeTabDraft,
@@ -137,7 +137,7 @@ function routeTabKey(
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): string {
   if (location.routeDraftId !== null) return location.routeDraftId;
-  return scopedThreadKey(resolveListedAncestorThreadRef(location.routeThreadRef, threads));
+  return tabThreadKey(location.routeThreadRef, threads);
 }
 
 function buildTabs(
