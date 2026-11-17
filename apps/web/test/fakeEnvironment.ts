@@ -38,6 +38,7 @@ import {
   type ProjectMutation,
   type ProjectWorktreeTitle,
   type TerminalMetadataStreamEvent,
+  type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import type {
   ConnectionAttemptError,
@@ -642,6 +643,7 @@ export const fakeDriver = {
         target: entry.target,
       },
       session,
+      refusedRouteIds: [],
     }),
   preflight: () => Effect.succeed(true),
   checkHost: () => Effect.succeed<RouteCheck>("unchecked"),
@@ -655,6 +657,7 @@ export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
   options: {
     readonly acceptCommands?: boolean;
+    readonly keybindings?: ResolvedKeybindingsConfig;
     readonly extraProjects?: ReadonlyArray<Pick<OrchestrationProjectShell, "id" | "title">>;
     /** Commands left unanswered even when accepting, until `rejectPendingCommand`. */
     readonly holdCommand?: (command: OrchestrationV2Command) => boolean;
@@ -677,7 +680,10 @@ export function installFakeEnvironment(
     workspaceRoot: `/workspace/${extra.title}`,
   }));
   descriptor = makeDescriptor(options.capabilities ?? {});
-  baseServerConfig = makeServerConfig(options.providers ?? [CODEX_PROVIDER]);
+  baseServerConfig = {
+    ...makeServerConfig(options.providers ?? [CODEX_PROVIDER]),
+    keybindings: options.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS,
+  };
   const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));
   // The app keeps its connection across mounts, so live subscriptions resync as on a reconnect.
   sequence += 1;
@@ -754,6 +760,18 @@ export function dispatchedCommands(): ReadonlyArray<OrchestrationV2Command> {
 }
 
 type ThreadEvent = Extract<OrchestrationV2ThreadStreamItem, { readonly kind: "event" }>["event"];
+
+/** Answers one RPC method with `handler` until disposed. */
+export function answerRpc(method: string, handler: (input: never) => unknown): Disposable {
+  const previous = handlers[method];
+  handlers[method] = handler;
+  return {
+    [Symbol.dispose]: () => {
+      if (previous) handlers[method] = previous;
+      else delete handlers[method];
+    },
+  };
+}
 
 export async function emitTerminalMetadata(event: TerminalMetadataStreamEvent): Promise<void> {
   if (terminalMetadataSubscriber === null) throw new Error("No terminal metadata subscription");

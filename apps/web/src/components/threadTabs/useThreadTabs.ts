@@ -8,6 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { resolveListedAncestorThreadRef } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -30,7 +31,7 @@ import {
   useSelectQuietThreadShells,
 } from "../../state/entities";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../../threadRoutes";
-import { resolveSidebarRowThreadId, useSnoozeWakeClock } from "../Sidebar.logic";
+import { useSnoozeWakeClock } from "../Sidebar.logic";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   buildWorktreeTabs,
@@ -136,10 +137,7 @@ function routeTabKey(
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): string {
   if (location.routeDraftId !== null) return location.routeDraftId;
-  const { environmentId, threadId } = location.routeThreadRef;
-  return scopedThreadKey(
-    scopeThreadRef(environmentId, resolveSidebarRowThreadId(threadId, environmentId, threads)),
-  );
+  return scopedThreadKey(resolveListedAncestorThreadRef(location.routeThreadRef, threads));
 }
 
 function buildTabs(

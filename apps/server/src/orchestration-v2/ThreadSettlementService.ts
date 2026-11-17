@@ -701,11 +701,11 @@ export const make = Effect.gen(function* () {
   const cleanUpSettledThread = Effect.fn("ThreadSettlementServiceV2.cleanUpSettledThread")(
     function* (threadId: ThreadId) {
       const settled = yield* projections.getThread(threadId);
-      if (settled.settledOverride !== "settled") return;
+      if (settled.deletedAt !== null || settled.settledOverride !== "settled") return;
       yield* terminals.closeOnSettle({ threadId });
       const worktreePath = settled.worktreePath;
       if (worktreePath === null || !(yield* fileSystem.exists(worktreePath))) return;
-      // Read after closing and worktree I/O; re-engaged threads must not be cleaned up.
+      // Read after closing and worktree I/O; deleted or re-engaged threads must not be cleaned up.
       const { threads } = yield* projections.getShellSnapshot({ location: "active", worktreePath });
       const settledAtMsOf = (thread: (typeof threads)[number]) =>
         thread.settledOverride === "settled" ? toMillis(thread.settledAt) : null;
@@ -773,6 +773,7 @@ export const make = Effect.gen(function* () {
         return enqueueFullSweep();
       case "thread.pull-request-link-updated":
       case "thread.pull-request-synced":
+      case "thread.issue-synced":
       case "provider-session.detached":
       case "run.background-work-cancelled":
         return enqueueThread(event.threadId);
