@@ -1876,6 +1876,10 @@ const MarkdownSource = memo(function MarkdownSource({
   return <ChatMarkdownTextContext value={text}>{element}</ChatMarkdownTextContext>;
 });
 
+/** Body text of a block of chat markdown; the Markdown file editor uses it too. */
+export const CHAT_MARKDOWN_BODY_TEXT_CLASS =
+  "text-sm leading-relaxed text-foreground/[calc(90%+var(--appearance-contrast-boost)/10)]";
+
 function ChatMarkdown({
   text,
   className,
@@ -1935,8 +1939,7 @@ function ChatMarkdown({
       ref={bindMarkdownRef}
       className={cn(
         "chat-markdown w-full min-w-0 [overflow-wrap:anywhere] [word-break:break-word]",
-        !inline &&
-          "text-sm leading-relaxed text-foreground/[calc(90%+var(--appearance-contrast-boost)/10)]",
+        !inline && CHAT_MARKDOWN_BODY_TEXT_CLASS,
         className,
       )}
       data-streaming={componentState.isStreaming ? "" : undefined}
