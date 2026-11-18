@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { createContext, type ReactNode, use, useEffect, useRef, useState } from "react";
 
-import ChatMarkdown from "~/components/ChatMarkdown";
+import ChatMarkdown, { CHAT_MARKDOWN_BODY_TEXT_CLASS } from "~/components/ChatMarkdown";
 
 import { markdownImageBaseDir } from "../FileMarkdownPreview";
 import { Input } from "../../ui/input";
@@ -389,7 +389,7 @@ function toggleTaskAtClick(view: EditorView, event: MouseEvent): boolean {
 
 const editorProps: EditorProps = {
   attributes: {
-    class: "chat-markdown chat-markdown-document file-markdown-editor outline-none",
+    class: `chat-markdown chat-markdown-document file-markdown-editor outline-none ${CHAT_MARKDOWN_BODY_TEXT_CLASS}`,
     "aria-label": "Markdown editor",
   },
   clipboardTextParser: (text, _context, _plain, view) =>
