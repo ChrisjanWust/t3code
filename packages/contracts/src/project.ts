@@ -562,7 +562,7 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
  * Authorization and the server's write both decide by this, so they cannot disagree.
  */
 export const isProjectHostFilePath = (path: string): boolean =>
-  /^(?:[/\\]|~[/\\]|[A-Za-z]:)/.test(path);
+  /^(?:[/\\]|~[/\\]|[A-Za-z]:[/\\])/.test(path);
 
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

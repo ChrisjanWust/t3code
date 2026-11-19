@@ -139,7 +139,7 @@ agent writes in a temporary directory. Relative paths follow the [workspace path
 rules](../../apps/server/src/workspace/WorkspaceFileSystem.ts). Writing by absolute or
 `~/` path also needs `terminal:operate`: a shell can already write any file, so
 `filesystem:write` alone stays confined to projects. Those writes only replace an
-existing file and never touch the server's own state.
+existing file and never touch the server's database or secrets.
 
 Signed asset URLs are bearer credentials. A URL for media on the host grants
 access to one canonical file and its device/inode identity, not its containing directory.
