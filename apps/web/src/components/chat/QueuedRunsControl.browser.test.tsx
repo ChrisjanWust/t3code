@@ -16,7 +16,7 @@ import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { AsyncResult, type Atom, AtomRegistry } from "effect/reactivity";
-import { Profiler, useState, type ComponentProps } from "react";
+import { createRef, Profiler, useState, type ComponentProps } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   threadState: null as unknown as Atom.Writable<AsyncResult.AsyncResult<EnvironmentThreadState>>,
   workflow: null as unknown,
   commandResult: undefined as unknown,
+  commandInputs: [] as unknown[],
 }));
 
 vi.mock(import("@t3tools/client-runtime/state/thread-workflows"), async (importOriginal) => ({
@@ -74,7 +75,10 @@ vi.mock(import("../../state/threads"), async (importOriginal) => {
 
 vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useAtomCommand: (() => async () => state.commandResult) as never,
+  useAtomCommand: (() => async (input: unknown) => {
+    state.commandInputs.push(input);
+    return state.commandResult;
+  }) as never,
 }));
 
 vi.mock(import("../../assets/assetUrls"), async (importOriginal) => ({
@@ -89,13 +93,14 @@ import { EMPTY_ENVIRONMENT_THREAD_STATE } from "@t3tools/client-runtime/state/th
 import { act, render as renderUi } from "../../../test/render";
 import { makeStreamingTimelineFixture, makeThreadProjectionFixture } from "../../test-fixtures";
 import { ToastProvider } from "../ui/toast";
-import { QueuedRunsControl } from "./QueuedRunsControl";
+import { QueuedRunsControl, type QueuedRunsControlHandle } from "./QueuedRunsControl";
 import { ExpandedImageDialog } from "./ExpandedImageDialog";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 
 function setup() {
   state.workflow = null;
   state.commandResult = undefined;
+  state.commandInputs = [];
 }
 
 const baseProps = {
@@ -442,4 +447,22 @@ it("tells the user why Send now was rejected", async () => {
 
   await page.getByRole("button", { name: "Send now" }).click();
   await vi.waitFor(() => expect(page.getByText(reason).element()).toBeVisible());
+});
+
+it("sends the newest queued message, not the oldest", async () => {
+  setup();
+  state.workflow = {
+    activeRun: { id: "run:active" },
+    canPromoteToSteer: true,
+    queuedRuns: ["run:oldest", "run:newest"].map((id) => ({
+      run: { id, userMessageId: `${id}:message` },
+      text: id,
+      attachments: [],
+    })),
+  };
+  const ref = createRef<QueuedRunsControlHandle>();
+  await using _screen = await renderQueue({ ref });
+
+  expect(await act(() => ref.current?.sendLatest())).toBe(true);
+  expect(state.commandInputs).toMatchObject([{ input: { queuedRunId: "run:newest" } }]);
 });

@@ -94,6 +94,7 @@ const UNWATCHED_SEQUENCE_ATOM = Atom.make(0).pipe(
 
 export interface QueuedRunsControlHandle {
   steerNext: (repeat: boolean) => boolean;
+  sendLatest: () => boolean;
   editLatest: (repeat: boolean) => boolean;
 }
 
@@ -263,6 +264,14 @@ export function QueuedRunsControl({
       const next = queued[0];
       if (!next || !canSendRun(next.run.freshContext === true)) return false;
       if (!repeat && busyRunId === null) void sendQueuedMessage(next.run.id);
+      return true;
+    },
+    // A still-saving message is the newest, so nothing older sends in its place.
+    sendLatest() {
+      const latest = queued.at(-1);
+      if (!latest || optimisticQueued.length > 0 || props.editingRunId !== null) return false;
+      if (!canSendRun(latest.run.freshContext === true)) return false;
+      if (busyRunId === null) void sendQueuedMessage(latest.run.id);
       return true;
     },
     // Leave the key to caret navigation while editing.
