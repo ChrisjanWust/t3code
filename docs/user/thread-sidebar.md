@@ -179,8 +179,8 @@ With thread tabs on, a subagent opens inside its parent's tab, even when it work
 of its own, so your tabs stay where they were. In the top bar the tab reads `parent › subagent`.
 Click the parent's name to go back, or the subagent's name to switch to another subagent. On the
 parent itself, the bot icon on its tab lists them. In the side panel, the open tab lists its
-subagents under it: running ones and those waiting on you first, finished ones under
-**Previous**. The top bar's arrow returns to the parent. On desktop, the close-tab shortcut also
+subagents under it. Both lists show the five newest first, plus any waiting on you; **Show
+more** reveals the rest. The top bar's arrow returns to the parent. On desktop, the close-tab shortcut also
 returns to the parent instead of closing the tab.
 
 ### Fold working threads (beta)

@@ -340,7 +340,7 @@ it("keeps a subagent's parent tabs, in its own worktree too, and goes back up", 
   expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]);
   await userEvent.click(page.getByRole("button", { name: "Switch subagent from Thread sub-live" }));
   await expect.element(page.getByRole("menuitem", { name: /Thread sub-live/ })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Previous (1)" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /Thread sub-done/ })).toBeVisible();
   await userEvent.keyboard("{Escape}");
 
   // The tab's own name goes up, and the parent's tab lists its subagents.
@@ -356,8 +356,6 @@ it("keeps a subagent's parent tabs, in its own worktree too, and goes back up", 
   await expect
     .element(subagents.getByRole("button", { name: /Thread sub-live/ }))
     .toHaveAttribute("aria-current", "page");
-  expect(subagents.getByRole("button", { name: /Thread sub-done/ }).elements()).toHaveLength(0);
-  await userEvent.click(subagents.getByRole("button", { name: "Previous (1)" }));
   await userEvent.click(subagents.getByRole("button", { name: /Thread sub-done/ }));
   await at("sub-done");
   await userEvent.click(page.getByRole("button", { name: "Up to Thread tab-a" }));
