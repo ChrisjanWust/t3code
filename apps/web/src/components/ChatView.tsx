@@ -3177,6 +3177,9 @@ export default function ChatView(props: ChatViewProps) {
   };
   const sendPreviewAnnotationStable = useStableCallback(sendPreviewAnnotation);
   const onComposerResumeStable = useStableCallback(onResume);
+  const sendLatestQueuedMessageStable = useStableCallback(
+    () => queuedRunsControlRef.current?.sendLatest() === true,
+  );
   const onComposerCompactContextStable = useStableCallback(onCompactContext);
   // Read from the projection the footer renders, so the scroll below sees the new message.
   const pendingGuestMessageIds =
@@ -3937,6 +3940,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onCompactContext={onComposerCompactContextStable}
                                 onSend={onComposerSendStable}
                                 onResume={onComposerResumeStable}
+                                onSendLatestQueuedMessage={sendLatestQueuedMessageStable}
                                 onInterrupt={onInterruptStable}
                                 onSelectActivePendingUserInputOption={
                                   onSelectActivePendingUserInputOptionStable

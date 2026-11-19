@@ -461,6 +461,7 @@ export interface ChatComposerProps {
     submissionIntent?: ComposerSubmissionIntent,
   ) => void;
   onResume: () => void;
+  onSendLatestQueuedMessage: () => boolean;
   onInterrupt: () => void;
   onSelectActivePendingUserInputOption: (questionId: string, optionValue: string) => void;
   onAdvanceActivePendingUserInput: () => void;
@@ -563,6 +564,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onCompactContext,
     onSend,
     onResume,
+    onSendLatestQueuedMessage,
     onInterrupt,
     onSelectActivePendingUserInputOption,
     onAdvanceActivePendingUserInput,
@@ -2223,6 +2225,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       event?.preventDefault();
       if (isSendBusy || environmentUnavailable !== null) return false;
       onResume();
+      return true;
+    }
+    // Otherwise Enter sends the newest queued message, like its Send now.
+    if (
+      submissionIntent === "foreground" &&
+      !activePendingProgress &&
+      !composerDraftHasUserContent(composerDraft) &&
+      onSendLatestQueuedMessage()
+    ) {
+      event?.preventDefault();
       return true;
     }
     const submission = submitComposerDraft({
