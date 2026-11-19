@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { cn } from "../../lib/utils";
-import { useQuietThreadShell, useQuietThreadShells } from "../../state/entities";
+import { useQuietThreadShells } from "../../state/entities";
 import { textDirection } from "../../textDirection";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { RelativeTime } from "../RelativeTime";
@@ -24,6 +24,7 @@ import {
   resolveThreadTabLocation,
   type ThreadTabItem,
   type ThreadTabLocation,
+  useTabThreadShell,
   useThreadTabActions,
   useWorktreeTabs,
 } from "./useThreadTabs";
@@ -211,7 +212,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
 
 /** Every tab in the panel thread's worktree: open ones first, then snoozed and closed ones. */
 export function WorktreeTabsPanel(props: { readonly threadRef: ScopedThreadRef }) {
-  const shell = useQuietThreadShell(props.threadRef);
+  const shell = useTabThreadShell(props.threadRef);
   const draftId = useComposerDraftStore((store) => store.getDraftIdByRef(props.threadRef));
   const draft = useComposerDraftStore((store) => store.getDraftThreadByRef(props.threadRef));
   const location = resolveThreadTabLocation({

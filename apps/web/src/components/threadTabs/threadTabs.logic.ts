@@ -3,14 +3,19 @@ import {
   isListedThreadLineage,
   type ProjectWorktreeTitle,
   type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveListedAncestorThreadRef } from "@t3tools/client-runtime/state/threads";
 
 import type { SidebarThreadSummary } from "../../types";
-import { resolveSidebarRowStatus, type SidebarSection } from "../Sidebar.logic";
+import {
+  hasUnseenCompletion,
+  resolveSidebarRowStatus,
+  type SidebarSection,
+} from "../Sidebar.logic";
 
 type WorktreeLocation = Pick<SidebarThreadSummary, "environmentId" | "projectId" | "worktreePath"> &
   Partial<Pick<SidebarThreadSummary, "id" | "creatingWorktree">>;
@@ -50,12 +55,115 @@ export function draftWorktreeKey(
  * The tab that stands for `ref`: a subagent's or side chat's listed parent. A task a linked
  * environment delegated here keeps its own tab, since its parent's tabs are on that machine.
  */
+function tabThreadRef(
+  ref: ScopedThreadRef,
+  threads: Parameters<typeof resolveListedAncestorThreadRef>[1],
+): ScopedThreadRef {
+  const local = threads.filter((thread) => thread.environmentId === ref.environmentId);
+  return resolveListedAncestorThreadRef(ref, local);
+}
+
 export function tabThreadKey(
   ref: ScopedThreadRef,
   threads: Parameters<typeof resolveListedAncestorThreadRef>[1],
 ): string {
-  const local = threads.filter((thread) => thread.environmentId === ref.environmentId);
-  return scopedThreadKey(resolveListedAncestorThreadRef(ref, local));
+  return scopedThreadKey(tabThreadRef(ref, threads));
+}
+
+type StatusThread = Parameters<typeof resolveSidebarRowStatus>[0] & {
+  readonly lastVisitedAt?: string | null | undefined;
+};
+
+export type TabStatusTone = "attention" | "failed" | "working" | "unseen";
+
+/** What a tab's or subagent row's status dot shows, or null when it shows nothing. */
+export function threadTabStatusTone(thread: StatusThread): TabStatusTone | null {
+  switch (resolveSidebarRowStatus(thread)) {
+    case "approval":
+    case "input":
+    case "request":
+    case "limited":
+      return "attention";
+    case "failed":
+      return "failed";
+    case "preparing":
+    case "working":
+    case "waiting":
+      return "working";
+    case "ready":
+      return hasUnseenCompletion({ ...thread, lastVisitedAt: thread.lastVisitedAt ?? undefined })
+        ? "unseen"
+        : null;
+  }
+}
+
+type SubagentThread = StatusThread &
+  Pick<SidebarThreadSummary, "id" | "environmentId" | "lineage" | "archivedAt" | "createdAt">;
+
+export interface TabSubagents<T> {
+  /** Subagents whose row shows a status dot: running, waiting on the user, or finished unseen. */
+  readonly active: readonly T[];
+  /** The rest, newest first. */
+  readonly previous: readonly T[];
+}
+
+/**
+ * The subagents listed under a tab: its thread's own, in launch order. Side chats open beside
+ * their parent instead. Only the open tab's thread has its whole family loaded, so only it lists.
+ */
+export function resolveTabSubagents<T extends SubagentThread>(
+  threads: readonly T[],
+  tabRef: ScopedThreadRef,
+): TabSubagents<T> {
+  const subagents = threads
+    .filter(
+      (thread) =>
+        thread.environmentId === tabRef.environmentId &&
+        thread.archivedAt === null &&
+        thread.lineage.parentThreadId === tabRef.threadId &&
+        thread.lineage.relationshipToParent === "subagent" &&
+        thread.lineage.sideChat !== true,
+    )
+    .toSorted(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  return {
+    active: subagents.filter((thread) => threadTabStatusTone(thread) !== null),
+    previous: subagents.filter((thread) => threadTabStatusTone(thread) === null).toReversed(),
+  };
+}
+
+/** The tab's subagent that `routeRef` is, or that a nested subagent on the route descends from. */
+export function resolveRouteSubagentId(
+  routeRef: ScopedThreadRef,
+  tabRef: ScopedThreadRef,
+  threads: readonly Pick<SidebarThreadSummary, "id" | "environmentId" | "lineage">[],
+): ThreadId | null {
+  if (routeRef.environmentId !== tabRef.environmentId) return null;
+  const visited = new Set<ThreadId>();
+  let current = routeRef.threadId;
+  while (!visited.has(current)) {
+    visited.add(current);
+    const parentId =
+      threads.find(
+        (thread) => thread.environmentId === routeRef.environmentId && thread.id === current,
+      )?.lineage.parentThreadId ?? null;
+    if (parentId === null) return null;
+    if (parentId === tabRef.threadId) return current;
+    current = parentId;
+  }
+  return null;
+}
+
+/** Where "up" goes from a subagent or side chat: the thread that started it. */
+export function subagentParentRef(
+  thread: Pick<SidebarThreadSummary, "environmentId" | "lineage">,
+): ScopedThreadRef | null {
+  const parentId = thread.lineage.parentThreadId;
+  return isListedThreadLineage(thread.lineage) || parentId === null
+    ? null
+    : scopeThreadRef(thread.environmentId, parentId);
 }
 
 function isWorktreeMember(thread: WorktreeThread): boolean {

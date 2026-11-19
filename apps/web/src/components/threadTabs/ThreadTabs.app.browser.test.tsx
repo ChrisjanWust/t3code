@@ -319,6 +319,51 @@ it("can keep a lone tab in the top bar, bringing the side panel back for a secon
   expect(column()).toBeNull();
 });
 
+it("keeps a subagent's parent tabs, in its own worktree too, and goes back up", async () => {
+  using _environment = setup([
+    {
+      ...threadWithHistory("sub-live", 1),
+      subagentOf: ThreadId.make("tab-a"),
+      status: "running",
+      worktreePath: "/workspace/render-worktrees/sub-live",
+      branch: "feature/sub-live",
+    },
+    { ...threadWithHistory("sub-done", 1), subagentOf: ThreadId.make("tab-a"), ...WORKTREE },
+  ]);
+  const { screen, router } = await mountApp("sub-live");
+  await using _screen = screen;
+  const at = (threadId: string) =>
+    vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/${threadId}`));
+
+  // The top bar keeps the parent's tabs and names the subagent inside the parent's tab.
+  await expect.element(tab("Thread tab-a")).toHaveAttribute("aria-selected", "true");
+  expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]);
+  await userEvent.click(page.getByRole("button", { name: "Switch subagent from Thread sub-live" }));
+  await expect.element(page.getByRole("menuitem", { name: /Thread sub-live/ })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Previous (1)" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+
+  // The tab's own name goes up, and the parent's tab lists its subagents.
+  await userEvent.click(tab("Thread tab-a"));
+  await at("tab-a");
+  await userEvent.click(page.getByRole("button", { name: "Subagents" }));
+  await userEvent.click(page.getByRole("menuitem", { name: /Thread sub-live/ }));
+  await at("sub-live");
+
+  // The side panel lists them under the tab, and its top bar goes up.
+  await userEvent.click(page.getByRole("button", { name: "Show tabs in a side panel" }));
+  const subagents = page.getByRole("group", { name: "Subagents" });
+  await expect
+    .element(subagents.getByRole("button", { name: /Thread sub-live/ }))
+    .toHaveAttribute("aria-current", "page");
+  expect(subagents.getByRole("button", { name: /Thread sub-done/ }).elements()).toHaveLength(0);
+  await userEvent.click(subagents.getByRole("button", { name: "Previous (1)" }));
+  await userEvent.click(subagents.getByRole("button", { name: /Thread sub-done/ }));
+  await at("sub-done");
+  await userEvent.click(page.getByRole("button", { name: "Up to Thread tab-a" }));
+  await at("tab-a");
+});
+
 it("closes a tab by settling it and reopens it from the history panel", async () => {
   using _environment = setup();
   const { screen, router } = await mountApp("tab-a");
