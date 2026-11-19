@@ -2,18 +2,19 @@
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 
-import type {
-  FilesystemEntryMetadata,
-  FilesystemGetMetadataInput,
-  FilesystemGetMetadataResult,
-  ProjectMutateEntryInput,
-  ProjectMutateEntryResult,
-  ProjectCreateScratchFileInput,
-  ProjectReadFileInput,
-  ProjectSuggestScratchFileInput,
-  ProjectReadFileResult,
-  ProjectWriteFileInput,
-  ProjectWriteFileResult,
+import {
+  isProjectHostFilePath,
+  type FilesystemEntryMetadata,
+  type FilesystemGetMetadataInput,
+  type FilesystemGetMetadataResult,
+  type ProjectMutateEntryInput,
+  type ProjectMutateEntryResult,
+  type ProjectCreateScratchFileInput,
+  type ProjectReadFileInput,
+  type ProjectSuggestScratchFileInput,
+  type ProjectReadFileResult,
+  type ProjectWriteFileInput,
+  type ProjectWriteFileResult,
 } from "@t3tools/contracts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -147,7 +148,7 @@ export class WorkspaceFileSystem extends Context.Service<
       ProjectReadFileResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
-    /** Writes inside a known workspace only. */
+    /** Writes inside a known workspace, or over an existing file named by host path. */
     readonly writeFile: (
       input: ProjectWriteFileInput,
     ) => Effect.Effect<
@@ -221,6 +222,12 @@ export const make = Effect.gen(function* () {
     toWslDrivePath(requestedPath).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
+  // Untraced: it only runs inside the read and write spans.
+  const toRequestedHostPath = Effect.fnUntraced(function* (requestedPath: string) {
+    return requestedPath.startsWith("~/") || requestedPath.startsWith("~\\")
+      ? expandHomePath(requestedPath, yield* HostProcess.HomeDirectory)
+      : yield* toHostPath(requestedPath);
+  });
 
   const metadataForPath = Effect.fnUntraced(function* (requestedPath: string) {
     const expandedPath = expandHomePath(
@@ -311,10 +318,7 @@ export const make = Effect.gen(function* () {
     input: ProjectReadFileInput,
   ) {
     const requestedPath = input.relativePath;
-    const hostPath =
-      requestedPath.startsWith("~/") || requestedPath.startsWith("~\\")
-        ? expandHomePath(requestedPath, yield* HostProcess.HomeDirectory)
-        : yield* toHostPath(requestedPath);
+    const hostPath = yield* toRequestedHostPath(requestedPath);
     if (
       isNetworkPath(hostPath) &&
       !KnownWorkspaces.isWithinRoot(path, path.resolve(hostPath), path.resolve(input.cwd))
@@ -637,11 +641,57 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath, realTargetPath };
   });
 
+  /**
+   * Writing by host path requires shell access, which can already write any file, so there is
+   * no root or Git folder check. It only overwrites an existing regular file.
+   */
+  const resolveHostWriteTarget = Effect.fn("WorkspaceFileSystem.resolveHostWriteTarget")(function* (
+    input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
+  ) {
+    const hostPath = yield* toRequestedHostPath(input.relativePath);
+    const outsideRoot = new WorkspacePaths.WorkspacePathOutsideRootError({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    // Touching a network path makes Windows sign in to its host with the user's NTLM credentials.
+    if (!path.isAbsolute(hostPath) || isNetworkPath(hostPath)) return yield* outsideRoot;
+    const operationError =
+      (operation: "realpath-target" | "stat", resolvedPath: string) => (cause: unknown) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath,
+          operationPath: resolvedPath,
+          operation,
+          cause,
+        });
+    const realTargetPath = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(hostPath),
+      catch: operationError("realpath-target", hostPath),
+    });
+    if (yield* isServerInternalPath(realTargetPath)) return yield* outsideRoot;
+    const stat = yield* Effect.tryPromise({
+      try: () => NodeFSP.stat(realTargetPath),
+      catch: operationError("stat", realTargetPath),
+    });
+    if (!stat.isFile()) {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: realTargetPath,
+      });
+    }
+    return { relativePath: input.relativePath, realTargetPath };
+  });
+
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
     "WorkspaceFileSystem.writeFile",
   )(function* (input) {
-    yield* knownWorkspaces.assertContains(input.cwd);
-    const target = yield* resolveWriteTarget(input);
+    const hostFile = isProjectHostFilePath(input.relativePath);
+    if (!hostFile) yield* knownWorkspaces.assertContains(input.cwd);
+    const target = hostFile
+      ? yield* resolveHostWriteTarget(input)
+      : yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
     const replacesFile = yield* fileSystem
       .exists(realTargetPath)

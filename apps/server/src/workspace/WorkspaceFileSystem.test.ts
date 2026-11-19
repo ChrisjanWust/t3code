@@ -617,20 +617,89 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
-    it.effect("rejects writes by absolute path", () =>
-      Effect.gen(function* () {
-        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const path = yield* Path.Path;
-        const cwd = yield* makeTempDir;
-        const outsideDir = yield* makeTempDir;
-        const absolutePath = path.join(outsideDir, "cleanup-report.md");
+    it.effect.skipIf(!symlinksSupported)(
+      "overwrites a host file by absolute path through a symlinked folder, whatever the cwd",
+      () =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: UNKNOWN_WORKSPACE_PREFIX,
+          });
+          const outsideDir = yield* makeTempDir;
+          yield* writeTextFile(outsideDir, "drive/post.md", "# Draft\n");
+          const linkedDir = path.join(yield* makeTempDir, "linked");
+          yield* fileSystem.symlink(path.join(outsideDir, "drive"), linkedDir);
+          const relativePath = path.join(linkedDir, "post.md");
 
-        const error = yield* workspaceFileSystem
-          .writeFile({ cwd, relativePath: absolutePath, contents: "# Edited\n" })
-          .pipe(Effect.flip);
+          const result = yield* workspaceFileSystem.writeFile({
+            cwd,
+            relativePath,
+            contents: "# Edited\n",
+          });
 
-        expect(error).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
-      }),
+          expect(result).toEqual({ relativePath });
+          expect(yield* fileSystem.readFileString(path.join(outsideDir, "drive/post.md"))).toBe(
+            "# Edited\n",
+          );
+          expect(yield* fileSystem.readLink(linkedDir)).toBe(path.join(outsideDir, "drive"));
+        }),
+    );
+
+    it.effect.each(["~/notes.md", "~\\notes.md"])(
+      "overwrites %s in the server home, not the workspace",
+      (relativePath) =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          const home = yield* makeTempDir;
+          yield* writeTextFile(home, "notes.md", "# Notes\n");
+          yield* writeTextFile(cwd, "~/notes.md", "Workspace decoy\n");
+
+          yield* workspaceFileSystem
+            .writeFile({ cwd, relativePath, contents: "# Edited\n" })
+            .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+
+          expect(yield* fileSystem.readFileString(path.join(home, "notes.md"))).toBe("# Edited\n");
+          expect(yield* fileSystem.readFileString(path.join(cwd, "~/notes.md"))).toBe(
+            "Workspace decoy\n",
+          );
+        }),
+    );
+
+    it.effect(
+      "refuses host writes that would create a file, replace a folder or server state",
+      () =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const config = yield* ServerConfig.ServerConfig;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          const outsideDir = yield* makeTempDir;
+          const secretPath = path.join(config.secretsDir, "example.bin");
+          yield* writeTextFile(config.secretsDir, "example.bin", "example\n");
+          const write = (relativePath: string) =>
+            workspaceFileSystem
+              .writeFile({ cwd, relativePath, contents: "# nope\n" })
+              .pipe(Effect.flip);
+
+          expect(yield* write(path.join(outsideDir, "new.md"))).toMatchObject({
+            _tag: "WorkspaceFileSystemOperationError",
+            operation: "realpath-target",
+          });
+          expect(yield* write(outsideDir)).toBeInstanceOf(
+            WorkspaceFileSystem.WorkspacePathNotFileError,
+          );
+          expect(yield* write(secretPath)).toBeInstanceOf(
+            WorkspacePaths.WorkspacePathOutsideRootError,
+          );
+          expect(yield* fileSystem.readDirectory(outsideDir)).toEqual([]);
+          expect(yield* fileSystem.readFileString(secretPath)).toBe("example\n");
+        }),
     );
 
     it.effect("creates scratch files numbered after the highest existing one", () =>

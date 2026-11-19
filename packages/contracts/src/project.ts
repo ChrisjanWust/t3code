@@ -479,7 +479,7 @@ export class ProjectListEntriesError extends Schema.TaggedError<ProjectListEntri
 
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  // Workspace-relative or absolute host path; only workspace-relative paths are writable.
+  // Workspace-relative, or a host path (see isProjectHostFilePath).
   relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   // Optional files can be absent without failing the read.
   allowMissing: Schema.optional(Schema.Boolean),
@@ -557,8 +557,16 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
   }
 }
 
+/**
+ * An absolute or `~/` path names a file anywhere on the host instead of in the workspace.
+ * Authorization and the server's write both decide by this, so they cannot disagree.
+ */
+export const isProjectHostFilePath = (path: string): boolean =>
+  /^(?:[/\\]|~[/\\]|[A-Za-z]:)/.test(path);
+
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  // A host path overwrites an existing file anywhere on the host, and needs shell access.
   relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
 });
