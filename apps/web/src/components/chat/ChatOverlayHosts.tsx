@@ -7,6 +7,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { T, useGT, Var } from "gt-react";
 import { Atom } from "effect/reactivity";
 import { useId, useState } from "react";
 
@@ -168,15 +169,25 @@ export function BranchRestoreConfirmHost(props: {
       <AlertDialogPopup>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Switch to <code className="font-medium">{props.threadBranch}</code>?
+            <T>
+              Switch to{" "}
+              <code className="font-medium">
+                <Var>{props.threadBranch}</Var>
+              </code>
+              ?
+            </T>
           </AlertDialogTitle>
           <AlertDialogDescription>
-            You have uncommitted changes. They'll carry over to the other branch, or block the
-            switch if they conflict.
+            <T>
+              You have uncommitted changes. They'll carry over to the other branch, or block the
+              switch if they conflict.
+            </T>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            <T>Cancel</T>
+          </AlertDialogClose>
           <Button
             variant="default"
             disabled={!props.canWriteSourceControl}
@@ -185,7 +196,7 @@ export function BranchRestoreConfirmHost(props: {
               props.onConfirm();
             }}
           >
-            Switch branch
+            <T>Switch branch</T>
           </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
@@ -230,22 +241,30 @@ export function RevertConfirmHost(props: {
     >
       <AlertDialogPopup>
         <AlertDialogHeader>
-          <AlertDialogTitle>Edit from here?</AlertDialogTitle>
+          <AlertDialogTitle>
+            <T>Edit from here?</T>
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Rewind chat to before this message. Your prompt and attachments return to the composer.
-            “Revert files too” also undoes your own edits.
+            <T>
+              Rewind chat to before this message. Your prompt and attachments return to the
+              composer. “Revert files too” also undoes your own edits.
+            </T>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            <T>Cancel</T>
+          </AlertDialogClose>
           <Button
             variant="destructive-outline"
             disabled={!canRestoreFiles}
             onClick={() => confirm(true)}
           >
-            Revert files too
+            <T>Revert files too</T>
           </Button>
-          <Button onClick={() => confirm(false)}>Revert and keep changes</Button>
+          <Button onClick={() => confirm(false)}>
+            <T>Revert and keep changes</T>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>
@@ -321,6 +340,7 @@ function ScratchFileForm(props: {
   readonly onCancel: () => void;
   readonly onCreate: (relativePath: string) => Promise<void>;
 }) {
+  const gt = useGT();
   const [path, setPath] = useState(props.initialPath);
   const [creating, setCreating] = useState(false);
   const inputId = useId();
@@ -336,15 +356,24 @@ function ScratchFileForm(props: {
       }}
     >
       <DialogHeader>
-        <DialogTitle>Create scratch file</DialogTitle>
+        <DialogTitle>
+          <T>Create scratch file</T>
+        </DialogTitle>
         <DialogDescription>
-          Saves the selection to a new file in <code>{props.cwd}</code>. Missing folders are
-          created.
+          <T>
+            Saves the selection to a new file in{" "}
+            <code>
+              <Var>{props.cwd}</Var>
+            </code>
+            . Missing folders are created.
+          </T>
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
         <label htmlFor={inputId} className="grid gap-1.5">
-          <span className="text-xs font-medium text-foreground">Workspace path</span>
+          <span className="text-xs font-medium text-foreground">
+            <T>Workspace path</T>
+          </span>
           <Input
             id={inputId}
             value={path}
@@ -364,10 +393,10 @@ function ScratchFileForm(props: {
           onClick={props.onCancel}
           disabled={creating}
         >
-          Cancel
+          <T>Cancel</T>
         </Button>
         <Button type="submit" size="sm" disabled={trimmed === "" || creating}>
-          {creating ? "Creating..." : "Create"}
+          {creating ? gt("Creating...") : gt("Create", { $context: "verb, creates the file" })}
         </Button>
       </DialogFooter>
     </form>

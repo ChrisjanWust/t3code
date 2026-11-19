@@ -1,6 +1,6 @@
 // An in-process environment for app render scenarios: a fetch stub for its HTTP API and a
 // session that answers the shell, thread and config subscriptions from fixtures, and applies
-// settle commands. Other RPCs stay pending so nothing retries on timers. Everything above
+// settle and side-chat commands. Other RPCs stay pending so nothing retries on timers. Everything above
 // the wire is the app's own.
 import {
   type AssetCreateUrlResult,
@@ -71,7 +71,7 @@ const makeDescriptor = (capabilities: Partial<ExecutionEnvironmentCapabilities>)
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, ...capabilities },
+  capabilities: { repositoryIdentity: true, sideChats: true, ...capabilities },
 });
 let descriptor = makeDescriptor({});
 const auth = {
@@ -111,9 +111,15 @@ const decodeServerConfig = Schema.decodeUnknownSync(ServerConfig);
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
 const encodeDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor);
 
-const makeServerConfig = (providers: ReadonlyArray<unknown>): ServerConfig => ({
+const makeServerConfig = (
+  providers: ReadonlyArray<unknown>,
+  supportsIssues = false,
+): ServerConfig => ({
   ...decodeServerConfig({
-    environment: descriptor,
+    environment: {
+      ...descriptor,
+      capabilities: { ...descriptor.capabilities, issues: supportsIssues },
+    },
     auth,
     cwd: "/workspace/render",
     keybindingsConfigPath: "/workspace/.t3/keybindings.json",
@@ -238,6 +244,7 @@ export interface FakeThread {
   readonly modelSelection?: ModelSelection;
   /** The first is the thread's active provider thread. */
   readonly providerThreads?: ReadonlyArray<OrchestrationV2ProviderThread>;
+  readonly issues?: OrchestrationV2ThreadShell["issues"];
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
   /** The project checkout when absent. */
@@ -347,6 +354,7 @@ function baseShellOf(
     worktreePath: thread.worktreePath ?? null,
     ...(thread.creatingWorktree === undefined ? {} : { creatingWorktree: thread.creatingWorktree }),
     activeProviderThreadId: thread.providerThreads?.[0]?.id ?? null,
+    ...(thread.issues === undefined ? {} : { issues: thread.issues }),
     lineage: {
       rootThreadId: thread.sideChatOf ?? thread.id,
       parentThreadId: thread.sideChatOf ?? null,
@@ -531,11 +539,22 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
 
 const handlers: Record<string, (input: never) => unknown> = {
   // Recorded, and accepted only when the scenario asks, since a pending command holds every
-  // later command on its thread. Only settle and unsettle reach the shell once accepted.
+  // later command on its thread. Only settle, unsettle and side-chat forks reach the shell
+  // once accepted.
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
     Effect.suspend(() => {
       dispatched.push(command);
       if (acceptCommands && !holdCommand(command)) {
+        if (command.type === "thread.fork" && command.sideChat) {
+          addServerThread({
+            id: command.targetThreadId,
+            title: command.title ?? "Side chat",
+            sideChatOf: command.sourceThreadId,
+            runs: [],
+            items: [],
+          });
+          return Effect.succeed({ sequence });
+        }
         const before = sequence;
         applyCommand(command);
         return Effect.succeed({ sequence: sequence === before ? sequence + 1 : sequence });
@@ -681,7 +700,10 @@ export function installFakeEnvironment(
   }));
   descriptor = makeDescriptor(options.capabilities ?? {});
   baseServerConfig = {
-    ...makeServerConfig(options.providers ?? [CODEX_PROVIDER]),
+    ...makeServerConfig(
+      options.providers ?? [CODEX_PROVIDER],
+      fixtures.some((thread) => (thread.issues?.length ?? 0) > 0),
+    ),
     keybindings: options.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS,
   };
   const encodedDescriptor = encodeDescriptor(decodeDescriptor(descriptor));

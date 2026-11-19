@@ -2,6 +2,7 @@ import {
   threadRuntimeIsActive,
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
+import { msg } from "gt-react";
 
 import type { SidebarSection } from "../Sidebar.logic";
 
@@ -18,11 +19,11 @@ const WINDOW_HOURS: Record<SidebarRecencyWindow, number> = {
 };
 
 export const SIDEBAR_RECENCY_LABELS: Record<SidebarRecencyWindow, string> = {
-  "6h": "6 hours",
-  "12h": "12 hours",
-  "1d": "24 hours",
-  "2d": "2 days",
-  "7d": "7 days",
+  "6h": msg("6 hours"),
+  "12h": msg("12 hours"),
+  "1d": msg("24 hours"),
+  "2d": msg("2 days"),
+  "7d": msg("7 days"),
 };
 
 export function sidebarRecencyCutoffMs(window: SidebarRecencyWindow, nowMs: number): number {

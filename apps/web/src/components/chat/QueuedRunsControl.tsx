@@ -56,6 +56,8 @@ import {
 } from "lucide-react";
 import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
+import { msg, T, useGT, useMessages } from "gt-react";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useId, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 
@@ -68,6 +70,7 @@ import { isImageAttachment, type ChatImageAttachment, type ChatMessage } from ".
 import { cn } from "~/lib/utils";
 import { Button, InlineButton } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { m } from "../../i18n/messages";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { GuestMessageName } from "./guestMessageStyle";
@@ -128,6 +131,8 @@ export function QueuedRunsControl({
   readonly onOpenThread: (threadId: ThreadId, environmentId?: EnvironmentId) => void;
   readonly onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const projection = useQuietThreadProjection(threadRef)?.projection;
   const promote = useAtomCommand(threadEnvironment.promoteQueuedRun);
@@ -157,7 +162,7 @@ export function QueuedRunsControl({
     props.environmentId,
     queuedImageAttachmentResources,
   );
-  const workflow = projection ? deriveThreadQueueWorkflowState(projection) : null;
+  const workflow = projection ? deriveThreadQueueWorkflowState(projection, messages) : null;
   const serverQueued = workflow?.queuedRuns ?? [];
   const shownOrder = shownQueuedRunOrder(pendingOrder, {
     order: serverQueued.map(({ run }) => run.id),
@@ -244,8 +249,11 @@ export function QueuedRunsControl({
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not send queued message",
-        description: error instanceof Error ? error.message : "An error occurred.",
+        title: m(msg("Could not send queued message")),
+        description:
+          error instanceof Error
+            ? (thrownErrorMessage(error, m) ?? error.message)
+            : m(msg("An error occurred.")),
       });
     }
   };
@@ -324,13 +332,20 @@ export function QueuedRunsControl({
     // The dragged run, or the one it was dropped on, may have started meanwhile.
     if (moving !== undefined && toIndex !== -1) void moveRun(moving.run.id, toIndex);
   };
-  const positionLabel = (id: UniqueIdentifier) => `${queuedIndex(id) + 1} of ${queued.length}`;
+  const positionOf = (id: UniqueIdentifier) => ({
+    position: queuedIndex(id) + 1,
+    total: queued.length,
+  });
   const announcements: Announcements = {
-    onDragStart: ({ active }) => `Picked up queued message ${positionLabel(active.id)}.`,
-    onDragOver: ({ over }) => (over ? `Over position ${positionLabel(over.id)}.` : undefined),
+    onDragStart: ({ active }) =>
+      gt("Picked up queued message {position} of {total}.", positionOf(active.id)),
+    onDragOver: ({ over }) =>
+      over ? gt("Over position {position} of {total}.", positionOf(over.id)) : undefined,
     onDragEnd: ({ over }) =>
-      over ? `Moved to position ${positionLabel(over.id)}.` : "Queued message dropped.",
-    onDragCancel: () => "Reordering cancelled.",
+      over
+        ? gt("Moved to position {position} of {total}.", positionOf(over.id))
+        : gt("Queued message dropped."),
+    onDragCancel: () => gt("Reordering cancelled."),
   };
 
   const collapsible = items.length > QUEUE_VISIBLE_ROWS;
@@ -340,13 +355,18 @@ export function QueuedRunsControl({
 
   return (
     <section
-      aria-label={`${items.length} queued message${items.length === 1 ? "" : "s"}`}
+      aria-label={gt(
+        "{count, plural, one {{count} queued message} other {{count} queued messages}}",
+        { count: items.length },
+      )}
       data-thread-queue="true"
       // Anchors the sr-only live region; unanchored, it escapes the timeline scroller and makes the chat column scroll.
       className="relative mx-auto flex w-full max-w-(--chat-content-max-width) flex-col gap-2 pb-4"
     >
       <span className="sr-only" aria-live="polite">
-        {items.length} queued
+        {gt("{count, plural, one {{count} queued} other {{count} queued}}", {
+          count: items.length,
+        })}
       </span>
       <DndContext
         sensors={sensors}
@@ -398,11 +418,27 @@ export function QueuedRunsControl({
                             }}
                           >
                             <ArrowUpIcon />
-                            Send now
+                            <T>Send now</T>
                           </Button>
                         </TooltipTrigger>
                         <TooltipPopup>
-                          {`${workflow?.canSendNow ? "Start a turn with this message" : workflow?.promoteSkipsCompaction ? "Skip compaction and send this message" : "Send into the current turn"}${item.serverIndex === 0 && props.steerShortcutLabel ? ` (${props.steerShortcutLabel})` : ""}`}
+                          {item.serverIndex === 0 && props.steerShortcutLabel
+                            ? workflow?.canSendNow
+                              ? gt("Start a turn with this message ({shortcut})", {
+                                  shortcut: props.steerShortcutLabel,
+                                })
+                              : workflow?.promoteSkipsCompaction
+                                ? gt("Skip compaction and send this message ({shortcut})", {
+                                    shortcut: props.steerShortcutLabel,
+                                  })
+                                : gt("Send into the current turn ({shortcut})", {
+                                    shortcut: props.steerShortcutLabel,
+                                  })
+                            : workflow?.canSendNow
+                              ? gt("Start a turn with this message")
+                              : workflow?.promoteSkipsCompaction
+                                ? gt("Skip compaction and send this message")
+                                : gt("Send into the current turn")}
                         </TooltipPopup>
                       </Tooltip>
                     </>
@@ -410,19 +446,21 @@ export function QueuedRunsControl({
                   {item.pending ? (
                     <span className="flex items-center gap-1 px-1">
                       <Clock3Icon aria-hidden className="size-3" />
-                      Saving
+                      <T>Saving</T>
                     </span>
                   ) : null}
                   {isEditing ? (
                     <>
-                      <span className="px-1 text-foreground">Editing in the composer</span>
+                      <span className="px-1 text-foreground">
+                        <T>Editing in the composer</T>
+                      </span>
                       <Button
                         size="xs"
                         variant="ghost"
-                        aria-label="Cancel editing queued message"
+                        aria-label={gt("Cancel editing queued message")}
                         onClick={props.onCancelEdit}
                       >
-                        Cancel
+                        <T>Cancel</T>
                       </Button>
                     </>
                   ) : (
@@ -433,7 +471,7 @@ export function QueuedRunsControl({
                           <Button
                             size="icon-xs"
                             variant="ghost-muted"
-                            aria-label="Edit queued message"
+                            aria-label={gt("Edit queued message")}
                             disabled={
                               item.runId === null ||
                               !item.editable ||
@@ -456,7 +494,11 @@ export function QueuedRunsControl({
                         </TooltipTrigger>
                         <TooltipPopup>
                           {props.editBlockedReason ??
-                            `Edit in the composer${item.serverIndex === queued.length - 1 && props.editShortcutLabel ? ` (${props.editShortcutLabel})` : ""}`}
+                            (item.serverIndex === queued.length - 1 && props.editShortcutLabel
+                              ? gt("Edit in the composer ({shortcut})", {
+                                  shortcut: props.editShortcutLabel,
+                                })
+                              : gt("Edit in the composer"))}
                         </TooltipPopup>
                       </Tooltip>
                       <Tooltip>
@@ -465,7 +507,7 @@ export function QueuedRunsControl({
                             <Button
                               size="icon-xs"
                               variant="ghost-muted"
-                              aria-label="Remove queued message"
+                              aria-label={gt("Remove queued message")}
                               disabled={item.runId === null || busyRunId !== null}
                               onClick={() => {
                                 if (item.runId !== null) void remove(item.runId);
@@ -475,7 +517,9 @@ export function QueuedRunsControl({
                         >
                           <XIcon />
                         </TooltipTrigger>
-                        <TooltipPopup>Remove from queue</TooltipPopup>
+                        <TooltipPopup>
+                          <T>Remove from queue</T>
+                        </TooltipPopup>
                       </Tooltip>
                     </>
                   )}
@@ -524,7 +568,12 @@ export function QueuedRunsControl({
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => setShowAll((value) => !value)}
           >
-            {showAll ? "Show fewer" : `Show all ${items.length} queued`}
+            {showAll
+              ? gt("Show fewer")
+              : gt(
+                  "{count, plural, one {Show all {count} queued} other {Show all {count} queued}}",
+                  { count: items.length },
+                )}
             <ChevronDownIcon
               aria-hidden
               className={cn(
@@ -574,11 +623,15 @@ function QueuedRow({
     transition,
     isDragging,
   } = useSortable({ id: sortableId, disabled: !reorderable });
+  const gt = useGT();
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      aria-label={`Queued message ${position} of ${count}, not sent`}
+      aria-label={gt("Queued message {position} of {total}, not sent", {
+        position,
+        total: count,
+      })}
       aria-posinset={position}
       aria-setsize={count}
       aria-current={messageProps.isEditing ? "true" : undefined}
@@ -598,7 +651,10 @@ function QueuedRow({
               ref={setActivatorNodeRef}
               {...attributes}
               {...listeners}
-              aria-label={`Reorder queued message ${position} of ${count}`}
+              aria-label={gt("Reorder queued message {position} of {total}", {
+                position,
+                total: count,
+              })}
               // A mouse drag leaves focus in the composer; the keyboard can still pick it up.
               onMouseDown={(event) => event.preventDefault()}
               className={cn(
@@ -631,6 +687,7 @@ function QueuedMessage(props: {
   readonly children: ReactNode;
   readonly onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
+  const gt = useGT();
   const presentation = props.message ? resolveUserMessagePresentation(props.message) : null;
   const attribution = presentation?.attribution ?? null;
   const scheduledTaskId = presentation?.scheduledTaskId;
@@ -645,18 +702,22 @@ function QueuedMessage(props: {
   const linkedSenderEnvironment = useEnvironment(
     props.message?.linkedSender?.environmentId ?? null,
   );
+  const senderTitle = senderShell?.title.trim() || props.message?.linkedSender?.title.trim();
   const fold =
     attribution === "automation"
       ? {
           icon: CalendarClockIcon,
-          label: "Automation",
+          label: gt("Automation"),
+          fitLabel: true,
           summary: taskTitle ?? props.previewText.split(/\r?\n/, 1)[0] ?? "",
         }
       : attribution === "agent"
         ? {
             icon: MessagesSquareIcon,
             label:
-              senderShell?.title.trim() || props.message?.linkedSender?.title.trim() || "Agent",
+              senderTitle ||
+              gt("Agent", { $context: "fallback name of the agent that sent a message" }),
+            fitLabel: !senderTitle,
             summary: props.previewText.split(/\r?\n/).find((line) => line.trim()) ?? "",
           }
         : null;
@@ -665,7 +726,9 @@ function QueuedMessage(props: {
   return (
     <>
       {attribution === "t3code" ? (
-        <p className="me-1 text-2xs text-muted-foreground/70">Sent by T3 Code</p>
+        <p className="me-1 text-2xs text-muted-foreground/70">
+          <T>Sent by T3 Code</T>
+        </p>
       ) : null}
       {presentation?.guestName === undefined ? null : (
         <GuestMessageName name={presentation.guestName} />
@@ -690,6 +753,7 @@ function QueuedMessage(props: {
             <FoldedMessageHeader
               icon={fold.icon}
               label={fold.label}
+              fitLabel={fold.fitLabel}
               summary={fold.summary}
               expanded={expanded}
               onToggle={() => setExpanded((value) => !value)}
@@ -708,7 +772,7 @@ function QueuedMessage(props: {
                     <button
                       key={thumbnail.id}
                       type="button"
-                      aria-label={`Preview ${thumbnail.name}`}
+                      aria-label={gt("Preview {name}", { name: thumbnail.name })}
                       disabled={!thumbnail.previewUrl}
                       className="size-8 overflow-hidden rounded-md border border-border/70 bg-background enabled:cursor-zoom-in"
                       onPointerDown={(event) => event.preventDefault()}
@@ -755,7 +819,7 @@ function QueuedMessage(props: {
                 tone="muted"
                 onClick={() => props.onOpenThread(senderRef.threadId, senderRef.environmentId)}
               >
-                Open thread
+                <T>Open thread</T>
               </InlineButton>
             ) : null}
             {scheduledTaskId ? (
@@ -768,7 +832,7 @@ function QueuedMessage(props: {
                   />
                 }
               >
-                Open automation
+                <T>Open automation</T>
               </InlineButton>
             ) : null}
             <TimelineRowTimestamp

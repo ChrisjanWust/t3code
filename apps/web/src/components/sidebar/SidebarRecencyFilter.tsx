@@ -1,3 +1,4 @@
+import { T, useGT, useMessages } from "gt-react";
 import { ClockIcon } from "lucide-react";
 
 import {
@@ -25,6 +26,8 @@ export function SidebarRecencyFilter({
   value: SidebarRecencyWindow | null;
   onChange: (value: SidebarRecencyWindow | null) => void;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   return (
     <Menu>
       <MenuTrigger
@@ -32,8 +35,10 @@ export function SidebarRecencyFilter({
           <SidebarHeaderIconButton
             label={
               value === null
-                ? "Filter threads by recent activity"
-                : `Showing threads active in the last ${SIDEBAR_RECENCY_LABELS[value]}`
+                ? gt("Filter threads by recent activity")
+                : gt("Showing threads active in the last {duration}", {
+                    duration: messages(SIDEBAR_RECENCY_LABELS[value]),
+                  })
             }
           />
         }
@@ -46,7 +51,9 @@ export function SidebarRecencyFilter({
       </MenuTrigger>
       <MenuPopup align="start" collisionAvoidance={{ side: "flip", align: "shift" }}>
         <MenuGroup>
-          <MenuGroupLabel>Active in the last</MenuGroupLabel>
+          <MenuGroupLabel>
+            <T>Active in the last</T>
+          </MenuGroupLabel>
           <MenuRadioGroup
             value={value ?? ANY_TIME}
             onValueChange={(next: SidebarRecencyWindow | typeof ANY_TIME) =>
@@ -55,11 +62,11 @@ export function SidebarRecencyFilter({
           >
             {SIDEBAR_RECENCY_WINDOWS.map((window) => (
               <MenuRadioItem key={window} value={window} closeOnClick>
-                {SIDEBAR_RECENCY_LABELS[window]}
+                {messages(SIDEBAR_RECENCY_LABELS[window])}
               </MenuRadioItem>
             ))}
             <MenuRadioItem value={ANY_TIME} closeOnClick>
-              Any time
+              <T>Any time</T>
             </MenuRadioItem>
           </MenuRadioGroup>
         </MenuGroup>

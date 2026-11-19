@@ -1,3 +1,4 @@
+import { T, useGT } from "gt-react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useRef, type ComponentProps } from "react";
 
@@ -14,13 +15,14 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { reportMarkdownActionFailure } from "./markdownActionFailure";
 
 export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
+  const gt = useGT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { copyToClipboard, isCopied: copied } = useCopyToClipboard<"markdown" | "csv">({
     timeout: 1200,
     onError: (cause, format) =>
       reportMarkdownActionFailure({ operation: "copy-table", format }, cause),
   });
-  const copyLabel = copied ? "Copied" : "Copy table";
+  const copyLabel = copied ? gt("Copied") : gt("Copy table");
 
   const handleCopy = (format: "markdown" | "csv") => {
     const table = containerRef.current?.querySelector("table");
@@ -47,6 +49,7 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
         <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
           <table {...props}>{children}</table>
         </ScrollArea>
+        {/* Stays within the row's px-1: the chat lane clips sideways overflow. */}
         <div className="mt-0.5 -mx-1 flex items-center justify-end select-none">
           <Menu>
             <Tooltip>
@@ -69,8 +72,12 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
               <TooltipPopup side="top">{copyLabel}</TooltipPopup>
             </Tooltip>
             <MenuPopup align="end">
-              <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
-              <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
+              <MenuItem onClick={() => handleCopy("markdown")}>
+                <T>Copy as Markdown</T>
+              </MenuItem>
+              <MenuItem onClick={() => handleCopy("csv")}>
+                <T>Copy as CSV</T>
+              </MenuItem>
             </MenuPopup>
           </Menu>
         </div>
