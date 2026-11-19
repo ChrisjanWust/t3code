@@ -73,9 +73,9 @@ If your **Send shortcut** requires `Cmd+Enter` or `Ctrl+Enter`, that shortcut us
 your default follow-up behavior; add **Shift** to use the opposite action. This
 applies only to multiline messages when you choose the multiline send option.
 
-Press Enter in an empty composer to send the most recently queued message, the
-same as its **Send now** button. If the composer offers **Resume thread**, Enter
-resumes instead.
+Press your send shortcut (Enter by default) in an empty composer to send the most
+recently queued message, the same as its **Send now** button. If the composer
+offers **Resume thread**, the shortcut resumes instead.
 
 Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to send
 the oldest queued message as a steer. This leaves the current draft intact and
