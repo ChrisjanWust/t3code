@@ -988,7 +988,7 @@ export function ThreadTabColumn(props: ThreadTabListProps) {
         return observeResize(row, measure);
       }}
       data-thread-tab-column
-      className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
+      className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-sidebar-secondary [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
       style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}
     >
       <RightPanelResizeHandle edge="right" handlers={handlers} label="Resize tab panel" />
