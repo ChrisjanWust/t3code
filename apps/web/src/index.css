@@ -1485,8 +1485,9 @@ html[data-theme-id] [data-chat-header] {
   color: var(--contrast-toolbar-foreground);
 }
 
+/* Thread tabs sit in the header but are not toolbar controls. */
 html[data-theme-id] [data-chat-header] [data-slot="button"],
-html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"],
+html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"]:not([data-thread-tab] *),
 html[data-theme-id] [data-chat-header] [data-toolbar-control] {
   --control-icon-color: var(--contrast-toolbar-control-foreground);
   background-color: var(--toolbar-control);
@@ -1521,8 +1522,10 @@ html[data-theme-id] [data-workspace-titlebar-controls] [data-slot="tooltip-trigg
 
 html[data-theme-id] [data-chat-header] [data-slot="button"]:hover,
 html[data-theme-id] [data-chat-header] [data-slot="button"][data-pressed],
-html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"]:hover,
-html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"][data-pressed],
+html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"]:not([data-thread-tab] *):hover,
+html[data-theme-id]
+  [data-chat-header]
+  [data-slot="menu-trigger"]:not([data-thread-tab] *)[data-pressed],
 html[data-theme-id] [data-chat-header] [data-toolbar-control]:hover,
 html[data-theme-id] [data-chat-header] [data-toolbar-control][data-pressed] {
   background-color: var(--toolbar-control-hover);

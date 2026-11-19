@@ -123,13 +123,19 @@ export function resolveTabSubagents<T extends SubagentThread>(
     );
 }
 
-/** The newest few subagents, plus the one the route is in so the list still says where you are. */
-export function newestTabSubagents<T extends Pick<SidebarThreadSummary, "id">>(
+/**
+ * The newest few subagents, plus any waiting on the user and the one the route is in, so the
+ * list still shows what needs an answer and where you are.
+ */
+export function newestTabSubagents<T extends StatusThread & Pick<SidebarThreadSummary, "id">>(
   subagents: readonly T[],
   routeSubagentId: ThreadId | null,
 ): readonly T[] {
   return subagents.filter(
-    (thread, index) => index < SUBAGENT_LIST_LIMIT || thread.id === routeSubagentId,
+    (thread, index) =>
+      index < SUBAGENT_LIST_LIMIT ||
+      thread.id === routeSubagentId ||
+      threadTabStatusTone(thread) === "attention",
   );
 }
 
