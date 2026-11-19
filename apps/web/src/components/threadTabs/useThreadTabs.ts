@@ -52,7 +52,6 @@ import {
   tabsInLayoutOrder,
   tabThreadId,
   tabThreadKey,
-  type TabSubagents,
   worktreeKey,
   type WorktreeTab,
   type WorktreeTabDraft,
@@ -183,7 +182,7 @@ function buildTabs(
   return { tabs, routeKey };
 }
 
-const NO_SUBAGENTS: TabSubagents<EnvironmentThreadShell> = { active: [], previous: [] };
+const NO_SUBAGENTS: readonly EnvironmentThreadShell[] = [];
 
 /** The open tab's subagents, and the subagent the route shows, if it shows one. */
 function resolveRouteSubagents(

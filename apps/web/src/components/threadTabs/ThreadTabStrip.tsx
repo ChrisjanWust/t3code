@@ -41,6 +41,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   CornerLeftUpIcon,
   GitBranchIcon,
   HistoryIcon,
@@ -76,18 +77,7 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { sidebarProviderEntriesAtom } from "../sidebar/sidebarProviderEntries";
 import { Button } from "../ui/button";
-import {
-  Menu,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -98,8 +88,8 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar"
 import { useSubagentListStore } from "./subagentListStore";
 import {
   isBlankLastTab,
+  newestTabSubagents,
   type TabStatusTone,
-  type TabSubagents,
   tabsInLayoutOrder,
   threadTabStatusTone,
 } from "./threadTabs.logic";
@@ -162,16 +152,15 @@ function ThreadStatusDot(props: { readonly thread: EnvironmentThreadShell }) {
 
 /** The open tab's subagents, which only it can list since only its family is loaded. */
 interface TabSubagentView {
-  readonly subagents: TabSubagents<EnvironmentThreadShell>;
+  readonly tabKey: string;
+  /** Newest first. */
+  readonly subagents: readonly EnvironmentThreadShell[];
   /** The tab's subagent the route shows or descends from. */
   readonly routeSubagentId: ThreadId | null;
   /** The subagent the route shows, when it shows one rather than the tab's own thread. */
   readonly routeSubagent: EnvironmentThreadShell | null;
   readonly onOpen: (thread: EnvironmentThreadShell) => void;
 }
-
-const subagentCount = (view: TabSubagentView) =>
-  view.subagents.active.length + view.subagents.previous.length;
 
 const stopPropagation = (event: { stopPropagation: () => void }) => event.stopPropagation();
 
@@ -185,7 +174,38 @@ const KEEP_EVENTS_IN_MENU = {
   },
 };
 
-/** Every subagent of the open tab: active ones, then finished ones in a submenu. */
+/** The open tab's subagents as listed: the newest few until the user shows the rest. */
+function useListedSubagents(view: TabSubagentView) {
+  const gt = useGT();
+  const expanded = useSubagentListStore((state) => state.expanded[view.tabKey] === true);
+  const toggle = useSubagentListStore((state) => state.toggle);
+  const newest = newestTabSubagents(view.subagents, view.routeSubagentId);
+  const hiddenCount = view.subagents.length - newest.length;
+  return {
+    shown: expanded ? view.subagents : newest,
+    expanded,
+    toggleLabel:
+      hiddenCount === 0
+        ? null
+        : expanded
+          ? gt("Show less")
+          : gt("{count, plural, one {Show {count} more} other {Show {count} more}}", {
+              count: hiddenCount,
+            }),
+    toggleExpanded: () => toggle("expanded", view.tabKey),
+  };
+}
+
+function ShowMoreIcon(props: { readonly expanded: boolean }) {
+  const Icon = props.expanded ? ChevronUpIcon : ChevronDownIcon;
+  return (
+    <span className="flex size-4 shrink-0 items-center justify-center">
+      <Icon aria-hidden className="size-3 text-muted-foreground" />
+    </span>
+  );
+}
+
+/** The open tab's subagents, newest first, in a menu. */
 function SubagentMenu(props: {
   readonly view: TabSubagentView;
   readonly label: string;
@@ -193,8 +213,8 @@ function SubagentMenu(props: {
   readonly onTriggerContextMenu?: ((event: ReactMouseEvent) => void) | undefined;
   readonly children: ReactNode;
 }) {
-  const gt = useGT();
-  const { subagents, routeSubagent, onOpen } = props.view;
+  const { routeSubagent, onOpen } = props.view;
+  const listed = useListedSubagents(props.view);
   const item = (thread: EnvironmentThreadShell) => (
     <MenuItem key={thread.id} onClick={() => onOpen(thread)}>
       <span className="flex size-4 shrink-0 items-center justify-center">
@@ -222,25 +242,16 @@ function SubagentMenu(props: {
         {props.children}
       </MenuTrigger>
       <MenuPopup align="start" className="max-w-96" {...KEEP_EVENTS_IN_MENU}>
-        {subagents.active.length > 0 ? (
-          <MenuGroup>
-            <MenuGroupLabel>
-              <T>Active</T>
-            </MenuGroupLabel>
-            {subagents.active.map(item)}
-          </MenuGroup>
-        ) : null}
-        {subagents.previous.length > 0 ? (
+        {listed.shown.map(item)}
+        {listed.toggleLabel === null ? null : (
           <>
-            {subagents.active.length > 0 ? <MenuSeparator /> : null}
-            <MenuSub>
-              <MenuSubTrigger>
-                {gt("Previous ({count})", { count: subagents.previous.length })}
-              </MenuSubTrigger>
-              <MenuSubPopup className="max-w-96">{subagents.previous.map(item)}</MenuSubPopup>
-            </MenuSub>
+            <MenuSeparator />
+            <MenuItem closeOnClick={false} onClick={listed.toggleExpanded}>
+              <ShowMoreIcon expanded={listed.expanded} />
+              {listed.toggleLabel}
+            </MenuItem>
           </>
-        ) : null}
+        )}
       </MenuPopup>
     </Menu>
   );
@@ -278,42 +289,27 @@ function SubagentRow(props: {
   );
 }
 
-/** The open tab's subagents under it in the side panel; finished ones fold behind Previous. */
-function SubagentTree(props: { readonly tabKey: string; readonly view: TabSubagentView }) {
-  const { tabKey, view } = props;
+/** The open tab's subagents under it in the side panel, newest first. */
+function SubagentTree(props: { readonly view: TabSubagentView }) {
+  const { view } = props;
   const gt = useGT();
-  const { active, previous } = view.subagents;
-  const previousOpen = useSubagentListStore((state) => state.previousOpen[tabKey] === true);
-  const toggle = useSubagentListStore((state) => state.toggle);
-  // Folded, Previous still shows the subagent the route is in, so the panel says where you are.
-  const shownPrevious = previousOpen
-    ? previous
-    : previous.filter((thread) => thread.id === view.routeSubagentId);
+  const listed = useListedSubagents(view);
   return (
     <div role="group" aria-label={gt("Subagents")} className="flex flex-col gap-px pt-px ps-4">
-      {active.map((thread) => (
+      {listed.shown.map((thread) => (
         <SubagentRow key={thread.id} thread={thread} view={view} />
       ))}
-      {previous.length > 0 ? (
+      {listed.toggleLabel === null ? null : (
         <button
           type="button"
-          aria-expanded={previousOpen}
+          aria-expanded={listed.expanded}
           className="flex h-6 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-          onClick={() => toggle("previousOpen", tabKey)}
+          onClick={listed.toggleExpanded}
         >
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            {previousOpen ? (
-              <ChevronDownIcon aria-hidden className="size-3" />
-            ) : (
-              <ChevronRightIcon aria-hidden className="size-3" />
-            )}
-          </span>
-          {gt("Previous ({count})", { count: previous.length })}
+          <ShowMoreIcon expanded={listed.expanded} />
+          {listed.toggleLabel}
         </button>
-      ) : null}
-      {shownPrevious.map((thread) => (
-        <SubagentRow key={thread.id} thread={thread} view={view} />
-      ))}
+      )}
     </div>
   );
 }
@@ -538,7 +534,7 @@ function ThreadTab(
   });
   const collapsed = useSubagentListStore((state) => state.collapsed[tab.key] === true);
   const toggleList = useSubagentListStore((state) => state.toggle);
-  const hasSubagents = view !== undefined && subagentCount(view) > 0;
+  const hasSubagents = view !== undefined && view.subagents.length > 0;
   // The side panel marks the tab as the subagent's ancestor and lists the subagent under it;
   // the top bar keeps the tab selected and names the subagent inside it.
   const ancestor = props.vertical && routeSubagent !== null;
@@ -644,7 +640,7 @@ function ThreadTab(
             className="flex shrink-0 cursor-pointer items-center gap-0.5 text-muted-foreground tabular-nums hover:text-foreground"
           >
             <BotIcon aria-hidden className="size-3" />
-            {view.subagents.active.length > 0 ? view.subagents.active.length : null}
+            {view.subagents.length}
             <ChevronDownIcon aria-hidden className="size-3" />
           </SubagentMenu>
         ) : null}
@@ -656,7 +652,7 @@ function ThreadTab(
             className="flex shrink-0 cursor-pointer items-center gap-0.5 text-muted-foreground tabular-nums hover:text-foreground"
             onClick={() => toggleList("collapsed", tab.key)}
           >
-            {collapsed && view.subagents.active.length > 0 ? view.subagents.active.length : null}
+            {collapsed ? view.subagents.length : null}
             {collapsed ? (
               <ChevronRightIcon aria-hidden className="size-3.5" />
             ) : (
@@ -665,9 +661,7 @@ function ThreadTab(
           </button>
         ) : null}
       </div>
-      {props.vertical && hasSubagents && !collapsed ? (
-        <SubagentTree tabKey={tab.key} view={view} />
-      ) : null}
+      {props.vertical && hasSubagents && !collapsed ? <SubagentTree view={view} /> : null}
     </div>
   );
 }
@@ -755,6 +749,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   const tabActions = useThreadTabActions(location);
   const { selectTab, moveTab, openThread } = tabActions;
   const subagentView: TabSubagentView = {
+    tabKey: routeKey,
     subagents,
     routeSubagentId,
     routeSubagent,

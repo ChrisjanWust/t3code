@@ -92,25 +92,23 @@ export function threadTabStatusTone(thread: StatusThread): TabStatusTone | null 
   }
 }
 
-type SubagentThread = StatusThread &
-  Pick<SidebarThreadSummary, "id" | "environmentId" | "lineage" | "archivedAt" | "createdAt">;
+type SubagentThread = Pick<
+  SidebarThreadSummary,
+  "id" | "environmentId" | "lineage" | "archivedAt" | "createdAt"
+>;
 
-export interface TabSubagents<T> {
-  /** Subagents whose row shows a status dot: running, waiting on the user, or finished unseen. */
-  readonly active: readonly T[];
-  /** The rest, newest first. */
-  readonly previous: readonly T[];
-}
+/** How many subagents a tab lists before the rest wait behind "Show more". */
+const SUBAGENT_LIST_LIMIT = 5;
 
 /**
- * The subagents listed under a tab: its thread's own, in launch order. Side chats open beside
+ * The subagents listed under a tab: its thread's own, newest first. Side chats open beside
  * their parent instead. Only the open tab's thread has its whole family loaded, so only it lists.
  */
 export function resolveTabSubagents<T extends SubagentThread>(
   threads: readonly T[],
   tabRef: ScopedThreadRef,
-): TabSubagents<T> {
-  const subagents = threads
+): readonly T[] {
+  return threads
     .filter(
       (thread) =>
         thread.environmentId === tabRef.environmentId &&
@@ -121,12 +119,18 @@ export function resolveTabSubagents<T extends SubagentThread>(
     )
     .toSorted(
       (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
     );
-  return {
-    active: subagents.filter((thread) => threadTabStatusTone(thread) !== null),
-    previous: subagents.filter((thread) => threadTabStatusTone(thread) === null).toReversed(),
-  };
+}
+
+/** The newest few subagents, plus the one the route is in so the list still says where you are. */
+export function newestTabSubagents<T extends Pick<SidebarThreadSummary, "id">>(
+  subagents: readonly T[],
+  routeSubagentId: ThreadId | null,
+): readonly T[] {
+  return subagents.filter(
+    (thread, index) => index < SUBAGENT_LIST_LIMIT || thread.id === routeSubagentId,
+  );
 }
 
 /** The tab's subagent that `routeRef` is, or that a nested subagent on the route descends from. */

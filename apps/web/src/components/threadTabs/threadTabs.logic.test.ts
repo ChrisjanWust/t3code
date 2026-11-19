@@ -11,6 +11,7 @@ import {
   insertTabAfter,
   isBlankLastTab,
   moveWorktreeTab,
+  newestTabSubagents,
   resolveRouteSubagentId,
   resolveTabAfterClose,
   resolveTabSubagents,
@@ -277,7 +278,7 @@ describe("subagents under the open tab", () => {
   const at = (hour: number) => `2026-10-26T${String(hour).padStart(2, "0")}:00:00.000Z`;
   const ids = (threads: readonly SidebarThreadSummary[]) => threads.map((entry) => entry.id);
 
-  it("lists active subagents in launch order and the rest newest first, leaving out others", () => {
+  it("lists the tab's own subagents newest first, leaving out others", () => {
     const threads = [
       thread("parent"),
       subagent("running", { createdAt: at(9), runtime: { status: "running" } } as never),
@@ -293,9 +294,22 @@ describe("subagents under the open tab", () => {
       } as Partial<SidebarThreadSummary>),
       subagent("other-env", { environmentId: EnvironmentId.make("env-2") }),
     ];
-    const { active, previous } = resolveTabSubagents(threads, tabRef);
-    expect(ids(active)).toEqual(["asks", "running"]);
-    expect(ids(previous)).toEqual(["new-done", "old-done"]);
+    expect(ids(resolveTabSubagents(threads, tabRef))).toEqual([
+      "new-done",
+      "running",
+      "asks",
+      "old-done",
+    ]);
+  });
+
+  it("shows the newest five, and the subagent the route is in", () => {
+    const subagents = Array.from({ length: 8 }, (_, index) => subagent(`sub-${index}`));
+    const routeIn = (id: string | null) =>
+      ids(newestTabSubagents(subagents, id === null ? null : ThreadId.make(id)));
+    const newestFive = ["sub-0", "sub-1", "sub-2", "sub-3", "sub-4"];
+    expect(routeIn(null)).toEqual(newestFive);
+    expect(routeIn("sub-2")).toEqual(newestFive);
+    expect(routeIn("sub-6")).toEqual([...newestFive, "sub-6"]);
   });
 
   it("finds the subagent a route is in, and where up goes from it", () => {
