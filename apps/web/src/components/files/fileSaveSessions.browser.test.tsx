@@ -1,5 +1,5 @@
 import { render, fakeTimers } from "../../../test/render";
-import { type AuthSessionState, EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -12,16 +12,19 @@ vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
   ...(await original()),
   runAtomCommand: runAtomCommand as never,
 }));
-// The real session atom boots the connection runtime, whose endless discovery poll
-// would keep vi.runAllTimersAsync from ever draining once its timers are faked.
-vi.mock(import("~/state/session"), async (original) => {
+// The real write permission reads the session atom, which boots the connection runtime, whose
+// endless discovery poll would keep vi.runAllTimersAsync from ever draining once timers are faked.
+vi.mock(import("~/state/projects"), async (original) => {
   const actual = await original();
-  const reactivity = await import("effect/reactivity");
-  const signedOut = reactivity.Atom.make(reactivity.AsyncResult.initial<AuthSessionState>());
+  const { Atom } = await import("effect/reactivity");
+  const granted = Atom.make(true);
+  const { projectEnvironment } = actual;
   return {
     ...actual,
-    environmentSession: { ...actual.environmentSession, sessionStateAtom: () => signedOut },
-    readEnvironmentScope: () => true,
+    projectEnvironment: {
+      ...projectEnvironment,
+      writeFile: { ...projectEnvironment.writeFile, permissionAtom: () => granted },
+    },
   };
 });
 vi.mock(import("./projectFilesQueryState"), async (original) => ({

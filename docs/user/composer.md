@@ -415,8 +415,10 @@ can break the preview, so save a copy if you need to keep it.
 ## Files outside the workspace
 
 Follow an agent's file link to read a report or other file outside the workspace.
-These files open read-only. An HTML file outside the workspace cannot load scripts,
-styles, or images from neighboring files.
+On web and desktop you can edit it there like a workspace file when your connection
+also has terminal access, as the desktop app does on its own machine. Otherwise it
+opens read-only. An HTML file outside the workspace cannot load scripts, styles, or images
+from neighboring files.
 
 ## HTML and PDF files in the file viewer
 

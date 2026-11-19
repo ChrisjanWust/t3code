@@ -1,10 +1,9 @@
-import { AuthFilesystemWriteScope, type EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { type AtomCommandResult, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { useEffect } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
-import { environmentSession, readEnvironmentScope, sessionHasScope } from "~/state/session";
 
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
@@ -136,19 +135,19 @@ function fileSaveKey({ environmentId, cwd, relativePath }: FileSaveTarget): stri
   return `${environmentId}\u0000${cwd}\u0000${relativePath}`;
 }
 
+// A file outside the project also needs shell access, so the grant depends on the path.
+const writePermissionAtom = ({ environmentId, relativePath }: FileSaveTarget) =>
+  projectEnvironment.writeFile.permissionAtom(environmentId, { relativePath });
+
 const fileSaveSessions = createFileSaveSessions({
   debounceMs: 500,
-  canPersist: ({ environmentId }) => readEnvironmentScope(environmentId, AuthFilesystemWriteScope),
-  subscribeWritable: ({ environmentId }, onWritable) => {
-    let writable = readEnvironmentScope(environmentId, AuthFilesystemWriteScope);
-    return appAtomRegistry.subscribe(
-      environmentSession.sessionStateAtom(environmentId),
-      (state) => {
-        const next = sessionHasScope(state, AuthFilesystemWriteScope);
-        if (next && !writable) onWritable();
-        writable = next;
-      },
-    );
+  canPersist: (target) => appAtomRegistry.get(writePermissionAtom(target)),
+  subscribeWritable: (target, onWritable) => {
+    let writable = appAtomRegistry.get(writePermissionAtom(target));
+    return appAtomRegistry.subscribe(writePermissionAtom(target), (next) => {
+      if (next && !writable) onWritable();
+      writable = next;
+    });
   },
   persist: ({ environmentId, cwd, relativePath }, contents) =>
     runAtomCommand(appAtomRegistry, projectEnvironment.writeFile, {
