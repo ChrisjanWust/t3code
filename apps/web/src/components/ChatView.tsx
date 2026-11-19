@@ -318,6 +318,7 @@ import { ThreadTabColumn, ThreadTabStrip } from "./threadTabs/ThreadTabStrip";
 import {
   resolveThreadTabLocation,
   useThreadTabActions,
+  useTabThreadShell,
   useThreadTabSidePanelChosen,
   useWorktreeHasLoneTab,
 } from "./threadTabs/useThreadTabs";
@@ -1824,15 +1825,16 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const threadTabsEnabled = useThreadTabsEnabled();
   // A side chat embedded in the right panel belongs to its parent's tab, not a tab of its own.
-  const threadTabLocation =
-    threadTabsEnabled && !embedded
-      ? resolveThreadTabLocation({
-          routeThreadRef,
-          routeDraftId: draftId,
-          shell: serverThreadShell,
-          draft: routeKind === "draft" ? draftThread : null,
-        })
-      : null;
+  const showsThreadTabs = threadTabsEnabled && !embedded;
+  const threadTabShell = useTabThreadShell(showsThreadTabs ? routeThreadRef : null);
+  const threadTabLocation = showsThreadTabs
+    ? resolveThreadTabLocation({
+        routeThreadRef,
+        routeDraftId: draftId,
+        shell: threadTabShell,
+        draft: routeKind === "draft" ? draftThread : null,
+      })
+    : null;
   const threadTabActions = useThreadTabActions(threadTabLocation);
   const threadTabSidePanelChosen = useThreadTabSidePanelChosen();
   const autoHideThreadTabSidePanel = useThreadTabsAutoHidePanel();

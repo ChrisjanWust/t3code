@@ -173,6 +173,16 @@ Each tab in the panel shows its provider's icon. Worktree rows in the sidebar le
 show it there too, turn off **Settings → Labs → Thread tabs → Hide provider icons in the
 sidebar**.
 
+### Open subagents from a tab
+
+With thread tabs on, a subagent opens inside its parent's tab, even when it works in a worktree
+of its own, so your tabs stay where they were. In the top bar the tab reads `parent › subagent`.
+Click the parent's name to go back, or the subagent's name to switch to another subagent. On the
+parent itself, the bot icon on its tab lists them. In the side panel, the open tab lists its
+subagents under it: running ones and those waiting on you first, finished ones under
+**Previous**. The top bar's arrow returns to the parent. On desktop, the close-tab shortcut also
+returns to the parent instead of closing the tab.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed
