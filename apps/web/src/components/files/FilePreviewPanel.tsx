@@ -14,7 +14,6 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { filePreviewDelimiter } from "@t3tools/shared/delimitedPreview";
-import { AuthFilesystemWriteScope } from "@t3tools/contracts";
 import {
   isWorkspaceAudioPreviewPath,
   isWorkspaceImagePreviewPath,
@@ -86,6 +85,7 @@ import { usePreviewAvailable } from "~/browser/previewRuntime";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { hostEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { previewEnvironment } from "~/state/preview";
+import { projectEnvironment } from "~/state/projects";
 import { serverEnvironment } from "~/state/server";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -1289,7 +1289,13 @@ export default function FilePreviewPanel({
     attachment !== undefined || (relativePath !== null && isHostPath(relativePath));
   const fileAccess = useFilesystemReadAccess(environmentId, m);
   const { canReadFiles } = fileAccess;
-  const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
+  // Files outside the project also need shell access; the write's permission covers both.
+  const canWriteFile = useAtomValue(
+    projectEnvironment.writeFile.permissionAtom(environmentId, {
+      relativePath: relativePath ?? "",
+    }),
+  );
+  const writable = attachment === undefined && canWriteFile;
   const file = useProjectFileQuery(
     environmentId,
     cwd,
@@ -1382,8 +1388,7 @@ export default function FilePreviewPanel({
     !isDocument;
   const mayOpenEditor =
     previewPath !== null &&
-    !isHostFile &&
-    canWriteFiles &&
+    writable &&
     file.error === null &&
     !file.data?.truncated &&
     !isMedia &&
@@ -1635,7 +1640,7 @@ export default function FilePreviewPanel({
           ) : null}
         </div>
       ) : null}
-      {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
+      {relativePath && !attachment && !isHostFile && !canWriteFile && !fileAccess.isPending ? (
         <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
           <T>Read-only connection. Unsaved edits are kept until write access returns.</T>
         </div>
@@ -1810,7 +1815,7 @@ export default function FilePreviewPanel({
                 threadRef={threadRef}
                 contents={file.data.contents}
                 workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                readOnly={file.data.truncated || !writable}
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (
@@ -1820,7 +1825,7 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile || !canWriteFiles ? (
+            ) : file.data.truncated || !writable ? (
               <SourceFilePreview
                 name={relativePath}
                 text={file.data.contents}

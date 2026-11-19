@@ -291,6 +291,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-message-action-foreground: var(--message-action-foreground);
   --color-message-action-hover: var(--message-action-hover);
   --color-sidebar: var(--sidebar);
+  /* The worktree tab column beside the chat sits halfway between sidebar and canvas. */
+  --color-sidebar-secondary: color-mix(in oklab, var(--sidebar) 50%, var(--background));
   --color-sidebar-foreground: var(--contrast-sidebar-foreground);
   --color-sidebar-muted-foreground: var(--contrast-sidebar-muted-foreground);
   --color-sidebar-control-surface: var(--sidebar-control-surface);

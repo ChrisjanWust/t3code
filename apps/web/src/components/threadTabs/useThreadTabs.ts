@@ -1,4 +1,5 @@
 import {
+  parseScopedThreadKey,
   scopeProjectRef,
   scopedThreadKey,
   scopeThreadRef,
@@ -26,8 +27,11 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useThreadTabsVertical } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
+import { resolveThreadOpenRoute } from "../../lib/sideChatPane";
 import {
+  readThreadShell,
   readThreadShells,
+  useQuietThreadShell,
   useQuietThreadShells,
   useSelectQuietThreadShells,
 } from "../../state/entities";
@@ -41,10 +45,14 @@ import {
   insertTabAfter,
   isBlankLastTab,
   moveWorktreeTab,
+  resolveRouteSubagentId,
   resolveTabAfterClose,
+  resolveTabSubagents,
+  subagentParentRef,
   tabsInLayoutOrder,
   tabThreadId,
   tabThreadKey,
+  type TabSubagents,
   worktreeKey,
   type WorktreeTab,
   type WorktreeTabDraft,
@@ -61,12 +69,24 @@ export interface ThreadTabLocation {
   readonly worktreeKey: string;
   /** Its new worktree has no path yet, so a new tab has nowhere to open. */
   readonly creatingWorktree: boolean;
-  /** The open route's thread or draft; a subagent's route shows its ancestor's tab. */
+  /** The open route's thread or draft; a subagent's route shows its parent's tab. */
   readonly routeThreadRef: ScopedThreadRef;
   readonly routeDraftId: DraftId | null;
 }
 
 export type ThreadTabItem = WorktreeTab<EnvironmentThreadShell>;
+
+/**
+ * The thread whose tab the route shows: a subagent's listed parent, or the thread itself. Its
+ * location, not the subagent's, places the strip, since a delegated subagent can run in a
+ * worktree of its own.
+ */
+export function useTabThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadShell | null {
+  const tabKey = useSelectQuietThreadShells((threads) =>
+    ref === null ? null : tabThreadKey(ref, threads),
+  );
+  return useQuietThreadShell(tabKey === null ? null : parseScopedThreadKey(tabKey));
+}
 
 export function resolveThreadTabLocation(input: {
   readonly routeThreadRef: ScopedThreadRef;
@@ -163,6 +183,34 @@ function buildTabs(
   return { tabs, routeKey };
 }
 
+const NO_SUBAGENTS: TabSubagents<EnvironmentThreadShell> = { active: [], previous: [] };
+
+/** The open tab's subagents, and the subagent the route shows, if it shows one. */
+function resolveRouteSubagents(
+  location: ThreadTabLocation,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  routeKey: string,
+) {
+  const tabRef = location.routeDraftId === null ? parseScopedThreadKey(routeKey) : null;
+  if (tabRef === null)
+    return { subagents: NO_SUBAGENTS, routeSubagentId: null, routeSubagent: null };
+  const routeSubagentId = resolveRouteSubagentId(location.routeThreadRef, tabRef, threads);
+  const routeThreadId = location.routeThreadRef.threadId;
+  return {
+    subagents: resolveTabSubagents(threads, tabRef),
+    routeSubagentId,
+    // Null on the tab's own thread; nested subagents name the one the route shows.
+    routeSubagent:
+      routeSubagentId === null
+        ? null
+        : (threads.find(
+            (thread) =>
+              thread.environmentId === location.routeThreadRef.environmentId &&
+              thread.id === routeThreadId,
+          ) ?? null),
+  };
+}
+
 /** The strip's tabs, kept current as threads and drafts change. */
 export function useWorktreeTabs(location: ThreadTabLocation) {
   const threads = useQuietThreadShells();
@@ -173,7 +221,8 @@ export function useWorktreeTabs(location: ThreadTabLocation) {
   );
   const now = new Date(useSnoozeWakeClock(threads)).toISOString();
   const order = useThreadTabOrderStore((store) => store.orderByWorktreeKey[location.worktreeKey]);
-  return buildTabs(location, threads, readDraftTabs(sessions, withContent), now, order);
+  const built = buildTabs(location, threads, readDraftTabs(sessions, withContent), now, order);
+  return { ...built, ...resolveRouteSubagents(location, threads, built.routeKey) };
 }
 
 const NO_DRAFT_SESSIONS: ComposerDraftState["draftThreadsByThreadKey"] = {};
@@ -248,16 +297,27 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
   // tab still counts: with one tab there is nowhere to step.
   const sidePanel = useThreadTabSidePanelChosen();
 
+  const openThread = (ref: ScopedThreadRef) =>
+    router.navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+
   const openTab = (tab: ThreadTabItem) =>
     tab.kind === "thread"
-      ? router.navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(tabRef(tab)!),
-        })
+      ? openThread(tabRef(tab)!)
       : router.navigate({
           to: "/draft/$draftId",
           params: buildDraftThreadRouteParams(DraftId.make(tab.draftId)),
         });
+
+  /** From a subagent to the thread that started it; false when the route is no subagent. */
+  const goUp = (): boolean => {
+    if (location === null || location.routeDraftId !== null) return false;
+    const route = readThreadShell(location.routeThreadRef);
+    const parentRef = route ? subagentParentRef(route) : null;
+    if (parentRef === null) return false;
+    // A side chat parent opens in its own parent's panel, not as a page of its own.
+    void openThread(resolveThreadOpenRoute(parentRef, readThreadShell(parentRef)));
+    return true;
+  };
 
   const newTab = async (options: { replace?: boolean } = {}) => {
     if (location === null || location.creatingWorktree) return;
@@ -304,8 +364,11 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
   const closeTab = (requestedKey: string): boolean => {
     if (location === null) return false;
     const { tabs, routeKey } = readTabs(location);
-    // The open route may be a subagent or draft, whose tab is its ancestor's or its own.
-    const key = requestedKey === scopedThreadKey(location.routeThreadRef) ? routeKey : requestedKey;
+    const routeThreadKey = scopedThreadKey(location.routeThreadRef);
+    // Closing a subagent returns to its parent; the tab closes from there.
+    if (requestedKey === routeThreadKey && routeKey !== routeThreadKey && goUp()) return true;
+    // The open route may be a draft, whose tab is its own.
+    const key = requestedKey === routeThreadKey ? routeKey : requestedKey;
     const tab = tabs.find((candidate) => candidate.key === key);
     if (!tab || isBlankLastTab(tabs)) return false;
     const isRoute = key === routeKey;
@@ -377,5 +440,5 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     if (order) useThreadTabOrderStore.getState().setOrder(location.worktreeKey, order);
   };
 
-  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab, placeForkTab };
+  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab, placeForkTab, openThread };
 }

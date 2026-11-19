@@ -2,6 +2,7 @@ import {
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
   AuthAccessWriteScope,
@@ -19,6 +20,7 @@ import {
   AuthTerminalOperateScope,
   WS_METHODS,
   WsRpcGroup,
+  type AuthEnvironmentScope,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -467,6 +469,51 @@ it.effect("requires task permission before attaching a prepared worktree to a th
     ).toMatchObject({ requiredPermission: AuthOrchestrationOperateScope });
     expect(handled).toBe(false);
   }),
+);
+
+it.effect("requires shell permission before writing a file outside a project", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (
+          tag,
+        ): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.projectsWriteFile> =>
+          tag !== WS_METHODS.projectsWriteFile,
+      ),
+    );
+    const written: string[] = [];
+    const handler = group.toLayerHandler(WS_METHODS.projectsWriteFile, ({ relativePath }) =>
+      Effect.sync(() => {
+        written.push(relativePath);
+        return { relativePath };
+      }),
+    );
+    const makeClient = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
+      RpcTest.makeClient(group).pipe(
+        Effect.provide(Layer.merge(handler, RpcAuthorization.layer(scopes))),
+      );
+    const write = (relativePath: string) => ({ cwd: "/repo", relativePath, contents: "" });
+    const hostPaths = ["/Users/me/.zshrc", "~/.zshrc", "C:\\Users\\me\\notes.md"];
+
+    const editor = yield* makeClient([AuthFilesystemWriteScope]);
+    yield* editor[WS_METHODS.projectsWriteFile](write("notes.md"));
+    for (const relativePath of hostPaths) {
+      expect(
+        yield* editor[WS_METHODS.projectsWriteFile](write(relativePath)).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: AuthTerminalOperateScope });
+    }
+    const shell = yield* makeClient([AuthTerminalOperateScope]);
+    expect(
+      yield* shell[WS_METHODS.projectsWriteFile](write("/Users/me/.zshrc")).pipe(Effect.flip),
+    ).toMatchObject({ requiredPermission: AuthFilesystemWriteScope });
+    expect(written).toEqual(["notes.md"]);
+
+    const owner = yield* makeClient([AuthFilesystemWriteScope, AuthTerminalOperateScope]);
+    for (const relativePath of hostPaths) {
+      yield* owner[WS_METHODS.projectsWriteFile](write(relativePath));
+    }
+    expect(written).toEqual(["notes.md", ...hostPaths]);
+  }).pipe(Effect.scoped),
 );
 
 describe("thread context authorization", () => {

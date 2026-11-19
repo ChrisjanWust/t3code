@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   isAtomCommandInterrupted,
@@ -13,6 +13,7 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   closestCenter,
@@ -35,8 +36,23 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { HistoryIcon, PlusIcon, Rows3Icon } from "lucide-react";
-import { type CSSProperties, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  BotIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CornerLeftUpIcon,
+  GitBranchIcon,
+  HistoryIcon,
+  PlusIcon,
+  Rows3Icon,
+} from "lucide-react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import { isElectron } from "../../env";
 import { SIBLING_COLUMN_MIN_WIDTH } from "../../hooks/usePreviewPanelInlineSize";
@@ -57,13 +73,21 @@ import { textDirection } from "../../textDirection";
 import { canShareWithGuestAtom } from "../chat/guestShareAvailability";
 import { GuestShareIndicator } from "../chat/GuestShareControls";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import {
-  hasUnseenCompletion,
-  resolveSidebarRowStatus,
-  resolveSidebarThreadStatus,
-} from "../Sidebar.logic";
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { sidebarProviderEntriesAtom } from "../sidebar/sidebarProviderEntries";
 import { Button } from "../ui/button";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -71,7 +95,14 @@ import { m, type MessageResolver } from "../../i18n/messages";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
-import { isBlankLastTab, tabsInLayoutOrder } from "./threadTabs.logic";
+import { useSubagentListStore } from "./subagentListStore";
+import {
+  isBlankLastTab,
+  type TabStatusTone,
+  type TabSubagents,
+  tabsInLayoutOrder,
+  threadTabStatusTone,
+} from "./threadTabs.logic";
 import {
   type ThreadTabItem,
   type ThreadTabLocation,
@@ -101,30 +132,198 @@ function preventMiddleButtonDefault(event: ReactMouseEvent) {
 }
 
 // Static colors only: a pulsing dot per tab would repaint the header continuously.
-function tabStatusClassName(tab: ThreadTabItem): string | null {
-  if (tab.kind === "draft" || tab.closed) return null;
-  const status = resolveSidebarRowStatus(tab.thread);
-  switch (status) {
-    case "approval":
-    case "input":
-    case "request":
-    case "limited":
-      return "bg-warning";
-    case "failed":
-      return "bg-destructive";
-    case "preparing":
-    case "working":
-    case "waiting":
-      return "bg-info";
-    case "ready":
-      return hasUnseenCompletion({
-        ...tab.thread,
-        lastVisitedAt: tab.thread.lastVisitedAt ?? undefined,
-      })
-        ? "bg-success"
-        : null;
-  }
+const STATUS_TONE_CLASS: Record<TabStatusTone, string> = {
+  attention: "bg-warning",
+  failed: "bg-destructive",
+  working: "bg-info",
+  unseen: "bg-success",
+};
+
+function threadStatusClassName(thread: EnvironmentThreadShell): string | null {
+  const tone = threadTabStatusTone(thread);
+  return tone === null ? null : STATUS_TONE_CLASS[tone];
 }
+
+function tabStatusClassName(tab: ThreadTabItem): string | null {
+  return tab.kind === "draft" || tab.closed ? null : threadStatusClassName(tab.thread);
+}
+
+function ThreadStatusDot(props: { readonly thread: EnvironmentThreadShell }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        threadStatusClassName(props.thread) ?? "bg-muted-foreground/30",
+      )}
+    />
+  );
+}
+
+/** The open tab's subagents, which only it can list since only its family is loaded. */
+interface TabSubagentView {
+  readonly subagents: TabSubagents<EnvironmentThreadShell>;
+  /** The tab's subagent the route shows or descends from. */
+  readonly routeSubagentId: ThreadId | null;
+  /** The subagent the route shows, when it shows one rather than the tab's own thread. */
+  readonly routeSubagent: EnvironmentThreadShell | null;
+  readonly onOpen: (thread: EnvironmentThreadShell) => void;
+}
+
+const subagentCount = (view: TabSubagentView) =>
+  view.subagents.active.length + view.subagents.previous.length;
+
+const stopPropagation = (event: { stopPropagation: () => void }) => event.stopPropagation();
+
+// Portalled, the popup's events still bubble to the tab, whose drag, menu and close must not see them.
+const KEEP_EVENTS_IN_MENU = {
+  onPointerDown: stopPropagation,
+  onAuxClick: stopPropagation,
+  onContextMenu: (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  },
+};
+
+/** Every subagent of the open tab: active ones, then finished ones in a submenu. */
+function SubagentMenu(props: {
+  readonly view: TabSubagentView;
+  readonly label: string;
+  readonly className: string;
+  readonly onTriggerContextMenu?: ((event: ReactMouseEvent) => void) | undefined;
+  readonly children: ReactNode;
+}) {
+  const gt = useGT();
+  const { subagents, routeSubagent, onOpen } = props.view;
+  const item = (thread: EnvironmentThreadShell) => (
+    <MenuItem key={thread.id} onClick={() => onOpen(thread)}>
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <ThreadStatusDot thread={thread} />
+      </span>
+      <span className="min-w-0 flex-1 truncate" dir={textDirection(thread.title)}>
+        {thread.title}
+      </span>
+      {thread.id === routeSubagent?.id ? <CheckIcon aria-hidden className="size-3.5" /> : null}
+    </MenuItem>
+  );
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            className={props.className}
+            onPointerDown={stopPropagation}
+            onContextMenu={props.onTriggerContextMenu}
+          />
+        }
+      >
+        {props.children}
+      </MenuTrigger>
+      <MenuPopup align="start" className="max-w-96" {...KEEP_EVENTS_IN_MENU}>
+        {subagents.active.length > 0 ? (
+          <MenuGroup>
+            <MenuGroupLabel>
+              <T>Active</T>
+            </MenuGroupLabel>
+            {subagents.active.map(item)}
+          </MenuGroup>
+        ) : null}
+        {subagents.previous.length > 0 ? (
+          <>
+            {subagents.active.length > 0 ? <MenuSeparator /> : null}
+            <MenuSub>
+              <MenuSubTrigger>
+                {gt("Previous ({count})", { count: subagents.previous.length })}
+              </MenuSubTrigger>
+              <MenuSubPopup className="max-w-96">{subagents.previous.map(item)}</MenuSubPopup>
+            </MenuSub>
+          </>
+        ) : null}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function SubagentRow(props: {
+  readonly thread: EnvironmentThreadShell;
+  readonly view: TabSubagentView;
+}) {
+  const { thread, view } = props;
+  const onRoute = thread.id === view.routeSubagentId;
+  const current = onRoute && thread.id === view.routeSubagent?.id;
+  return (
+    <button
+      type="button"
+      aria-current={current ? "page" : undefined}
+      className={cn(
+        "flex h-6 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-start text-xs",
+        current
+          ? "bg-accent text-foreground"
+          : onRoute
+            ? "bg-accent/50 text-foreground"
+            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+      )}
+      onClick={() => view.onOpen(thread)}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <ThreadStatusDot thread={thread} />
+      </span>
+      <span className="min-w-0 flex-1 truncate" dir={textDirection(thread.title)}>
+        {thread.title}
+      </span>
+      <TabActivityTime thread={thread} />
+    </button>
+  );
+}
+
+/** The open tab's subagents under it in the side panel; finished ones fold behind Previous. */
+function SubagentTree(props: { readonly tabKey: string; readonly view: TabSubagentView }) {
+  const { tabKey, view } = props;
+  const gt = useGT();
+  const { active, previous } = view.subagents;
+  const previousOpen = useSubagentListStore((state) => state.previousOpen[tabKey] === true);
+  const toggle = useSubagentListStore((state) => state.toggle);
+  // Folded, Previous still shows the subagent the route is in, so the panel says where you are.
+  const shownPrevious = previousOpen
+    ? previous
+    : previous.filter((thread) => thread.id === view.routeSubagentId);
+  return (
+    <div role="group" aria-label={gt("Subagents")} className="flex flex-col gap-px pt-px ps-4">
+      {active.map((thread) => (
+        <SubagentRow key={thread.id} thread={thread} view={view} />
+      ))}
+      {previous.length > 0 ? (
+        <button
+          type="button"
+          aria-expanded={previousOpen}
+          className="flex h-6 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          onClick={() => toggle("previousOpen", tabKey)}
+        >
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {previousOpen ? (
+              <ChevronDownIcon aria-hidden className="size-3" />
+            ) : (
+              <ChevronRightIcon aria-hidden className="size-3" />
+            )}
+          </span>
+          {gt("Previous ({count})", { count: previous.length })}
+        </button>
+      ) : null}
+      {shownPrevious.map((thread) => (
+        <SubagentRow key={thread.id} thread={thread} view={view} />
+      ))}
+    </div>
+  );
+}
+
+const subagentTabItem = (subagent: EnvironmentThreadShell): ThreadTabItem => ({
+  kind: "thread",
+  key: scopedThreadKey(scopeThreadRef(subagent.environmentId, subagent.id)),
+  thread: subagent,
+  closed: false,
+});
 
 function tabTitle(tab: ThreadTabItem, resolve: MessageResolver): string {
   return tab.kind === "thread" ? tab.thread.title : resolve(msg("New thread"));
@@ -275,6 +474,42 @@ function TabRenameInput(props: {
   );
 }
 
+/** The subagent half of a top-bar tab: it switches subagents, and its menu acts on the subagent. */
+function SplitTabSubagent(props: {
+  readonly view: TabSubagentView;
+  readonly subagent: EnvironmentThreadShell;
+  readonly menu: TabMenuContext;
+}) {
+  const { subagent } = props;
+  const gt = useGT();
+  const { renaming, commitRename, onContextMenu } = useTabMenu(
+    subagentTabItem(subagent),
+    props.menu,
+  );
+  if (renaming) {
+    return <TabRenameInput title={subagent.title} className="w-32" onCommit={commitRename} />;
+  }
+  return (
+    <SubagentMenu
+      view={props.view}
+      label={gt("Switch subagent from {title}", { title: subagent.title })}
+      className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-start"
+      onTriggerContextMenu={(event) => {
+        event.stopPropagation();
+        onContextMenu(event);
+      }}
+    >
+      <span
+        className="max-w-48 min-w-0 truncate @max-3xl/tabs:max-w-32"
+        dir={textDirection(subagent.title)}
+      >
+        {subagent.title}
+      </span>
+      <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+    </SubagentMenu>
+  );
+}
+
 function ThreadTab(
   props: TabMenuContext & {
     readonly tab: ThreadTabItem;
@@ -283,81 +518,156 @@ function ThreadTab(
     readonly closable: boolean;
     readonly onSelect: (key: string) => void;
     readonly onClose: (key: string) => void;
+    /** Only the open tab has one. */
+    readonly subagentView?: TabSubagentView | undefined;
   },
 ) {
-  const { tab, active, onSelect, onClose } = props;
+  const { tab, active, onSelect, onClose, subagentView: view } = props;
   const gt = useGT();
   const messages = useMessages();
   const title = tabTitle(tab, messages);
-  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(tab, props);
+  const routeSubagent = view?.routeSubagent ?? null;
+  // Find works only in the open thread, which inside a subagent is the subagent, not this tab.
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(
+    tab,
+    routeSubagent === null ? props : { ...props, onFind: undefined },
+  );
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.key,
     disabled: renaming,
   });
+  const collapsed = useSubagentListStore((state) => state.collapsed[tab.key] === true);
+  const toggleList = useSubagentListStore((state) => state.toggle);
+  const hasSubagents = view !== undefined && subagentCount(view) > 0;
+  // The side panel marks the tab as the subagent's ancestor and lists the subagent under it;
+  // the top bar keeps the tab selected and names the subagent inside it.
+  const ancestor = props.vertical && routeSubagent !== null;
+  const split = !props.vertical && view !== undefined && routeSubagent !== null;
   const statusDot = <TabStatusDot tab={tab} />;
   return (
     <div
-      role="presentation"
       data-thread-tab={tab.key}
       data-active-tab={active}
-      onMouseDown={preventMiddleButtonDefault}
-      onMouseUp={preventMiddleButtonDefault}
-      onAuxClick={(event) => {
-        if (event.button === 1) onClose(tab.key);
-      }}
-      onContextMenu={onContextMenu}
-      {...listeners}
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        // Isolated so the provider icon's z-index stays under a tab dragged across it.
-        "group/tab isolate flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
-        props.vertical ? "w-full" : "max-w-52 min-w-24",
-        isElectron && "[-webkit-app-region:no-drag]",
-        active || isDragging
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-        isDragging && "relative z-10",
-      )}
+      // Isolated so the provider icon's z-index stays under a tab dragged across it.
+      className={cn("isolate shrink-0", props.vertical && "w-full", isDragging && "relative z-10")}
     >
-      {props.closable ? (
-        <PanelTabCloseButton
-          label={gt("Close {title}", { title })}
-          onClick={() => onClose(tab.key)}
-        >
-          {statusDot}
-        </PanelTabCloseButton>
-      ) : (
-        <span className="flex size-4 shrink-0 items-center justify-center">{statusDot}</span>
-      )}
-      {renaming ? (
-        <TabRenameInput
-          title={title}
-          className={props.vertical ? "flex-1" : "w-32"}
-          onCommit={commitRename}
-        />
-      ) : (
-        <button
-          type="button"
-          role="tab"
-          aria-label={title}
-          aria-selected={active}
-          className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-start",
-            tab.kind === "thread" && tab.closed && "italic",
-          )}
-          onClick={() => onSelect(tab.key)}
-          onDoubleClick={startRename}
-        >
-          {props.vertical ? (
-            <TabProviderIcon thread={tab.kind === "thread" ? tab.thread : null} />
-          ) : null}
-          <span data-tab-title className="min-w-0 flex-1 truncate" dir={textDirection(title)}>
-            {title}
-          </span>
-          {props.vertical && tab.kind === "thread" ? <TabActivityTime thread={tab.thread} /> : null}
-        </button>
-      )}
+      <div
+        role="presentation"
+        onMouseDown={preventMiddleButtonDefault}
+        onMouseUp={preventMiddleButtonDefault}
+        onAuxClick={(event) => {
+          if (event.button === 1) onClose(tab.key);
+        }}
+        onContextMenu={onContextMenu}
+        {...listeners}
+        className={cn(
+          "group/tab flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
+          props.vertical ? "w-full" : split ? "max-w-96 min-w-24" : "max-w-52 min-w-24",
+          isElectron && "[-webkit-app-region:no-drag]",
+          isDragging || (active && !ancestor)
+            ? "bg-accent text-foreground"
+            : active
+              ? "bg-accent/50 text-foreground"
+              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        )}
+      >
+        {props.closable ? (
+          <PanelTabCloseButton
+            label={gt("Close {title}", { title })}
+            onClick={() => onClose(tab.key)}
+          >
+            {statusDot}
+          </PanelTabCloseButton>
+        ) : (
+          <span className="flex size-4 shrink-0 items-center justify-center">{statusDot}</span>
+        )}
+        {renaming ? (
+          <TabRenameInput
+            title={title}
+            className={props.vertical ? "flex-1" : "w-32"}
+            onCommit={commitRename}
+          />
+        ) : split ? (
+          <>
+            {/* The tab's own name returns to its thread, one level up from the subagent. */}
+            <button
+              type="button"
+              role="tab"
+              aria-label={title}
+              aria-selected={active}
+              className="flex min-w-0 shrink cursor-pointer items-center gap-1 text-muted-foreground hover:text-foreground"
+              onClick={() => onSelect(tab.key)}
+              onDoubleClick={startRename}
+            >
+              <CornerLeftUpIcon aria-hidden className="size-3 shrink-0" />
+              <span
+                data-tab-title
+                className="max-w-28 truncate @max-3xl/tabs:hidden"
+                dir={textDirection(title)}
+              >
+                {title}
+              </span>
+            </button>
+            <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+            <SplitTabSubagent view={view} subagent={routeSubagent} menu={props} />
+          </>
+        ) : (
+          <button
+            type="button"
+            role="tab"
+            aria-label={title}
+            aria-selected={active}
+            className={cn(
+              "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-start",
+              tab.kind === "thread" && tab.closed && "italic",
+            )}
+            onClick={() => onSelect(tab.key)}
+            onDoubleClick={startRename}
+          >
+            {props.vertical ? (
+              <TabProviderIcon thread={tab.kind === "thread" ? tab.thread : null} />
+            ) : null}
+            <span data-tab-title className="min-w-0 flex-1 truncate" dir={textDirection(title)}>
+              {title}
+            </span>
+            {props.vertical && tab.kind === "thread" ? (
+              <TabActivityTime thread={tab.thread} />
+            ) : null}
+          </button>
+        )}
+        {!props.vertical && !split && hasSubagents ? (
+          <SubagentMenu
+            view={view}
+            label={gt("Subagents")}
+            className="flex shrink-0 cursor-pointer items-center gap-0.5 text-muted-foreground tabular-nums hover:text-foreground"
+          >
+            <BotIcon aria-hidden className="size-3" />
+            {view.subagents.active.length > 0 ? view.subagents.active.length : null}
+            <ChevronDownIcon aria-hidden className="size-3" />
+          </SubagentMenu>
+        ) : null}
+        {props.vertical && hasSubagents ? (
+          <button
+            type="button"
+            aria-label={collapsed ? gt("Show subagents") : gt("Hide subagents")}
+            aria-expanded={!collapsed}
+            className="flex shrink-0 cursor-pointer items-center gap-0.5 text-muted-foreground tabular-nums hover:text-foreground"
+            onClick={() => toggleList("collapsed", tab.key)}
+          >
+            {collapsed && view.subagents.active.length > 0 ? view.subagents.active.length : null}
+            {collapsed ? (
+              <ChevronRightIcon aria-hidden className="size-3.5" />
+            ) : (
+              <ChevronDownIcon aria-hidden className="size-3.5" />
+            )}
+          </button>
+        ) : null}
+      </div>
+      {props.vertical && hasSubagents && !collapsed ? (
+        <SubagentTree tabKey={tab.key} view={view} />
+      ) : null}
     </div>
   );
 }
@@ -434,10 +744,22 @@ interface ThreadTabListProps {
 function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean }) {
   const { location, vertical } = props;
   const gt = useGT();
-  const { tabs: savedOrder, routeKey } = useWorktreeTabs(location);
+  const {
+    tabs: savedOrder,
+    routeKey,
+    subagents,
+    routeSubagentId,
+    routeSubagent,
+  } = useWorktreeTabs(location);
   const tabs = tabsInLayoutOrder(savedOrder, vertical);
   const tabActions = useThreadTabActions(location);
-  const { selectTab, moveTab } = tabActions;
+  const { selectTab, moveTab, openThread } = tabActions;
+  const subagentView: TabSubagentView = {
+    subagents,
+    routeSubagentId,
+    routeSubagent,
+    onOpen: (thread) => void openThread(scopeThreadRef(thread.environmentId, thread.id)),
+  };
   const closeTab = useStableCallback(tabActions.closeTab);
   const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -476,7 +798,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
               closable={!isBlankLastTab(tabs)}
               onSelect={selectTab}
               onClose={closeTab}
-              {...(tab.key === routeKey ? { onFind: props.onFindInThread } : {})}
+              {...(tab.key === routeKey ? { onFind: props.onFindInThread, subagentView } : {})}
             />
           ))}
         </SortableContext>
@@ -487,31 +809,73 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   );
 }
 
-function CurrentTab(props: { readonly tab: ThreadTabItem; readonly menu: TabMenuContext }) {
+function CurrentTab(props: {
+  readonly tab: ThreadTabItem;
+  readonly menu: TabMenuContext;
+  /** The subagent the route shows inside this tab, if any. */
+  readonly subagent: EnvironmentThreadShell | null;
+  readonly onUp: () => void;
+}) {
+  const { tab, subagent } = props;
+  const gt = useGT();
   const messages = useMessages();
-  const title = tabTitle(props.tab, messages);
-  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(props.tab, props.menu);
+  // Inside a subagent the pill names it, and its menu and rename act on it.
+  const shown = subagent === null ? tab : subagentTabItem(subagent);
+  const title = tabTitle(shown, messages);
+  const tabName = tabTitle(tab, messages);
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(shown, props.menu);
   return (
     <div
       role="presentation"
-      data-current-tab={props.tab.key}
+      data-current-tab={tab.key}
       className={cn(
         "flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-accent px-2 text-xs text-foreground",
         // A title bar drag rectangle would swallow the right click.
         isElectron && "[-webkit-app-region:no-drag]",
       )}
       onContextMenu={onContextMenu}
-      onDoubleClick={startRename}
     >
-      <TabStatusDot tab={props.tab} />
+      {subagent === null ? null : (
+        <>
+          <button
+            type="button"
+            aria-label={gt("Up to {title}", { title: tabName })}
+            className="flex min-w-0 shrink cursor-pointer items-center gap-1 text-muted-foreground hover:text-foreground"
+            onClick={props.onUp}
+          >
+            <CornerLeftUpIcon aria-hidden className="size-3 shrink-0" />
+            <span className="max-w-48 truncate" dir={textDirection(tabName)}>
+              {tabName}
+            </span>
+          </button>
+          <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+        </>
+      )}
+      <TabStatusDot tab={shown} />
       {renaming ? (
         <TabRenameInput title={title} className="w-64" onCommit={commitRename} />
       ) : (
-        <span className="truncate" dir={textDirection(title)}>
+        <span className="truncate" dir={textDirection(title)} onDoubleClick={startRename}>
           {title}
         </span>
       )}
     </div>
+  );
+}
+
+/** The checkout a subagent works in, when it is not its tab's. */
+function SubagentBranch(props: {
+  readonly tab: ThreadTabItem;
+  readonly subagent: EnvironmentThreadShell;
+}) {
+  const { branch, worktreePath } = props.subagent;
+  if (props.tab.kind !== "thread" || branch === null) return null;
+  if (worktreePath === props.tab.thread.worktreePath) return null;
+  return (
+    <span className="flex min-w-0 shrink items-center gap-1 text-xs text-muted-foreground">
+      <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+      <span className="truncate font-mono">{branch}</span>
+    </span>
   );
 }
 
@@ -521,20 +885,26 @@ function ThreadTabCurrent(props: {
   readonly projectCwd: string | null;
   readonly onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }) {
-  const { tabs, routeKey } = useWorktreeTabs(props.location);
+  const { tabs, routeKey, routeSubagent } = useWorktreeTabs(props.location);
+  const { selectTab } = useThreadTabActions(props.location);
   const current = tabs.find((tab) => tab.key === routeKey);
   return (
-    <div className="flex min-w-0 flex-1 justify-center">
+    <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
       {current ? (
-        <CurrentTab
-          key={current.key}
-          tab={current}
-          menu={{
-            projectCwd: props.projectCwd,
-            environmentId: props.location.environmentId,
-            onFind: props.onFindInThread,
-          }}
-        />
+        <>
+          <CurrentTab
+            key={current.key}
+            tab={current}
+            subagent={routeSubagent}
+            onUp={() => selectTab(current.key)}
+            menu={{
+              projectCwd: props.projectCwd,
+              environmentId: props.location.environmentId,
+              onFind: props.onFindInThread,
+            }}
+          />
+          {routeSubagent ? <SubagentBranch tab={current} subagent={routeSubagent} /> : null}
+        </>
       ) : null}
     </div>
   );
@@ -560,7 +930,8 @@ export function ThreadTabStrip(
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-1 items-center gap-1",
+        // A narrow strip shortens a subagent's tab to its up arrow.
+        "@container/tabs flex min-w-0 flex-1 items-center gap-1",
         props.rightPanelOpen ? "pr-10" : "pr-24",
       )}
     >
@@ -645,7 +1016,7 @@ export function ThreadTabColumn(props: ThreadTabListProps) {
         return observeResize(row, measure);
       }}
       data-thread-tab-column
-      className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
+      className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-sidebar-secondary [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
       style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}
     >
       <RightPanelResizeHandle edge="right" handlers={handlers} label={gt("Resize tab panel")} />

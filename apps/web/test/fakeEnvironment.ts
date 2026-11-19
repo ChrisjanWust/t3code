@@ -236,6 +236,10 @@ function run(
 export interface FakeThread {
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
+  /** Makes this a subagent of that top-level thread. */
+  readonly subagentOf?: ThreadId;
+  /** The shell's status; `completed`, or `idle` without runs, when absent. */
+  readonly status?: OrchestrationV2ThreadShell["status"];
   /** Makes this an older settled thread the shell leaves out; only its family read returns it. */
   readonly olderSettled?: true;
   readonly id: ThreadId;
@@ -337,6 +341,8 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   };
 }
 
+const rootThreadIdOf = (thread: FakeThread) => thread.sideChatOf ?? thread.subagentOf ?? thread.id;
+
 function baseShellOf(
   thread: FakeThread,
   latest: OrchestrationV2Run | undefined,
@@ -356,9 +362,9 @@ function baseShellOf(
     activeProviderThreadId: thread.providerThreads?.[0]?.id ?? null,
     ...(thread.issues === undefined ? {} : { issues: thread.issues }),
     lineage: {
-      rootThreadId: thread.sideChatOf ?? thread.id,
-      parentThreadId: thread.sideChatOf ?? null,
-      relationshipToParent: null,
+      rootThreadId: rootThreadIdOf(thread),
+      parentThreadId: thread.sideChatOf ?? thread.subagentOf ?? null,
+      relationshipToParent: thread.subagentOf ? "subagent" : null,
       ...(thread.sideChatOf ? { sideChat: true } : {}),
     },
     forkedFrom: null,
@@ -367,7 +373,7 @@ function baseShellOf(
     latestRunId: latest?.id ?? null,
     activeRunId: null,
     // Idle reads as waiting on the user, which shows a per-second duration in the sidebar.
-    status: latest ? "completed" : "idle",
+    status: thread.status ?? (latest ? "completed" : "idle"),
     pendingRuntimeRequest: null,
     latestVisibleMessage: null,
     latestUserMessageAt: AT,
@@ -606,12 +612,13 @@ const handlers: Record<string, (input: never) => unknown> = {
     );
   },
   [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input: { readonly threadId: ThreadId }) => {
-    const rootOf = (thread: FakeThread) => thread.sideChatOf ?? thread.id;
     const requested = threads.find((candidate) => candidate.id === input.threadId);
     return Effect.succeed({
       snapshotSequence: sequence,
       threads: requested
-        ? threads.filter((thread) => rootOf(thread) === rootOf(requested)).map(shellOf)
+        ? threads
+            .filter((thread) => rootThreadIdOf(thread) === rootThreadIdOf(requested))
+            .map(shellOf)
         : [],
     });
   },

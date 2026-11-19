@@ -11,10 +11,13 @@ import {
   insertTabAfter,
   isBlankLastTab,
   moveWorktreeTab,
+  resolveRouteSubagentId,
   resolveTabAfterClose,
+  resolveTabSubagents,
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
+  subagentParentRef,
   tabThreadKey,
   worktreeCreatedAtMs,
   worktreeKey,
@@ -260,6 +263,56 @@ describe("tabThreadKey", () => {
 
     expect(tabThreadKey(ref("env-1", "task-subagent"), threads)).toBe(taskKey);
     expect(tabThreadKey(ref("env-1", "task"), threads)).toBe(taskKey);
+  });
+});
+
+describe("subagents under the open tab", () => {
+  const tabRef = scopeThreadRef(EnvironmentId.make("env-1"), ThreadId.make("parent"));
+  const subagent = (id: string, overrides: Partial<SidebarThreadSummary> = {}) =>
+    thread(id, {
+      lineage: { relationshipToParent: "subagent", parentThreadId: "parent" },
+      worktreePath: `/repo/.t3/worktrees/${id}`,
+      ...overrides,
+    } as Partial<SidebarThreadSummary>);
+  const at = (hour: number) => `2026-10-26T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const ids = (threads: readonly SidebarThreadSummary[]) => threads.map((entry) => entry.id);
+
+  it("lists active subagents in launch order and the rest newest first, leaving out others", () => {
+    const threads = [
+      thread("parent"),
+      subagent("running", { createdAt: at(9), runtime: { status: "running" } } as never),
+      subagent("old-done", { createdAt: at(7) }),
+      subagent("asks", { createdAt: at(8), hasPendingApprovals: true }),
+      subagent("new-done", { createdAt: at(10) }),
+      subagent("archived", { archivedAt: at(11) }),
+      subagent("side-chat", {
+        lineage: { relationshipToParent: null, parentThreadId: "parent", sideChat: true },
+      } as Partial<SidebarThreadSummary>),
+      subagent("nested", {
+        lineage: { relationshipToParent: "subagent", parentThreadId: "running" },
+      } as Partial<SidebarThreadSummary>),
+      subagent("other-env", { environmentId: EnvironmentId.make("env-2") }),
+    ];
+    const { active, previous } = resolveTabSubagents(threads, tabRef);
+    expect(ids(active)).toEqual(["asks", "running"]);
+    expect(ids(previous)).toEqual(["new-done", "old-done"]);
+  });
+
+  it("finds the subagent a route is in, and where up goes from it", () => {
+    const threads = [
+      thread("parent"),
+      subagent("child"),
+      subagent("grandchild", {
+        lineage: { relationshipToParent: "subagent", parentThreadId: "child" },
+      } as Partial<SidebarThreadSummary>),
+    ];
+    const route = (id: string) => scopeThreadRef(EnvironmentId.make("env-1"), ThreadId.make(id));
+    expect(resolveRouteSubagentId(route("child"), tabRef, threads)).toBe("child");
+    expect(resolveRouteSubagentId(route("grandchild"), tabRef, threads)).toBe("child");
+    expect(resolveRouteSubagentId(route("parent"), tabRef, threads)).toBeNull();
+
+    expect(subagentParentRef(threads[2]!)).toEqual(route("child"));
+    expect(subagentParentRef(threads[0]!)).toBeNull();
   });
 });
 

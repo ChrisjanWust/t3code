@@ -14,6 +14,7 @@ import {
   type AuthEnvironmentScope,
 } from "./auth.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
+import { isProjectHostFilePath } from "./project.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
@@ -53,6 +54,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.pullRequestsGenerateReviewGuide]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsRegenerateWorktreeTitle]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsCreateFromThread]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectsWriteFile]: AuthFilesystemWriteScope,
   [WS_METHODS.projectsMutateEntry]: AuthFilesystemWriteScope,
   [WS_METHODS.projectsCreateScratchFile]: AuthFilesystemWriteScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
@@ -95,6 +97,9 @@ export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
 const decodePrepareThread = Schema.decodeUnknownSync(GitPreparePullRequestThreadInput);
 const decodeStackedAction = Schema.decodeUnknownSync(GitRunStackedActionInput);
+const decodeWriteFilePath = Schema.decodeUnknownSync(
+  Schema.Struct({ relativePath: Schema.String }),
+);
 
 export function clientRpcRequiredScopes(
   method: string,
@@ -113,6 +118,13 @@ export function clientRpcRequiredScopes(
     )
       return [AuthSourceControlWriteScope, AuthOrchestrationReadScope];
   }
+  // A shell can already write any file, so writing outside a project asks for shell access too.
+  if (
+    method === WS_METHODS.projectsWriteFile &&
+    input !== undefined &&
+    isProjectHostFilePath(decodeWriteFilePath(input).relativePath)
+  )
+    return [AuthFilesystemWriteScope, AuthTerminalOperateScope];
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]
     : [];

@@ -33,6 +33,19 @@ vi.mock(import("~/state/session"), async (original) => ({
   readEnvironmentScope: () => true,
   useEnvironmentScope: () => true,
 }));
+vi.mock(import("~/state/projects"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  const granted = Atom.make(true);
+  const { projectEnvironment } = actual;
+  return {
+    ...actual,
+    projectEnvironment: {
+      ...projectEnvironment,
+      writeFile: { ...projectEnvironment.writeFile, permissionAtom: () => granted },
+    },
+  };
+});
 vi.mock(import("~/state/filesystem"), async (original) => ({
   ...(await original()),
   useFilesystemReadAccess: () => ({ canReadFiles: true, isPending: false, error: null }),
