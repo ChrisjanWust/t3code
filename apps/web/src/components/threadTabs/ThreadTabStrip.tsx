@@ -170,11 +170,24 @@ interface TabSubagentView {
 const subagentCount = (view: TabSubagentView) =>
   view.subagents.active.length + view.subagents.previous.length;
 
+const stopPropagation = (event: { stopPropagation: () => void }) => event.stopPropagation();
+
+// Portalled, the popup's events still bubble to the tab, whose drag, menu and close must not see them.
+const KEEP_EVENTS_IN_MENU = {
+  onPointerDown: stopPropagation,
+  onAuxClick: stopPropagation,
+  onContextMenu: (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  },
+};
+
 /** Every subagent of the open tab: active ones, then finished ones in a submenu. */
 function SubagentMenu(props: {
   readonly view: TabSubagentView;
   readonly label: string;
   readonly className: string;
+  readonly onTriggerContextMenu?: ((event: ReactMouseEvent) => void) | undefined;
   readonly children: ReactNode;
 }) {
   const { subagents, routeSubagent, onOpen } = props.view;
@@ -192,11 +205,19 @@ function SubagentMenu(props: {
   return (
     <Menu>
       <MenuTrigger
-        render={<button type="button" aria-label={props.label} className={props.className} />}
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            className={props.className}
+            onPointerDown={stopPropagation}
+            onContextMenu={props.onTriggerContextMenu}
+          />
+        }
       >
         {props.children}
       </MenuTrigger>
-      <MenuPopup align="start" className="max-w-96">
+      <MenuPopup align="start" className="max-w-96" {...KEEP_EVENTS_IN_MENU}>
         {subagents.active.length > 0 ? (
           <MenuGroup>
             <MenuGroupLabel>Active</MenuGroupLabel>
@@ -287,6 +308,13 @@ function SubagentTree(props: { readonly tabKey: string; readonly view: TabSubage
     </div>
   );
 }
+
+const subagentTabItem = (subagent: EnvironmentThreadShell): ThreadTabItem => ({
+  kind: "thread",
+  key: scopedThreadKey(scopeThreadRef(subagent.environmentId, subagent.id)),
+  thread: subagent,
+  closed: false,
+});
 
 function tabTitle(tab: ThreadTabItem): string {
   return tab.kind === "thread" ? tab.thread.title : "New thread";
@@ -434,6 +462,41 @@ function TabRenameInput(props: {
   );
 }
 
+/** The subagent half of a top-bar tab: it switches subagents, and its menu acts on the subagent. */
+function SplitTabSubagent(props: {
+  readonly view: TabSubagentView;
+  readonly subagent: EnvironmentThreadShell;
+  readonly menu: TabMenuContext;
+}) {
+  const { subagent } = props;
+  const { renaming, commitRename, onContextMenu } = useTabMenu(
+    subagentTabItem(subagent),
+    props.menu,
+  );
+  if (renaming) {
+    return <TabRenameInput title={subagent.title} className="w-32" onCommit={commitRename} />;
+  }
+  return (
+    <SubagentMenu
+      view={props.view}
+      label={`Switch subagent from ${subagent.title}`}
+      className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-start"
+      onTriggerContextMenu={(event) => {
+        event.stopPropagation();
+        onContextMenu(event);
+      }}
+    >
+      <span
+        className="max-w-48 min-w-0 truncate @max-3xl/tabs:max-w-32"
+        dir={textDirection(subagent.title)}
+      >
+        {subagent.title}
+      </span>
+      <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+    </SubagentMenu>
+  );
+}
+
 function ThreadTab(
   props: TabMenuContext & {
     readonly tab: ThreadTabItem;
@@ -448,14 +511,18 @@ function ThreadTab(
 ) {
   const { tab, active, onSelect, onClose, subagentView: view } = props;
   const title = tabTitle(tab);
-  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(tab, props);
+  const routeSubagent = view?.routeSubagent ?? null;
+  // Find works only in the open thread, which inside a subagent is the subagent, not this tab.
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(
+    tab,
+    routeSubagent === null ? props : { ...props, onFind: undefined },
+  );
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.key,
     disabled: renaming,
   });
   const collapsed = useSubagentListStore((state) => state.collapsed[tab.key] === true);
   const toggleList = useSubagentListStore((state) => state.toggle);
-  const routeSubagent = view?.routeSubagent ?? null;
   const hasSubagents = view !== undefined && subagentCount(view) > 0;
   // The side panel marks the tab as the subagent's ancestor and lists the subagent under it;
   // the top bar keeps the tab selected and names the subagent inside it.
@@ -526,19 +593,7 @@ function ThreadTab(
               </span>
             </button>
             <ChevronRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-            <SubagentMenu
-              view={view}
-              label={`Switch subagent from ${routeSubagent.title}`}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-start"
-            >
-              <span
-                className="max-w-48 min-w-0 truncate @max-3xl/tabs:max-w-32"
-                dir={textDirection(routeSubagent.title)}
-              >
-                {routeSubagent.title}
-              </span>
-              <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-            </SubagentMenu>
+            <SplitTabSubagent view={view} subagent={routeSubagent} menu={props} />
           </>
         ) : (
           <button
@@ -742,15 +797,7 @@ function CurrentTab(props: {
 }) {
   const { tab, subagent } = props;
   // Inside a subagent the pill names it, and its menu and rename act on it.
-  const shown: ThreadTabItem =
-    subagent === null
-      ? tab
-      : {
-          kind: "thread",
-          key: scopedThreadKey(scopeThreadRef(subagent.environmentId, subagent.id)),
-          thread: subagent,
-          closed: false,
-        };
+  const shown = subagent === null ? tab : subagentTabItem(subagent);
   const title = tabTitle(shown);
   const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(shown, props.menu);
   return (

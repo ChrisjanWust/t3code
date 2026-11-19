@@ -25,7 +25,9 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useThreadTabsVertical } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
+import { resolveThreadOpenRoute } from "../../lib/sideChatPane";
 import {
+  readThreadShell,
   readThreadShells,
   useQuietThreadShell,
   useQuietThreadShells,
@@ -306,15 +308,11 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
   /** From a subagent to the thread that started it; false when the route is no subagent. */
   const goUp = (): boolean => {
     if (location === null || location.routeDraftId !== null) return false;
-    const { routeThreadRef } = location;
-    const route = readThreadShells().find(
-      (thread) =>
-        thread.environmentId === routeThreadRef.environmentId &&
-        thread.id === routeThreadRef.threadId,
-    );
+    const route = readThreadShell(location.routeThreadRef);
     const parentRef = route ? subagentParentRef(route) : null;
     if (parentRef === null) return false;
-    void openThread(parentRef);
+    // A side chat parent opens in its own parent's panel, not as a page of its own.
+    void openThread(resolveThreadOpenRoute(parentRef, readThreadShell(parentRef)));
     return true;
   };
 

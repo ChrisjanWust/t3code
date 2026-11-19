@@ -55,19 +55,12 @@ export function draftWorktreeKey(
  * The tab that stands for `ref`: a subagent's or side chat's listed parent. A task a linked
  * environment delegated here keeps its own tab, since its parent's tabs are on that machine.
  */
-function tabThreadRef(
-  ref: ScopedThreadRef,
-  threads: Parameters<typeof resolveListedAncestorThreadRef>[1],
-): ScopedThreadRef {
-  const local = threads.filter((thread) => thread.environmentId === ref.environmentId);
-  return resolveListedAncestorThreadRef(ref, local);
-}
-
 export function tabThreadKey(
   ref: ScopedThreadRef,
   threads: Parameters<typeof resolveListedAncestorThreadRef>[1],
 ): string {
-  return scopedThreadKey(tabThreadRef(ref, threads));
+  const local = threads.filter((thread) => thread.environmentId === ref.environmentId);
+  return scopedThreadKey(resolveListedAncestorThreadRef(ref, local));
 }
 
 type StatusThread = Parameters<typeof resolveSidebarRowStatus>[0] & {
