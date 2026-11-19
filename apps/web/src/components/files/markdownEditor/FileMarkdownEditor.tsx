@@ -30,10 +30,12 @@ import {
   TextQuoteIcon,
   Trash2Icon,
 } from "lucide-react";
+import { msg, useGT } from "gt-react";
 import { createContext, type ReactNode, use, useEffect, useRef, useState } from "react";
 
 import ChatMarkdown, { CHAT_MARKDOWN_BODY_TEXT_CLASS } from "~/components/ChatMarkdown";
 
+import { m } from "~/i18n/messages";
 import { markdownImageBaseDir } from "../FileMarkdownPreview";
 import { Input } from "../../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../../ui/popover";
@@ -177,6 +179,7 @@ function toggleTaskList(editor: Editor) {
 }
 
 function LinkControl({ editor, pressed }: { readonly editor: Editor; readonly pressed: boolean }) {
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const [href, setHref] = useState("");
   const apply = () => {
@@ -200,8 +203,8 @@ function LinkControl({ editor, pressed }: { readonly editor: Editor; readonly pr
           <Toggle
             size="xs"
             variant="ghost"
-            aria-label="Link"
-            title="Link"
+            aria-label={gt("Link", { $context: "toolbar button that adds a hyperlink" })}
+            title={gt("Link", { $context: "toolbar button that adds a hyperlink" })}
             pressed={pressed}
             onMouseDown={(event) => event.preventDefault()}
           />
@@ -219,8 +222,8 @@ function LinkControl({ editor, pressed }: { readonly editor: Editor; readonly pr
           <Input
             autoFocus
             size="compact"
-            aria-label="Link URL"
-            placeholder="https://… (empty removes the link)"
+            aria-label={gt("Link URL")}
+            placeholder={gt("https://… (empty removes the link)")}
             value={href}
             onChange={(event) => setHref(event.currentTarget.value)}
           />
@@ -231,6 +234,7 @@ function LinkControl({ editor, pressed }: { readonly editor: Editor; readonly pr
 }
 
 function Toolbar({ editor }: { readonly editor: Editor }) {
+  const gt = useGT();
   const active = useEditorState({
     editor,
     selector: ({ editor: current }) => ({
@@ -258,13 +262,13 @@ function Toolbar({ editor }: { readonly editor: Editor }) {
   return (
     <div
       role="toolbar"
-      aria-label="Formatting"
+      aria-label={gt("Formatting")}
       className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border/60 px-3 py-1"
     >
       {headings.map(([level, Icon]) => (
         <ToolbarToggle
           key={level}
-          label={`Heading ${level}`}
+          label={gt("Heading {level}", { level })}
           pressed={active.heading === level}
           onPress={() => run().toggleHeading({ level }).run()}
         >
@@ -272,25 +276,29 @@ function Toolbar({ editor }: { readonly editor: Editor }) {
         </ToolbarToggle>
       ))}
       <Separator orientation="vertical" className="mx-1 h-4" />
-      <ToolbarToggle label="Bold" pressed={active.bold} onPress={() => run().toggleBold().run()}>
+      <ToolbarToggle
+        label={gt("Bold")}
+        pressed={active.bold}
+        onPress={() => run().toggleBold().run()}
+      >
         <BoldIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Italic"
+        label={gt("Italic")}
         pressed={active.italic}
         onPress={() => run().toggleItalic().run()}
       >
         <ItalicIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Strikethrough"
+        label={gt("Strikethrough")}
         pressed={active.strike}
         onPress={() => run().toggleStrike().run()}
       >
         <StrikethroughIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Inline code"
+        label={gt("Inline code")}
         pressed={active.code}
         onPress={() => run().toggleCode().run()}
       >
@@ -299,42 +307,46 @@ function Toolbar({ editor }: { readonly editor: Editor }) {
       <LinkControl editor={editor} pressed={active.link} />
       <Separator orientation="vertical" className="mx-1 h-4" />
       <ToolbarToggle
-        label="Bullet list"
+        label={gt("Bullet list")}
         pressed={active.bulletList && !active.task}
         onPress={() => (active.task ? toggleTaskList(editor) : run().toggleBulletList().run())}
       >
         <ListIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Numbered list"
+        label={gt("Numbered list")}
         pressed={active.orderedList}
         onPress={() => run().toggleOrderedList().run()}
       >
         <ListOrderedIcon />
       </ToolbarToggle>
-      <ToolbarToggle label="Task list" pressed={active.task} onPress={() => toggleTaskList(editor)}>
+      <ToolbarToggle
+        label={gt("Task list")}
+        pressed={active.task}
+        onPress={() => toggleTaskList(editor)}
+      >
         <ListChecksIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Quote"
+        label={gt("Quote", { $context: "block quote formatting" })}
         pressed={active.blockquote}
         onPress={() => run().toggleBlockquote().run()}
       >
         <TextQuoteIcon />
       </ToolbarToggle>
       <ToolbarToggle
-        label="Code block"
+        label={gt("Code block")}
         pressed={active.codeBlock}
         onPress={() => run().toggleCodeBlock().run()}
       >
         <SquareCodeIcon />
       </ToolbarToggle>
-      <ToolbarToggle label="Divider" onPress={() => run().setHorizontalRule().run()}>
+      <ToolbarToggle label={gt("Divider")} onPress={() => run().setHorizontalRule().run()}>
         <MinusIcon />
       </ToolbarToggle>
       <Separator orientation="vertical" className="mx-1 h-4" />
       <ToolbarToggle
-        label="Insert table"
+        label={gt("Insert table")}
         disabled={active.table}
         onPress={() => run().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
       >
@@ -342,19 +354,22 @@ function Toolbar({ editor }: { readonly editor: Editor }) {
       </ToolbarToggle>
       {active.table ? (
         <>
-          <ToolbarToggle label="Add row below" onPress={() => run().addRowAfter().run()}>
+          <ToolbarToggle label={gt("Add row below")} onPress={() => run().addRowAfter().run()}>
             <Rows3Icon />
           </ToolbarToggle>
-          <ToolbarToggle label="Add column right" onPress={() => run().addColumnAfter().run()}>
+          <ToolbarToggle
+            label={gt("Add column right")}
+            onPress={() => run().addColumnAfter().run()}
+          >
             <Columns3Icon />
           </ToolbarToggle>
-          <ToolbarToggle label="Delete row" onPress={() => run().deleteRow().run()}>
+          <ToolbarToggle label={gt("Delete row")} onPress={() => run().deleteRow().run()}>
             <Rows3Icon className="text-destructive" />
           </ToolbarToggle>
-          <ToolbarToggle label="Delete column" onPress={() => run().deleteColumn().run()}>
+          <ToolbarToggle label={gt("Delete column")} onPress={() => run().deleteColumn().run()}>
             <Columns3Icon className="text-destructive" />
           </ToolbarToggle>
-          <ToolbarToggle label="Delete table" onPress={() => run().deleteTable().run()}>
+          <ToolbarToggle label={gt("Delete table")} onPress={() => run().deleteTable().run()}>
             <Trash2Icon className="text-destructive" />
           </ToolbarToggle>
         </>
@@ -388,10 +403,11 @@ function toggleTaskAtClick(view: EditorView, event: MouseEvent): boolean {
 }
 
 const editorProps: EditorProps = {
-  attributes: {
+  // ProseMirror reads these on every view update, so the label follows a language switch.
+  attributes: () => ({
     class: `chat-markdown chat-markdown-document file-markdown-editor outline-none ${CHAT_MARKDOWN_BODY_TEXT_CLASS}`,
-    "aria-label": "Markdown editor",
-  },
+    "aria-label": m(msg("Markdown editor")),
+  }),
   clipboardTextParser: (text, _context, _plain, view) =>
     Slice.maxOpen(parseMarkdown(view.state.schema, text).content),
   clipboardTextSerializer: (slice, view) => {

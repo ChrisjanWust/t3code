@@ -3,6 +3,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,6 +11,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentId, ProjectId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import { msg } from "gt-react";
 import { useShallow } from "zustand/react/shallow";
 
 import { useClosedViewStore } from "../../closedViewStore";
@@ -31,6 +33,7 @@ import {
 } from "../../state/entities";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../../threadRoutes";
 import { useSnoozeWakeClock } from "../Sidebar.logic";
+import { m } from "../../i18n/messages";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   buildWorktreeTabs,
@@ -352,8 +355,8 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to close tab",
-          description: error instanceof Error ? error.message : "An error occurred.",
+          title: m(msg("Failed to close tab")),
+          description: thrownErrorMessage(error, m) ?? m(msg("An error occurred.")),
         }),
       );
     })();

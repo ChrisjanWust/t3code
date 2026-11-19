@@ -1,4 +1,5 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   isAtomCommandInterrupted,
@@ -7,11 +8,13 @@ import {
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import { T, useGT } from "gt-react";
 import { AlarmClockIcon, EyeIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { m } from "../../i18n/messages";
 import { cn } from "../../lib/utils";
 import { useQuietThreadShell, useQuietThreadShells } from "../../state/entities";
 import { textDirection } from "../../textDirection";
@@ -93,6 +96,7 @@ function HistoryRow(props: {
 
 function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
   const { location } = props;
+  const gt = useGT();
   const router = useRouter();
   const threads = useQuietThreadShells();
   const { tabs, routeKey } = useWorktreeTabs(location);
@@ -126,8 +130,8 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: action === "unsettle" ? "Failed to reopen tab" : "Failed to wake thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
+            title: action === "unsettle" ? gt("Failed to reopen tab") : gt("Failed to wake thread"),
+            description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
           }),
         );
       },
@@ -144,18 +148,22 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3" data-tab-history>
-      <HistorySection title="Open tabs">
+      <HistorySection title={gt("Open tabs")}>
         {openTabs.map((tab) => (
           <HistoryRow
             key={tab.key}
-            title={tab.kind === "thread" ? tab.thread.title : "New thread"}
+            title={tab.kind === "thread" ? tab.thread.title : gt("New thread")}
             detail={
-              tab.kind === "thread" ? <RelativeTime timestamp={tab.thread.updatedAt} /> : "Draft"
+              tab.kind === "thread" ? (
+                <RelativeTime timestamp={tab.thread.updatedAt} />
+              ) : (
+                gt("Draft", { $context: "an unsent new thread" })
+              )
             }
             active={tab.key === routeKey}
             onOpen={() => openTab(tab)}
             action={{
-              label: "Close tab",
+              label: gt("Close tab"),
               icon: <XIcon className="size-3.5" />,
               onClick: () => closeTab(tab.key),
             }}
@@ -163,7 +171,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
         ))}
       </HistorySection>
       {snoozed.length > 0 ? (
-        <HistorySection title="Snoozed">
+        <HistorySection title={gt("Snoozed", { $context: "sidebar section" })}>
           {snoozed.map((thread) => (
             <HistoryRow
               key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
@@ -177,7 +185,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
               active={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeKey}
               onOpen={() => goTo(scopeThreadRef(thread.environmentId, thread.id))}
               action={{
-                label: "Wake and open",
+                label: gt("Wake and open"),
                 icon: <AlarmClockIcon className="size-3.5" />,
                 onClick: () => reopen(thread, "unsnooze"),
               }}
@@ -185,9 +193,11 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
           ))}
         </HistorySection>
       ) : null}
-      <HistorySection title="Closed tabs">
+      <HistorySection title={gt("Closed tabs")}>
         {closed.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-muted-foreground">No closed tabs</p>
+          <p className="px-2 py-1 text-xs text-muted-foreground">
+            <T>No closed tabs</T>
+          </p>
         ) : (
           closed.map((thread) => (
             <HistoryRow
@@ -197,7 +207,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
               active={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeKey}
               onOpen={() => reopen(thread, "unsettle")}
               action={{
-                label: "View without reopening",
+                label: gt("View without reopening"),
                 icon: <EyeIcon className="size-3.5" />,
                 onClick: () => goTo(scopeThreadRef(thread.environmentId, thread.id)),
               }}
@@ -221,7 +231,11 @@ export function WorktreeTabsPanel(props: { readonly threadRef: ScopedThreadRef }
     draft: shell === null ? draft : null,
   });
   if (location === null) {
-    return <p className="p-4 text-sm text-muted-foreground">No tabs to show yet.</p>;
+    return (
+      <p className="p-4 text-sm text-muted-foreground">
+        <T>No tabs to show yet.</T>
+      </p>
+    );
   }
   return <WorktreeTabsHistory location={location} />;
 }

@@ -8,7 +8,9 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadCreatedAtMs } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveListedAncestorThreadRef } from "@t3tools/client-runtime/state/threads";
+import { msg } from "gt-react";
 
+import { m, type MessageResolver } from "../../i18n/messages";
 import type { SidebarThreadSummary } from "../../types";
 import { resolveSidebarRowStatus, type SidebarSection } from "../Sidebar.logic";
 
@@ -324,13 +326,14 @@ export function worktreeLabel(
   thread: WorktreeLabelThread,
   worktreeTitles?: ReadonlyArray<ProjectWorktreeTitle>,
   members: readonly WorktreeLabelThread[] = [thread],
+  resolve: MessageResolver = m,
 ): string {
   const titled = findWorktreeTitle(worktreeTitles, thread.worktreePath);
   const title = titled?.manual ?? titled?.generated;
   if (title) return title;
   if (thread.worktreePath === null) {
     if (thread.branch) return thread.branch;
-    return thread.creatingWorktree ? "New worktree" : thread.title;
+    return thread.creatingWorktree ? resolve(msg("New worktree")) : thread.title;
   }
   const open = members.filter((member) => member.settledOverride !== "settled");
   const named = open.length > 0 ? open : resolveWorktreeReopenSet(members);

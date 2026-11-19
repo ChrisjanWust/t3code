@@ -6,6 +6,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { msg, T, useGT, useMessages } from "gt-react";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -65,6 +67,7 @@ import { Button } from "../ui/button";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
 import { ScrollArea } from "../ui/scroll-area";
+import { m, type MessageResolver } from "../../i18n/messages";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
@@ -123,8 +126,8 @@ function tabStatusClassName(tab: ThreadTabItem): string | null {
   }
 }
 
-function tabTitle(tab: ThreadTabItem): string {
-  return tab.kind === "thread" ? tab.thread.title : "New thread";
+function tabTitle(tab: ThreadTabItem, resolve: MessageResolver): string {
+  return tab.kind === "thread" ? tab.thread.title : resolve(msg("New thread"));
 }
 
 function TabStatusDot(props: { readonly tab: ThreadTabItem }) {
@@ -196,7 +199,9 @@ interface TabMenuContext {
 function useTabMenu(tab: ThreadTabItem, context: TabMenuContext) {
   const threadRef =
     tab.kind === "thread" ? scopeThreadRef(tab.thread.environmentId, tab.thread.id) : null;
-  const title = tabTitle(tab);
+  const gt = useGT();
+  const messages = useMessages();
+  const title = tabTitle(tab, messages);
   const [renaming, setRenaming] = useState(false);
   const canShareWithGuest = useAtomValue(canShareWithGuestAtom(context.environmentId));
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -225,8 +230,8 @@ function useTabMenu(tab: ThreadTabItem, context: TabMenuContext) {
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Failed to rename thread",
-        description: error instanceof Error ? error.message : "An error occurred.",
+        title: gt("Failed to rename thread"),
+        description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
       });
     });
   };
@@ -243,9 +248,10 @@ function TabRenameInput(props: {
   readonly className: string;
   readonly onCommit: (value: string) => void;
 }) {
+  const gt = useGT();
   return (
     <input
-      aria-label="Thread title"
+      aria-label={gt("Thread title")}
       dir="auto"
       className={cn(
         "min-w-0 rounded-sm bg-background px-1 outline-none ring-1 ring-inset ring-ring",
@@ -280,7 +286,9 @@ function ThreadTab(
   },
 ) {
   const { tab, active, onSelect, onClose } = props;
-  const title = tabTitle(tab);
+  const gt = useGT();
+  const messages = useMessages();
+  const title = tabTitle(tab, messages);
   const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(tab, props);
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.key,
@@ -313,7 +321,10 @@ function ThreadTab(
       )}
     >
       {props.closable ? (
-        <PanelTabCloseButton label={`Close ${title}`} onClick={() => onClose(tab.key)}>
+        <PanelTabCloseButton
+          label={gt("Close {title}", { title })}
+          onClick={() => onClose(tab.key)}
+        >
           {statusDot}
         </PanelTabCloseButton>
       ) : (
@@ -355,7 +366,8 @@ const toggleVerticalTabs = (vertical: boolean) =>
   void updateClientSettings({ threadTabsVertical: !vertical });
 
 function TabLayoutToggle(props: { readonly vertical: boolean }) {
-  const label = props.vertical ? "Show tabs in the top bar" : "Show tabs in a side panel";
+  const gt = useGT();
+  const label = props.vertical ? gt("Show tabs in the top bar") : gt("Show tabs in a side panel");
   return (
     <Tooltip>
       <TooltipTrigger
@@ -382,6 +394,7 @@ function NewTabButton(props: {
   readonly keybindings: ResolvedKeybindingsConfig;
 }) {
   const { location } = props;
+  const gt = useGT();
   const { newTab } = useThreadTabActions(location);
   const shortcut = shortcutLabelForCommand(props.keybindings, "tab.new", {
     context: { threadTabs: true, isDesktop: isElectron, isWeb: !isElectron },
@@ -390,7 +403,7 @@ function NewTabButton(props: {
     <Tooltip>
       <TooltipTrigger render={<span className="flex shrink-0" />}>
         <Button
-          aria-label="New tab"
+          aria-label={gt("New tab")}
           size="icon-xs"
           variant="ghost-muted"
           disabled={location.creatingWorktree}
@@ -401,10 +414,10 @@ function NewTabButton(props: {
       </TooltipTrigger>
       <TooltipPopup side="bottom">
         {location.creatingWorktree
-          ? "New tabs open here once the worktree is ready"
+          ? gt("New tabs open here once the worktree is ready")
           : shortcut
-            ? `New tab (${shortcut})`
-            : "New tab"}
+            ? gt("New tab ({shortcut})", { shortcut })
+            : gt("New tab")}
       </TooltipPopup>
     </Tooltip>
   );
@@ -420,6 +433,7 @@ interface ThreadTabListProps {
 /** The worktree's tabs and its new-tab button, draggable along the list's axis. */
 function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean }) {
   const { location, vertical } = props;
+  const gt = useGT();
   const { tabs: savedOrder, routeKey } = useWorktreeTabs(location);
   const tabs = tabsInLayoutOrder(savedOrder, vertical);
   const tabActions = useThreadTabActions(location);
@@ -440,7 +454,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
     >
       <div
         role="tablist"
-        aria-label="Thread tabs"
+        aria-label={gt("Thread tabs")}
         aria-orientation={vertical ? "vertical" : "horizontal"}
         className={cn(
           "flex gap-1",
@@ -474,7 +488,8 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
 }
 
 function CurrentTab(props: { readonly tab: ThreadTabItem; readonly menu: TabMenuContext }) {
-  const title = tabTitle(props.tab);
+  const messages = useMessages();
+  const title = tabTitle(props.tab, messages);
   const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(props.tab, props.menu);
   return (
     <div
@@ -537,6 +552,7 @@ export function ThreadTabStrip(
   },
 ) {
   const { location } = props;
+  const gt = useGT();
   const historyOpen = useRightPanelStore(
     (state) => selectActiveRightPanel(state.byThreadKey, location.routeThreadRef) === "tabs",
   );
@@ -577,7 +593,7 @@ export function ThreadTabStrip(
         <TooltipTrigger
           render={
             <Button
-              aria-label="Tab history"
+              aria-label={gt("Tab history")}
               aria-pressed={historyOpen}
               className="shrink-0"
               size="icon-xs"
@@ -588,7 +604,9 @@ export function ThreadTabStrip(
         >
           <HistoryIcon className="size-3.5" />
         </TooltipTrigger>
-        <TooltipPopup side="bottom">Tab history</TooltipPopup>
+        <TooltipPopup side="bottom">
+          <T>Tab history</T>
+        </TooltipPopup>
       </Tooltip>
       {props.isServerThread ? <GuestShareIndicator threadRef={location.routeThreadRef} /> : null}
     </div>
@@ -601,6 +619,7 @@ const TAB_COLUMN_MAX_WIDTH = 480;
 
 /** The worktree's tabs as a list beside the chat, folded away by the toggle at its top. */
 export function ThreadTabColumn(props: ThreadTabListProps) {
+  const gt = useGT();
   const [maxWidth, setMaxWidth] = useState(TAB_COLUMN_MAX_WIDTH);
   const { width, handlers } = useResizableWidth({
     storageKey: "t3code.threadTabColumnWidth",
@@ -629,7 +648,7 @@ export function ThreadTabColumn(props: ThreadTabListProps) {
       className="relative flex w-(--resizable-width) shrink-0 border-r border-border bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[width] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out [[data-panel-animations=true]_&]:motion-safe:starting:w-0"
       style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}
     >
-      <RightPanelResizeHandle edge="right" handlers={handlers} label="Resize tab panel" />
+      <RightPanelResizeHandle edge="right" handlers={handlers} label={gt("Resize tab panel")} />
       {/* Clips the content while the panel opens from zero width; the handle stays outside it
           so it can straddle the border. */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

@@ -1,3 +1,4 @@
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   type AtomCommandResult,
@@ -5,7 +6,9 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { msg } from "gt-react";
 
+import { m } from "~/i18n/messages";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -17,8 +20,8 @@ function reportScratchFailure(result: AtomCommandResult<unknown, unknown>): void
   toastManager.add(
     stackedThreadToast({
       type: "error",
-      title: "Could not create scratch file",
-      description: error instanceof Error ? error.message : "An error occurred.",
+      title: m(msg("Could not create scratch file")),
+      description: thrownErrorMessage(error, m) ?? m(msg("An error occurred.")),
     }),
   );
 }

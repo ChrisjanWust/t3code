@@ -3750,6 +3750,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
                                     ?.worktreeTitles,
                                   worktreeMembers,
+                                  messages,
                                 ),
                                 worktreeTabCount: worktreeOpenTabs.length,
                                 hideProviderIcon: hideWorktreeProviderIcons,

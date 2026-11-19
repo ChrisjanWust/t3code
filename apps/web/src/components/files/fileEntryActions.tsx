@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -9,6 +10,7 @@ import type {
   ProjectEntryAction,
   ProjectEntryKind,
 } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { useId, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -23,6 +25,7 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { toastManager } from "~/components/ui/toast";
+import { m } from "~/i18n/messages";
 import { readLocalApi } from "~/localApi";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -91,6 +94,7 @@ export function useFileEntryActions(props: {
   readonly onSelectedPathReplaced: (path: string) => void;
 }) {
   const { environmentId, cwd, selectedPath } = props;
+  const gt = useGT();
   const mutateEntry = useAtomCommand(projectEnvironment.mutateEntry, { reportFailure: false });
   const permitted = useAtomValue(projectEnvironment.mutateEntry.permissionAtom(environmentId));
   const enabled = permitted && props.enabled;
@@ -109,7 +113,9 @@ export function useFileEntryActions(props: {
     }
     if (isAtomCommandInterrupted(result)) return null;
     const error = squashAtomCommandFailure(result);
-    return { error: error instanceof Error ? error.message : "The change could not be made." };
+    return {
+      error: thrownErrorMessage(error, m) ?? gt("The change could not be made."),
+    };
   };
 
   const runWithToast = async (title: string, relativePath: string, action: ProjectEntryAction) => {
@@ -123,15 +129,15 @@ export function useFileEntryActions(props: {
   const deleteEntry = async (entry: FileEntryTarget) => {
     const confirmed = await readLocalApi()?.dialogs.confirm(
       [
-        `Delete "${baseName(entry.path)}"?`,
+        gt('Delete "{name}"?', { name: baseName(entry.path) }),
         entry.kind === "directory"
-          ? "This permanently deletes the folder and everything in it."
-          : "This permanently deletes the file.",
+          ? gt("This permanently deletes the folder and everything in it.")
+          : gt("This permanently deletes the file."),
       ].join("\n"),
       { variant: "destructive" },
     );
     if (!confirmed) return;
-    const deleted = await runWithToast("Could not delete", entry.path, { type: "delete" });
+    const deleted = await runWithToast(gt("Could not delete"), entry.path, { type: "delete" });
     if (deleted === null) return;
     if (copiedEntry !== null && pathAfterMove(copiedEntry.path, entry.path, "") !== null) {
       setCopiedEntry(null);
@@ -144,10 +150,10 @@ export function useFileEntryActions(props: {
 
   const copyInto = async (source: FileEntryTarget, directory: string) => {
     if (pathAfterMove(directory, source.path, "") !== null) {
-      toastManager.add({ type: "error", title: "A folder can't be pasted into itself" });
+      toastManager.add({ type: "error", title: gt("A folder can't be pasted into itself") });
       return;
     }
-    await runWithToast("Could not copy", source.path, {
+    await runWithToast(gt("Could not copy"), source.path, {
       type: "copy",
       toRelativePath: joinPath(directory, baseName(source.path)),
     });
@@ -155,10 +161,10 @@ export function useFileEntryActions(props: {
 
   const submitName = async (request: NameRequest, value: string): Promise<string | null> => {
     const path = normalizeEnteredPath(value);
-    if (!path) return "Enter a name.";
+    if (!path) return gt("Enter a name.");
     if (request.mode === "create") {
       // The prefilled folder on its own names nothing new.
-      if (path === request.directory) return "Enter a name.";
+      if (path === request.directory) return gt("Enter a name.");
       const result = await run(path, { type: "create", kind: request.kind });
       if (result === null) return null;
       if ("error" in result) return result.error;
@@ -170,7 +176,7 @@ export function useFileEntryActions(props: {
     }
     const source = request.entry.path;
     if (path === source) return null;
-    if (pathAfterMove(path, source, "") !== null) return "It can't be moved into itself.";
+    if (pathAfterMove(path, source, "") !== null) return gt("It can't be moved into itself.");
     const result = await run(source, { type: "move", toRelativePath: path });
     if (result === null) return null;
     if ("error" in result) return result.error;
@@ -194,22 +200,33 @@ export function useFileEntryActions(props: {
       enabled
         ? {
             create: [
-              { id: "new-file", label: "New file…" },
-              { id: "new-folder", label: "New folder…" },
+              { id: "new-file", label: gt("New file…") },
+              { id: "new-folder", label: gt("New folder…") },
             ],
             change: [
-              { id: "copy-entry", label: "Copy", separatorBefore: true },
+              {
+                id: "copy-entry",
+                label: gt("Copy", { $context: "verb, copy the file or folder" }),
+                separatorBefore: true,
+              },
               ...(copiedEntry === null
                 ? []
                 : [
                     {
                       id: "paste-entry" as const,
-                      label: `Paste "${baseName(copiedEntry.path)}"`,
+                      label: gt('Paste "{name}"', { name: baseName(copiedEntry.path) }),
                     },
                   ]),
-              { id: "duplicate-entry", label: "Duplicate" },
-              { id: "rename-entry", label: "Rename or move…" },
-              { id: "delete-entry", label: "Delete", destructive: true },
+              {
+                id: "duplicate-entry",
+                label: gt("Duplicate", { $context: "verb, copy the entry next to itself" }),
+              },
+              { id: "rename-entry", label: gt("Rename or move…") },
+              {
+                id: "delete-entry",
+                label: gt("Delete", { $context: "verb, delete the file or folder" }),
+                destructive: true,
+              },
             ],
           }
         : { create: [], change: [] },
@@ -265,6 +282,7 @@ function EntryNameDialog(props: {
   readonly onSubmit: (value: string) => Promise<string | null>;
 }) {
   const { request } = props;
+  const gt = useGT();
   const inputId = useId();
   const initialValue =
     request.mode === "create"
@@ -276,7 +294,6 @@ function EntryNameDialog(props: {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const noun = request.mode === "create" ? request.kind : request.entry.kind;
-  const nounLabel = noun === "file" ? "file" : "folder";
 
   return (
     <Dialog
@@ -302,17 +319,25 @@ function EntryNameDialog(props: {
         >
           <DialogHeader>
             <DialogTitle>
-              {request.mode === "create" ? `New ${nounLabel}` : `Rename or move ${nounLabel}`}
+              {request.mode === "create"
+                ? noun === "file"
+                  ? gt("New file")
+                  : gt("New folder")
+                : noun === "file"
+                  ? gt("Rename or move file")
+                  : gt("Rename or move folder")}
             </DialogTitle>
             <DialogDescription>
               {request.mode === "create"
-                ? "Path from the project root. Folders that don't exist yet are created."
-                : "Change the name to rename it, or the folders before it to move it."}
+                ? gt("Path from the project root. Folders that don't exist yet are created.")
+                : gt("Change the name to rename it, or the folders before it to move it.")}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <label htmlFor={inputId} className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Path</span>
+              <span className="text-xs font-medium text-foreground">
+                <T>Path</T>
+              </span>
               <Input
                 id={inputId}
                 nativeInput
@@ -357,10 +382,12 @@ function EntryNameDialog(props: {
               disabled={pending}
               onClick={props.onClose}
             >
-              Cancel
+              <T>Cancel</T>
             </Button>
             <Button type="submit" size="sm" disabled={pending || value.trim().length === 0}>
-              {request.mode === "create" ? "Create" : "Rename"}
+              {request.mode === "create"
+                ? gt("Create", { $context: "verb, creates the file" })
+                : gt("Rename", { $context: "verb, renames the file" })}
             </Button>
           </DialogFooter>
         </form>
