@@ -46,7 +46,7 @@ import {
   GitBranchIcon,
   HistoryIcon,
   PlusIcon,
-  Rows3Icon,
+  StretchHorizontalIcon,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -686,7 +686,7 @@ function TabLayoutToggle(props: { readonly vertical: boolean }) {
           />
         }
       >
-        <Rows3Icon className="size-3.5" />
+        <StretchHorizontalIcon className="size-3.5" />
       </TooltipTrigger>
       <TooltipPopup side="bottom">{label}</TooltipPopup>
     </Tooltip>
