@@ -69,6 +69,7 @@ function setup(
   });
   useThreadTabOrderStore.setState({ orderByWorktreeKey: {} });
   localStorage.removeItem("t3code.threadTabColumnWidth");
+  localStorage.removeItem("t3code:thread-tabs:settled-expanded");
   __setClientSettingsForTests({
     ...DEFAULT_CLIENT_SETTINGS,
     onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
@@ -382,6 +383,44 @@ it("closes a tab by settling it and reopens it from the history panel", async ()
   await vi.waitFor(() =>
     expect(tabTitles()).toEqual(["Thread tab-a", "Thread tab-b", "Thread tab-c"]),
   );
+});
+
+it("moves a tab closed in the side panel to its Settled section, viewing it there until reopened", async () => {
+  using _environment = setup();
+  await updateClientSettings({ threadTabsVertical: true });
+  const { screen, router } = await mountApp("tab-a");
+  await using _screen = screen;
+  const section = () => page.getByRole("region", { name: "Settled tabs" });
+  const settledRow = () => section().getByRole("button", { name: "Thread tab-b", exact: true });
+
+  await expect.element(tab("Thread tab-c")).toBeVisible();
+  await expect.element(section()).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("button", { name: "Close Thread tab-b" }));
+  await vi.waitFor(() => expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-a"]));
+
+  // Folded by default, like the sidebar's.
+  const header = section().getByRole("button", { name: /^Settled/ });
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  await expect.element(settledRow()).not.toBeInTheDocument();
+  await userEvent.click(header);
+  await userEvent.click(settledRow());
+
+  // Viewing it leaves it settled, in its section rather than among the open tabs.
+  await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/${ENVIRONMENT_ID}/tab-b`));
+  await expect.element(settledRow()).toHaveAttribute("aria-current", "page");
+  expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-a"]);
+  expect(unsettledThreadIds()).toEqual([]);
+  // Folded, it still lists the tab the route shows.
+  await userEvent.click(header);
+  await expect.element(settledRow()).toBeVisible();
+
+  await userEvent.hover(settledRow());
+  await userEvent.click(section().getByRole("button", { name: "Reopen Thread tab-b" }));
+  expect(unsettledThreadIds()).toEqual(["tab-b"]);
+  await vi.waitFor(() =>
+    expect(tabTitles()).toEqual(["Thread tab-c", "Thread tab-b", "Thread tab-a"]),
+  );
+  await expect.element(section()).not.toBeInTheDocument();
 });
 
 it("settles a worktree's open tabs together and reopens the same tabs", async () => {

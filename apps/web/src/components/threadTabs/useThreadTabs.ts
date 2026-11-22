@@ -292,7 +292,7 @@ const tabRef = (tab: ThreadTabItem): ScopedThreadRef | null =>
 export function useThreadTabActions(location: ThreadTabLocation | null) {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, confirmStopRunningThreads, pinThread } = useThreadActions();
+  const { settleThread, unsettleThread, confirmStopRunningThreads, pinThread } = useThreadActions();
   // Switching and closing step through the tabs as they are listed. A panel hidden for a lone
   // tab still counts: with one tab there is nowhere to step.
   const sidePanel = useThreadTabSidePanelChosen();
@@ -431,6 +431,22 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     return true;
   };
 
+  /** Opens a settled tab and puts it back among the open ones. */
+  const reopenTab = (ref: ScopedThreadRef) => {
+    void openThread(ref);
+    void unsettleThread(ref).then((result) => {
+      if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: m(msg("Failed to reopen tab")),
+          description: thrownErrorMessage(error, m) ?? m(msg("An error occurred.")),
+        }),
+      );
+    });
+  };
+
   const moveTab = (fromKey: string, toKey: string) => {
     if (location === null) return;
     const order = moveWorktreeTab(readTabs(location).tabs, fromKey, toKey);
@@ -445,5 +461,14 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
     if (order) useThreadTabOrderStore.getState().setOrder(location.worktreeKey, order);
   };
 
-  return { newTab, closeTab, selectTab, selectRelativeTab, moveTab, placeForkTab, openThread };
+  return {
+    newTab,
+    closeTab,
+    selectTab,
+    selectRelativeTab,
+    moveTab,
+    placeForkTab,
+    openThread,
+    reopenTab,
+  };
 }

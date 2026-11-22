@@ -23,7 +23,7 @@ import { closeThreadSurfaceOf } from "../../rightPanelStore";
 import { RelativeTime } from "../RelativeTime";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { resolveWorktreeMembers } from "./threadTabs.logic";
+import { resolveSettledTabThreads, resolveWorktreeMembers } from "./threadTabs.logic";
 import {
   resolveThreadTabLocation,
   type ThreadTabItem,
@@ -102,17 +102,15 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
   const router = useRouter();
   const threads = useQuietThreadShells();
   const { tabs, routeKey } = useWorktreeTabs(location);
-  const { closeTab } = useThreadTabActions(location);
-  const { unsettleThread, unsnoozeThread } = useThreadActions();
+  const { closeTab, reopenTab } = useThreadTabActions(location);
+  const { unsnoozeThread } = useThreadActions();
   // oxlint-disable-next-line react/purity -- Snooze state is read against the render that lists it.
   const now = new Date().toISOString();
   const members = resolveWorktreeMembers(threads, location.worktreeKey);
   const snoozed = members
     .filter((thread) => thread.settledOverride !== "settled" && effectiveSnoozed(thread, { now }))
     .toSorted((left, right) => (left.snoozedUntil ?? "").localeCompare(right.snoozedUntil ?? ""));
-  const closed = members
-    .filter((thread) => thread.settledOverride === "settled")
-    .toSorted((left, right) => (right.settledAt ?? "").localeCompare(left.settledAt ?? ""));
+  const closed = resolveSettledTabThreads(threads, location.worktreeKey);
 
   const goTo = (threadRef: ScopedThreadRef, draftId: DraftId | null = null) => {
     if (draftId === null) closeThreadSurfaceOf(threadRef);
@@ -123,22 +121,20 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
         })
       : router.navigate({ to: "/draft/$draftId", params: { draftId } }));
   };
-  const reopen = (thread: EnvironmentThreadShell, action: "unsettle" | "unsnooze") => {
+  const wake = (thread: EnvironmentThreadShell) => {
     const threadRef = scopeThreadRef(thread.environmentId, thread.id);
     goTo(threadRef);
-    void (action === "unsettle" ? unsettleThread(threadRef) : unsnoozeThread(threadRef)).then(
-      (result) => {
-        if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: action === "unsettle" ? gt("Failed to reopen tab") : gt("Failed to wake thread"),
-            description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
-          }),
-        );
-      },
-    );
+    void unsnoozeThread(threadRef).then((result) => {
+      if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: gt("Failed to wake thread"),
+          description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
+        }),
+      );
+    });
   };
   const openTabs = tabs.filter((tab) => tab.kind === "draft" || !tab.closed);
   const openTab = (tab: ThreadTabItem) =>
@@ -190,7 +186,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
               action={{
                 label: gt("Wake and open"),
                 icon: <AlarmClockIcon className="size-3.5" />,
-                onClick: () => reopen(thread, "unsnooze"),
+                onClick: () => wake(thread),
               }}
             />
           ))}
@@ -208,7 +204,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
               title={thread.title}
               detail={<RelativeTime timestamp={thread.settledAt ?? thread.updatedAt} />}
               active={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeKey}
-              onOpen={() => reopen(thread, "unsettle")}
+              onOpen={() => reopenTab(scopeThreadRef(thread.environmentId, thread.id))}
               action={{
                 label: gt("View without reopening"),
                 icon: <EyeIcon className="size-3.5" />,
