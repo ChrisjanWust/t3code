@@ -65,6 +65,7 @@ export const layerTaskFoldersWithGit = (state: TaskFoldersTestState) => {
     faviconPath: null,
     projectIcon: null,
     scripts: [],
+    worktreeTitles: [],
     pinnedAt: null,
     archivedAt: null,
     createdAt: "2026-06-21T00:00:00.000Z",
