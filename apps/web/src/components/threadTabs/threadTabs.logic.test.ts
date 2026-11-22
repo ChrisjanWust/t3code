@@ -10,15 +10,18 @@ import {
   draftWorktreeKey,
   insertTabAfter,
   isBlankLastTab,
+  listedSettledTabs,
   moveWorktreeTab,
   newestTabSubagents,
   resolveRouteSubagentId,
+  resolveSettledTabThreads,
   resolveTabAfterClose,
   resolveTabSubagents,
   resolveWorktreeReopenSet,
   resolveWorktreeReturnTab,
   resolveWorktreeStatusThread,
   subagentParentRef,
+  tabsInLayoutOrder,
   tabThreadKey,
   worktreeCreatedAtMs,
   worktreeKey,
@@ -240,6 +243,58 @@ describe("buildWorktreeTabs", () => {
     expect(isBlankLastTab(tabs([], [draft("blank")]))).toBe(true);
     expect(isBlankLastTab(tabs([], [draft("blank", { hasContent: true })]))).toBe(false);
     expect(isBlankLastTab(tabs([thread("open")], [draft("blank")]))).toBe(false);
+  });
+
+  it("lists a settled tab the route shows after the open ones in the side panel only", () => {
+    const tabs = buildWorktreeTabs({
+      threads: [
+        thread("settled", { settledOverride: "settled", settledAt: NOW }),
+        thread("open-a", { createdAt: "2026-10-26T10:01:00.000Z" }),
+        thread("open-b", { createdAt: "2026-10-26T10:02:00.000Z" }),
+      ],
+      drafts: [],
+      worktreeKey: FEATURE,
+      routeKey: "settled",
+      threadKey: (tab) => tab.id,
+      now: NOW,
+    });
+    const keys = (sidePanel: boolean) => tabsInLayoutOrder(tabs, sidePanel).map((tab) => tab.key);
+
+    expect(keys(false)).toEqual(["settled", "open-a", "open-b"]);
+    expect(keys(true)).toEqual(["open-b", "open-a", "settled"]);
+  });
+});
+
+describe("settled tabs", () => {
+  const settled = (id: string, settledAt: string, overrides: Partial<SidebarThreadSummary> = {}) =>
+    thread(id, { settledOverride: "settled", settledAt, ...overrides });
+  const threads = [
+    settled("older", "2026-10-26T09:00:00.000Z"),
+    thread("open"),
+    settled("newest", "2026-10-26T11:00:00.000Z"),
+    settled("newer", "2026-10-26T10:00:00.000Z"),
+    settled("elsewhere", "2026-10-26T11:30:00.000Z", {
+      worktreePath: "/repo/.t3/worktrees/other",
+    }),
+  ];
+
+  it("lists the worktree's settled threads, the last settled first", () => {
+    expect(resolveSettledTabThreads(threads, FEATURE).map((member) => member.id)).toEqual([
+      "newest",
+      "newer",
+      "older",
+    ]);
+  });
+
+  it("shows the newest few while expanded, and the route's tab either way", () => {
+    const ids = resolveSettledTabThreads(threads, FEATURE).map((member) => member.id);
+    const listed = (expanded: boolean, routeId: string) =>
+      listedSettledTabs(ids, { expanded, count: 2, isRoute: (id) => id === routeId });
+
+    expect(listed(false, "open")).toEqual([]);
+    expect(listed(false, "older")).toEqual(["older"]);
+    expect(listed(true, "open")).toEqual(["newest", "newer"]);
+    expect(listed(true, "older")).toEqual(["newest", "newer", "older"]);
   });
 });
 

@@ -5,8 +5,12 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  resolveSettledThreadTimestamp,
+  resolveThreadActivityTimestamp,
+} from "@t3tools/client-runtime/state/thread-sort";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import * as Schema from "effect/Schema";
 import { msg, T, useGT, useMessages } from "gt-react";
 import {
   AuthOrchestrationOperateScope,
@@ -47,6 +51,7 @@ import {
   HistoryIcon,
   PlusIcon,
   StretchHorizontalIcon,
+  Undo2Icon,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -56,6 +61,7 @@ import {
 } from "react";
 
 import { isElectron } from "../../env";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { SIBLING_COLUMN_MIN_WIDTH } from "../../hooks/usePreviewPanelInlineSize";
 import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "../../hooks/useResizableWidth";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
@@ -67,6 +73,7 @@ import { observeResize } from "../../lib/observeResize";
 import { cn } from "../../lib/utils";
 import { shouldShowInstanceBadge } from "../../providerInstances";
 import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
+import { useQuietThreadShells } from "../../state/entities";
 import { readEnvironmentScope } from "../../state/session";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -77,6 +84,7 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { sidebarProviderEntriesAtom } from "../sidebar/sidebarProviderEntries";
 import { Button } from "../ui/button";
+import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { PanelTabCloseButton } from "../ui/panel-tab-close-button";
@@ -88,7 +96,10 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar"
 import { useSubagentListStore } from "./subagentListStore";
 import {
   isBlankLastTab,
+  isSettledTab,
+  listedSettledTabs,
   newestTabSubagents,
+  resolveSettledTabThreads,
   type TabStatusTone,
   tabsInLayoutOrder,
   threadTabStatusTone,
@@ -366,12 +377,20 @@ function TabProviderIcon(props: { readonly thread: EnvironmentThreadShell | null
 }
 
 // Re-renders only when the label changes: each minute for the first hour, then hourly, then daily.
-function TabActivityTime(props: { readonly thread: EnvironmentThreadShell }) {
+function TabActivityTime(props: {
+  readonly thread: EnvironmentThreadShell;
+  /** Counts from when it was settled, as the sidebar's settled rows do. */
+  readonly settled?: boolean;
+}) {
   const status = resolveSidebarThreadStatus(props.thread);
   // A running turn's newest timestamp is its start, which would count up as if the thread were idle.
   const running = status === "preparing" || status === "working";
   const relative = useRelativeTimeState(
-    running ? null : resolveThreadActivityTimestamp(props.thread),
+    running
+      ? null
+      : props.settled
+        ? resolveSettledThreadTimestamp(props.thread)
+        : resolveThreadActivityTimestamp(props.thread),
   );
   const label = running
     ? "now"
@@ -666,6 +685,161 @@ function ThreadTab(
   );
 }
 
+type ThreadTabThreadItem = Extract<ThreadTabItem, { readonly kind: "thread" }>;
+
+const settledTabItem = (thread: EnvironmentThreadShell): ThreadTabThreadItem => ({
+  kind: "thread",
+  key: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  thread,
+  closed: true,
+});
+
+/** A settled tab in the side panel: opening it leaves it settled, and its undo reopens it. */
+function SettledTab(
+  props: TabMenuContext & {
+    readonly tab: ThreadTabThreadItem;
+    readonly active: boolean;
+    /** Only the open tab has one. */
+    readonly subagentView?: TabSubagentView | undefined;
+    readonly onOpen: () => void;
+    readonly onReopen: () => void;
+  },
+) {
+  const { tab, active, subagentView: view } = props;
+  const gt = useGT();
+  const title = tab.thread.title;
+  const routeSubagent = view?.routeSubagent ?? null;
+  const { renaming, startRename, commitRename, onContextMenu } = useTabMenu(
+    tab,
+    routeSubagent === null ? props : { ...props, onFind: undefined },
+  );
+  return (
+    <div className="w-full">
+      <div
+        role="presentation"
+        onContextMenu={onContextMenu}
+        className={cn(
+          "group/tab flex h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
+          active && routeSubagent === null
+            ? "bg-accent text-foreground"
+            : active
+              ? "bg-accent/50 text-foreground"
+              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        )}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <TabStatusDot tab={tab} />
+        </span>
+        {renaming ? (
+          <TabRenameInput title={title} className="flex-1" onCommit={commitRename} />
+        ) : (
+          <button
+            type="button"
+            aria-label={title}
+            aria-current={active ? "page" : undefined}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-start"
+            onClick={props.onOpen}
+            onDoubleClick={startRename}
+          >
+            <TabProviderIcon thread={tab.thread} />
+            <span data-tab-title className="min-w-0 flex-1 truncate" dir={textDirection(title)}>
+              {title}
+            </span>
+          </button>
+        )}
+        {/* The undo takes the time's place on hover, as on the sidebar's settled rows. */}
+        <span className="relative flex h-full min-w-4 shrink-0 items-center justify-end">
+          <button
+            type="button"
+            aria-label={gt("Reopen {title}", { title })}
+            className="peer pointer-events-none absolute inset-y-0 right-0 flex cursor-pointer items-center text-muted-foreground opacity-0 hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/tab:pointer-events-auto group-hover/tab:opacity-100"
+            onClick={props.onReopen}
+          >
+            <Undo2Icon aria-hidden className="size-3.5" />
+          </button>
+          <span className="pointer-events-none group-hover/tab:opacity-0 peer-focus-visible:opacity-0">
+            <TabActivityTime thread={tab.thread} settled />
+          </span>
+        </span>
+      </div>
+      {view !== undefined && view.subagents.length > 0 ? <SubagentTree view={view} /> : null}
+    </div>
+  );
+}
+
+const SETTLED_TABS_EXPANDED_KEY = "t3code:thread-tabs:settled-expanded";
+const SETTLED_TABS_INITIAL_COUNT = 5;
+const SETTLED_TABS_PAGE_COUNT = 20;
+
+/**
+ * The worktree's settled tabs under its open ones, folded away like the sidebar's Settled
+ * section. Remounted per worktree, so each starts from its newest few.
+ */
+function SettledTabs(
+  props: TabMenuContext & {
+    readonly worktreeKey: string;
+    readonly routeKey: string;
+    readonly subagentView: TabSubagentView;
+    readonly onOpen: (ref: ScopedThreadRef) => void;
+    readonly onReopen: (ref: ScopedThreadRef) => void;
+  },
+) {
+  const gt = useGT();
+  const threads = useQuietThreadShells();
+  const [expanded, setExpanded] = useLocalStorage(SETTLED_TABS_EXPANDED_KEY, false, Schema.Boolean);
+  const [count, setCount] = useState(SETTLED_TABS_INITIAL_COUNT);
+  const settled = resolveSettledTabThreads(threads, props.worktreeKey).map(settledTabItem);
+  if (settled.length === 0) return null;
+  const listed = listedSettledTabs(settled, {
+    expanded,
+    count,
+    isRoute: (tab) => tab.key === props.routeKey,
+  });
+  const hiddenCount = settled.length - listed.length;
+  return (
+    <section
+      aria-label={gt("Settled tabs")}
+      className="mt-auto flex w-full flex-col gap-1 px-2 pb-2"
+    >
+      <CollapsibleSectionHeader
+        expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        accessory={<span className="font-normal tabular-nums">{settled.length}</span>}
+      >
+        {gt("Settled", { $context: "sidebar section" })}
+      </CollapsibleSectionHeader>
+      {listed.map((tab) => {
+        const ref = scopeThreadRef(tab.thread.environmentId, tab.thread.id);
+        const active = tab.key === props.routeKey;
+        return (
+          <SettledTab
+            key={tab.key}
+            tab={tab}
+            active={active}
+            projectCwd={props.projectCwd}
+            environmentId={props.environmentId}
+            onOpen={() => props.onOpen(ref)}
+            onReopen={() => props.onReopen(ref)}
+            {...(active ? { onFind: props.onFind, subagentView: props.subagentView } : {})}
+          />
+        );
+      })}
+      {expanded && hiddenCount > 0 ? (
+        <button
+          type="button"
+          className="flex h-6 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          onClick={() => setCount((current) => current + SETTLED_TABS_PAGE_COUNT)}
+        >
+          <ShowMoreIcon expanded={false} />
+          {gt("{count, plural, one {Show {count} more} other {Show {count} more}}", {
+            count: Math.min(hiddenCount, SETTLED_TABS_PAGE_COUNT),
+          })}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 const toggleVerticalTabs = (vertical: boolean) =>
   void updateClientSettings({ threadTabsVertical: !vertical });
 
@@ -746,8 +920,10 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
     routeSubagent,
   } = useWorktreeTabs(location);
   const tabs = tabsInLayoutOrder(savedOrder, vertical);
+  // The side panel lists settled tabs in their own section instead.
+  const listedTabs = vertical ? tabs.filter((tab) => !isSettledTab(tab)) : tabs;
   const tabActions = useThreadTabActions(location);
-  const { selectTab, moveTab, openThread } = tabActions;
+  const { selectTab, moveTab, openThread, reopenTab } = tabActions;
   const subagentView: TabSubagentView = {
     tabKey: routeKey,
     subagents,
@@ -762,7 +938,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (over) moveTab(String(active.id), String(over.id));
   };
-  return (
+  const tabList = (
     <DndContext
       sensors={dragSensors}
       collisionDetection={vertical ? closestCenter : closestTabToPointer}
@@ -779,10 +955,10 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
         )}
       >
         <SortableContext
-          items={tabs.map((tab) => tab.key)}
+          items={listedTabs.map((tab) => tab.key)}
           strategy={vertical ? verticalListSortingStrategy : horizontalListSortingStrategy}
         >
-          {tabs.map((tab) => (
+          {listedTabs.map((tab) => (
             <ThreadTab
               key={tab.key}
               tab={tab}
@@ -801,6 +977,24 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
         {vertical ? null : <NewTabButton location={location} keybindings={props.keybindings} />}
       </div>
     </DndContext>
+  );
+  if (!vertical) return tabList;
+  return (
+    // Fills the panel so the Settled section sits at its foot, as in the sidebar.
+    <div className="flex min-h-full flex-col">
+      {tabList}
+      <SettledTabs
+        key={location.worktreeKey}
+        worktreeKey={location.worktreeKey}
+        routeKey={routeKey}
+        subagentView={subagentView}
+        projectCwd={props.projectCwd}
+        environmentId={location.environmentId}
+        onFind={props.onFindInThread}
+        onOpen={(ref) => void openThread(ref)}
+        onReopen={reopenTab}
+      />
+    </div>
   );
 }
 

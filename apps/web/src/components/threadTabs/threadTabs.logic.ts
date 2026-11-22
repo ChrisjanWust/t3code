@@ -290,9 +290,22 @@ export function isBlankLastTab(tabs: readonly WorktreeTab<unknown>[]): boolean {
   return rest.length === 0 && only?.kind === "draft" && !only.hasContent;
 }
 
-/** The side panel lists the newest tab first, so a new tab opens at its top; the saved order stays oldest first. */
-export function tabsInLayoutOrder<T>(tabs: readonly T[], sidePanel: boolean): readonly T[] {
-  return sidePanel ? tabs.toReversed() : tabs;
+/** The side panel lists a settled tab in its Settled section, under the open ones. */
+export function isSettledTab(tab: WorktreeTab<WorktreeThread>): boolean {
+  return tab.kind === "thread" && tab.thread.settledOverride === "settled";
+}
+
+/**
+ * The side panel lists the newest tab first, so a new tab opens at its top, and a settled tab
+ * after them all, where its Settled section is. The saved order stays oldest first.
+ */
+export function tabsInLayoutOrder<T extends WorktreeTab<WorktreeThread>>(
+  tabs: readonly T[],
+  sidePanel: boolean,
+): readonly T[] {
+  if (!sidePanel) return tabs;
+  const newestFirst = tabs.toReversed();
+  return [...newestFirst.filter((tab) => !isSettledTab(tab)), ...newestFirst.filter(isSettledTab)];
 }
 
 export function resolveWorktreeMembers<T extends WorktreeThread>(
@@ -300,6 +313,38 @@ export function resolveWorktreeMembers<T extends WorktreeThread>(
   key: string,
 ): T[] {
   return threads.filter((thread) => worktreeKey(thread) === key && isWorktreeMember(thread));
+}
+
+/** The worktree's settled threads, the last settled first. */
+export function resolveSettledTabThreads<T extends WorktreeThread>(
+  threads: readonly T[],
+  key: string,
+): T[] {
+  return resolveWorktreeMembers(threads, key)
+    .filter((thread) => thread.settledOverride === "settled")
+    .toSorted(
+      (left, right) =>
+        (right.settledAt ?? "").localeCompare(left.settledAt ?? "") ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.id.localeCompare(left.id),
+    );
+}
+
+/**
+ * The settled tabs the Settled section lists: the newest `count` while it is expanded, and
+ * the one the route shows either way, so viewing a settled thread never hides its tab.
+ */
+export function listedSettledTabs<T>(
+  settled: readonly T[],
+  input: {
+    readonly expanded: boolean;
+    readonly count: number;
+    readonly isRoute: (thread: T) => boolean;
+  },
+): readonly T[] {
+  return settled.filter(
+    (thread, index) => (input.expanded && index < input.count) || input.isRoute(thread),
+  );
 }
 
 const ROW_SECTION_PRIORITY = ["pinned", "active", "working", "snoozed", "settled"] as const;
