@@ -19,6 +19,7 @@ import {
   type ProjectId,
   type ProjectIconOverride,
   type ProjectScript,
+  type ProjectTrackedFolder,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
   type ProviderUserInputAnswers,
@@ -48,6 +49,7 @@ import {
   isRpcClientError,
   request,
 } from "../rpc/client.ts";
+import { repositoryCheckpointScopeIds } from "../state/threadRepositories.ts";
 
 interface CommandMetadata {
   readonly commandId?: CommandId;
@@ -62,6 +64,7 @@ export interface CreateProjectInput extends CommandMetadata {
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
 }
 
 export interface UpdateProjectInput extends CommandMetadata {
@@ -74,6 +77,11 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  /** Replaces the whole list. Paths only mean something on the project's own environment. */
+  readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
+  /** Added to, and removed by path from, the list as the server has it. */
+  readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder>;
+  readonly untrackFolders?: ReadonlyArray<string>;
   readonly pinned?: boolean;
   readonly archived?: boolean;
 }
@@ -188,6 +196,8 @@ interface StartThreadBootstrap {
     readonly baseBranch: string;
     readonly branch?: string;
     readonly startFromOrigin?: boolean;
+    /** Tracked repositories to give a worktree; absent leaves the choice to the server. */
+    readonly repositories?: ReadonlyArray<{ readonly path: string }>;
   };
   readonly runSetupScript?: boolean;
 }
@@ -415,6 +425,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly createWorkspaceRootIfMissing?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
+        readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
       }
     | {
         readonly type: "project.update";
@@ -424,6 +435,9 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly workspaceRoot?: string;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
+        readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
+        readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder>;
+        readonly untrackFolders?: ReadonlyArray<string>;
       }
     | {
         readonly type: "project.delete";
@@ -458,6 +472,7 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.trackedFolders === undefined ? {} : { trackedFolders: input.trackedFolders }),
   });
 });
 
@@ -480,6 +495,9 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.trackedFolders === undefined ? {} : { trackedFolders: input.trackedFolders }),
+    ...(input.trackFolders === undefined ? {} : { trackFolders: input.trackFolders }),
+    ...(input.untrackFolders === undefined ? {} : { untrackFolders: input.untrackFolders }),
     ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
     ...(input.archived === undefined ? {} : { archived: input.archived }),
   });
@@ -790,6 +808,10 @@ export const setThreadInteractionMode = Effect.fn("EnvironmentCommands.setThread
   },
 );
 
+// Servers without native resume dispatch command.text verbatim; newer ones clear
+// it when manualContinuationOfRunId is set.
+const MANUAL_CONTINUATION_FALLBACK_TEXT = "Continue where you left off.";
+
 export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(function* (
   input: StartThreadTurnInput,
 ) {
@@ -819,6 +841,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
             ...(prepareWorktree.startFromOrigin === undefined
               ? {}
               : { startFromOrigin: prepareWorktree.startFromOrigin }),
+            ...(prepareWorktree.repositories === undefined
+              ? {}
+              : { repositories: prepareWorktree.repositories }),
           }
         : bootstrap?.worktreePath
           ? {
@@ -867,7 +892,12 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
         ...(input.manualContinuationOfRunId === undefined
           ? {}
           : { manualContinuationOfRunId: input.manualContinuationOfRunId }),
-        text: input.message.text,
+        text:
+          input.manualContinuationOfRunId !== undefined &&
+          input.message.text.trim().length === 0 &&
+          attachments.length === 0
+            ? MANUAL_CONTINUATION_FALLBACK_TEXT
+            : input.message.text,
         ...(context ? { context } : {}),
         ...(input.message.idleCompaction === undefined
           ? {}
@@ -1062,14 +1092,18 @@ export const revertThreadCheckpoint = Effect.fn("EnvironmentCommands.revertThrea
       });
     }
     const projection = yield* getProjection(input.threadId);
+    // A tracked repository's baseline also sits at ordinal zero; it follows the thread's rewind.
+    const repositoryScopeIds = repositoryCheckpointScopeIds(projection.checkpointScopes);
     const checkpoint =
       projection.checkpoints.find(
         (candidate) => candidate.id === input.checkpointId && candidate.scopeId === input.scopeId,
       ) ??
-      projection.checkpoints.findLast((candidate) =>
-        input.turnCount === 0
-          ? candidate.ordinalWithinScope === 0 && candidate.appRunOrdinal === null
-          : candidate.appRunOrdinal === input.turnCount,
+      projection.checkpoints.findLast(
+        (candidate) =>
+          !repositoryScopeIds.has(candidate.scopeId) &&
+          (input.turnCount === 0
+            ? candidate.ordinalWithinScope === 0 && candidate.appRunOrdinal === null
+            : candidate.appRunOrdinal === input.turnCount),
       );
     if (
       checkpoint === undefined ||

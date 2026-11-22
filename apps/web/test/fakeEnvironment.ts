@@ -71,7 +71,7 @@ const makeDescriptor = (capabilities: Partial<ExecutionEnvironmentCapabilities>)
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, sideChats: true, ...capabilities },
+  capabilities: { repositoryIdentity: true, sideChats: true, freshContext: true, ...capabilities },
 });
 let descriptor = makeDescriptor({});
 const auth = {
@@ -240,6 +240,8 @@ export interface FakeThread {
   readonly subagentOf?: ThreadId;
   /** The shell's status; `completed`, or `idle` without runs, when absent. */
   readonly status?: OrchestrationV2ThreadShell["status"];
+  /** Makes this a subagent the provider started under that thread, which takes no messages. */
+  readonly providerSubagentOf?: ThreadId;
   /** Makes this an older settled thread the shell leaves out; only its family read returns it. */
   readonly olderSettled?: true;
   readonly id: ThreadId;
@@ -333,6 +335,9 @@ export function threadWithQuestion(name: string, question: string): FakeThread {
   };
 }
 
+const parentOf = (thread: FakeThread) =>
+  thread.sideChatOf ?? thread.subagentOf ?? thread.providerSubagentOf;
+
 function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   const latest = thread.runs.at(-1);
   return {
@@ -341,7 +346,7 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   };
 }
 
-const rootThreadIdOf = (thread: FakeThread) => thread.sideChatOf ?? thread.subagentOf ?? thread.id;
+const rootThreadIdOf = (thread: FakeThread) => parentOf(thread) ?? thread.id;
 
 function baseShellOf(
   thread: FakeThread,
@@ -363,13 +368,13 @@ function baseShellOf(
     ...(thread.issues === undefined ? {} : { issues: thread.issues }),
     lineage: {
       rootThreadId: rootThreadIdOf(thread),
-      parentThreadId: thread.sideChatOf ?? thread.subagentOf ?? null,
-      relationshipToParent: thread.subagentOf ? "subagent" : null,
+      parentThreadId: parentOf(thread) ?? null,
+      relationshipToParent: thread.subagentOf || thread.providerSubagentOf ? "subagent" : null,
       ...(thread.sideChatOf ? { sideChat: true } : {}),
     },
     forkedFrom: null,
-    createdBy: "user",
-    creationSource: "web",
+    createdBy: thread.providerSubagentOf ? "agent" : "user",
+    creationSource: thread.providerSubagentOf ? "provider" : "web",
     latestRunId: latest?.id ?? null,
     activeRunId: null,
     // Idle reads as waiting on the user, which shows a per-second duration in the sidebar.
@@ -415,8 +420,8 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       activeProviderThreadId: shell.activeProviderThreadId,
       lineage: shell.lineage,
       forkedFrom: null,
-      createdBy: "user",
-      creationSource: "web",
+      createdBy: shell.createdBy,
+      creationSource: shell.creationSource,
       createdAt: AT,
       updatedAt: AT,
       archivedAt: null,

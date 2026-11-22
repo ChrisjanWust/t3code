@@ -97,6 +97,8 @@ export function buildDraftActionMenuItems(
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
   readonly canFind?: boolean;
+  /** False where no inline title editor is rendered, such as sidebar search results. */
+  readonly canRename?: boolean;
   readonly branch: string | null;
   readonly projectFilter: {
     readonly label: string;
@@ -234,6 +236,7 @@ export function buildThreadActionMenuItems(
             id: "rename" as const,
             label: worktree ? resolve(msg("Rename worktree")) : resolve(msg("Rename thread")),
             icon: "pencil",
+            disabled: state.canRename === false,
             separatorBefore: true,
           },
         ]),
