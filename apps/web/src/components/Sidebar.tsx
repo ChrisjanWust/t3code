@@ -2882,7 +2882,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           threadByKeyRef.current.get(threadKey) ??
           searchableThreads.find((candidate) => threadShellKey(candidate) === threadKey);
         if (!thread) return;
-        const worktreeMembers = worktreeMembersRef.current.get(threadKey);
+        const worktreeMembers = fromSearch ? undefined : worktreeMembersRef.current.get(threadKey);
         const worktreeTitles = projectByKey.get(
           `${thread.environmentId}:${thread.projectId}`,
         )?.worktreeTitles;
@@ -3869,8 +3869,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 : null
                             }
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                            isActive={routeRowKey === threadKey}
-                            revealRef={routeRowKey === threadKey ? revealRouteRow : undefined}
+                            isActive={routeThreadRowKey === threadKey}
+                            revealRef={routeThreadRowKey === threadKey ? revealRouteRow : undefined}
                             isRouteThread={routeThreadKey === threadKey}
                             readOpensPullRequestsInRightPanel={readOpensPullRequestsInRightPanel}
                             jumpLabel={

@@ -19,6 +19,7 @@ import { cn } from "../../lib/utils";
 import { useQuietThreadShells } from "../../state/entities";
 import { textDirection } from "../../textDirection";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { closeThreadSurfaceOf } from "../../rightPanelStore";
 import { RelativeTime } from "../RelativeTime";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -114,6 +115,7 @@ function WorktreeTabsHistory(props: { readonly location: ThreadTabLocation }) {
     .toSorted((left, right) => (right.settledAt ?? "").localeCompare(left.settledAt ?? ""));
 
   const goTo = (threadRef: ScopedThreadRef, draftId: DraftId | null = null) => {
+    if (draftId === null) closeThreadSurfaceOf(threadRef);
     void (draftId === null
       ? router.navigate({
           to: "/$environmentId/$threadId",

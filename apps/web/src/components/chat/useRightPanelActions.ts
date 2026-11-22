@@ -27,7 +27,7 @@ import {
   useRightPanelStore,
 } from "../../rightPanelStore";
 import { requestWorkspaceContentFocus, requestWorkspaceFocus } from "../../lib/workspaceFocus";
-import { setActivePreviewTab } from "../../previewStateStore";
+import { readThreadPreviewState, setActivePreviewTab } from "../../previewStateStore";
 import { isBrowserSettingsReadError } from "../../browser/openFileInPreview";
 import { addBrowserSurface } from "../preview/addBrowserSurface";
 import { focusActivePanelTerminal, focusTerminal } from "../../lib/terminalFocus";
@@ -137,8 +137,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     });
   };
   const duplicateBrowserSurface = (surface: RightPanelSurface) => {
-    if (surface.kind !== "preview" || !surface.resourceId) return;
-    const snapshot = activePreviewState.sessions[surface.resourceId];
+    if (surface.kind !== "preview" || !surface.resourceId || !activeThreadRef) return;
+    // A shared panel also shows other tabs' browsers, whose sessions only their owner holds.
+    const snapshot = readThreadPreviewState(surfaceOwnerRef(surface, activeThreadRef)).sessions[
+      surface.resourceId
+    ];
     if (snapshot) createBrowserSurface(undefined, snapshot);
   };
   const duplicateBrowserSurfaceStable = useStableCallback(duplicateBrowserSurface);

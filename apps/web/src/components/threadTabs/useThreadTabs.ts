@@ -28,6 +28,7 @@ import { useThreadTabsVertical } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { resolveThreadOpenRoute } from "../../lib/sideChatPane";
+import { closeThreadSurfaceOf } from "../../rightPanelStore";
 import {
   readThreadShell,
   readThreadShells,
@@ -296,8 +297,13 @@ export function useThreadTabActions(location: ThreadTabLocation | null) {
   // tab still counts: with one tab there is nowhere to step.
   const sidePanel = useThreadTabSidePanelChosen();
 
-  const openThread = (ref: ScopedThreadRef) =>
-    router.navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+  const openThread = (ref: ScopedThreadRef) => {
+    closeThreadSurfaceOf(ref);
+    return router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(ref),
+    });
+  };
 
   const openTab = (tab: ThreadTabItem) =>
     tab.kind === "thread"

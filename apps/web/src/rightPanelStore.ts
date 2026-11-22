@@ -936,7 +936,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           rightPanelHostRef(ref).threadId === threadId
             ? state
             : userAction(state, ref, (current) =>
-                upsertSurface(current, threadSurface(threadId, ref)),
+                upsertSurface(current, threadSurface(threadId, rightPanelHostRef(ref))),
               ),
         ),
       openLinkedThread: (ref, target) =>
@@ -1539,4 +1539,14 @@ export function selectSelectedRightPanelSurface(
 ): RightPanelSurface | null {
   const state = selectThreadRightPanelState(byThreadKey, ref);
   return state.surfaces.find((surface) => surface.id === state.activeSurfaceId) ?? null;
+}
+
+/** A thread opening on the main screen stops showing as a tab beside itself. */
+export function closeThreadSurfaceOf(ref: ScopedThreadRef): void {
+  const state = useRightPanelStore.getState();
+  const surfaceId = `thread:${ref.threadId}`;
+  const panel = selectThreadRightPanelState(state.byThreadKey, rightPanelHostRef(ref));
+  if (panel.surfaces.some((surface) => surface.id === surfaceId)) {
+    state.closeSurface(ref, surfaceId);
+  }
 }

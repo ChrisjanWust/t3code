@@ -6,6 +6,7 @@ import { useClosedViewStore } from "./closedViewStore";
 import { linkedThreadTitle } from "./linkedThreadSurface";
 import { reopenClosedView } from "./reopenClosedView";
 import {
+  closeThreadSurfaceOf,
   hostRightPanel,
   migratePersistedRightPanelState,
   panelTerminalIdsOwnedBy,
@@ -93,6 +94,26 @@ describe("shared worktree panels", () => {
     ]);
     expect([...panelTerminalIdsOwnedBy(surfaces, refA)]).toEqual(["term-1"]);
     expect([...panelTerminalIdsOwnedBy(surfaces, refB)]).toEqual(["term-2"]);
+  });
+
+  it("gives a side thread opened from a hosted one the panel's thread, and drops it on the main screen", () => {
+    const store = useRightPanelStore.getState();
+    const subagent = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("subagent"));
+    const unhost = hostRightPanel(refB, refA);
+    store.openThread(refB, subagent.threadId);
+    unhost();
+    const owners = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.map(
+        (surface) => [surface.id, "owner" in surface ? surface.owner?.threadId : undefined],
+      );
+    expect(owners()).toEqual([["thread:subagent", refA.threadId]]);
+
+    using _shared = shareWorktreePanel();
+    store.openThread(refB, subagent.threadId);
+    closeThreadSurfaceOf(subagent);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB).surfaces,
+    ).toEqual([]);
   });
 
   it("remembers a closed tab against the thread that closed it", () => {
