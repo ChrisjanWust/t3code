@@ -173,7 +173,8 @@ one tab**; the panel returns when you open a second tab.
 
 Closing a tab in the panel settles it into a folded **Settled** section at the bottom of the panel.
 Click a settled tab to read it without reopening it. Sending it a message, or the undo arrow that
-replaces its time on hover, moves it back up to the open tabs.
+replaces its time on hover, moves it back up to the open tabs. While the panel is hidden for a
+single tab, find settled tabs under **Tab history** instead.
 
 Each tab in the panel shows its provider's icon. Worktree rows in the sidebar leave it out; to
 show it there too, turn off **Settings → Labs → Thread tabs → Hide provider icons in the
