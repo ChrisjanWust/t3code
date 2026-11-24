@@ -37,6 +37,14 @@ threads can switch only between Claude instances with the same config directory.
 Separate account directories stay isolated, including their local conversation
 state. Claude does not have Codex's shared-home and shadow-home arrangement.
 
+To spread new threads across accounts, pick a Claude model as the default in
+**Settings > Threads**, then choose the other accounts under **Rotate accounts**. Each
+new thread starts on the account with the most usage left for that model. The exception is
+an account whose weekly limit resets within the next few hours with at least 10% left: it goes
+first, so that usage isn't lost at the reset. A new thread in
+an existing worktree stays on the account that worktree already uses, unless that account
+is out of usage. When every account is out, the fallback model takes over.
+
 For presets that differ only in API keys or endpoints, use the instance's
 **Environment variables**. Variable assignments do not belong in **Launch arguments**.
 

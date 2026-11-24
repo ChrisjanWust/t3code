@@ -320,6 +320,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("new thread project provider reasoning effort")],
   },
   {
+    id: "rotate-accounts",
+    title: msg("Rotate accounts"),
+    to: "/settings/threads",
+    scope: "environment-defaults",
+    searchTerms: [msg("rotate switch accounts subscriptions usage limits balance new threads")],
+    environmentOnly: true,
+  },
+  {
     id: "fallback-model",
     title: msg("Fallback model"),
     to: "/settings/threads",

@@ -419,6 +419,10 @@
       "types": "./src/usageLimits.ts",
       "import": "./src/usageLimits.ts"
     },
+    "./modelRotation": {
+      "types": "./src/modelRotation.ts",
+      "import": "./src/modelRotation.ts"
+    },
     "./desktopAppControl": {
       "types": "./src/desktopAppControl.ts",
       "import": "./src/desktopAppControl.ts"

@@ -1,5 +1,6 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { rotateDefaultModelSelection } from "@t3tools/shared/modelRotation";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 
 import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
@@ -17,8 +18,14 @@ export function seedDraftModelSelection(draftId: DraftId, projectRef: ScopedProj
   const settings = readEnvironment(projectRef.environmentId)?.serverConfig?.settings;
   const providers = readEnvironmentProviders(projectRef.environmentId) ?? [];
   const defaultSelection = settings
-    ? resolveProjectSettings(settings, projectRef.projectId, project ?? undefined).settings
-        .defaultModelSelection
+    ? rotateDefaultModelSelection({
+        selection: resolveProjectSettings(settings, projectRef.projectId, project ?? undefined)
+          .settings.defaultModelSelection,
+        settings,
+        providers,
+        projectId: projectRef.projectId,
+        now: Date.now(),
+      })
     : (project?.defaultModelSelection ?? null);
   const resolution = resolveNewThreadModelSelection({
     defaultSelection:
