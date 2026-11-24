@@ -1174,7 +1174,7 @@ function markdownTableCellRenderer(Tag: "td" | "th") {
   return function MarkdownTableCell({
     node,
     ...props
-  }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
+  }: ComponentProps<typeof Tag> & { node?: HastElement | undefined }) {
     // Lets index.css break a path or URL mid-word instead of sizing its column to it. Text
     // nodes are tested apart so words split by <br> don't join.
     const longWord = hastSomeText(node, (text) => LONG_TABLE_WORD.test(text));

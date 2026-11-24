@@ -142,6 +142,7 @@ import { revisionedQuery } from "~/state/revisionedQuery";
 import {
   getProjectFileContents,
   getProjectFileQueryAtom,
+  getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";

@@ -290,6 +290,14 @@ export function createNewThreadHandler(router: AnyRouter) {
       if (cachedProjectFile !== undefined) {
         return { envMode: envModeFor(cachedProjectFile), applyProjectFile: () => {} };
       }
+      // A thread tab's strip follows its workspace, so a late default would move the tab.
+      const settings = getClientSettings();
+      if (settings.threadTabsEnabled && !settings.boringSidebarEnabled) {
+        return projectFileRead.then(
+          (projectFile) => ({ envMode: envModeFor(projectFile), applyProjectFile: () => {} }),
+          () => ({ envMode: envModeFor(null), applyProjectFile: () => {} }),
+        );
+      }
       const envMode = envModeFor(null);
       const applyProjectFile = (draftId: DraftId) => {
         const provisional: ProvisionalWorkspace = {
@@ -363,7 +371,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         if (hasExplicitWorkspaceOption) {
           workspaceContext = pickExplicitWorkspaceOptions(options);
         } else if (!isDraftAlreadyOpen) {
-          const defaultEnvMode = resolveDefaultEnvMode();
+          const defaultEnvMode = await resolveDefaultEnvMode();
           applyProjectFile = defaultEnvMode.applyProjectFile;
           workspaceContext = {
             branch: null,
@@ -468,7 +476,7 @@ export function createNewThreadHandler(router: AnyRouter) {
     const threadId = newThreadId();
     const createdAt = new Date().toISOString();
     return (async () => {
-      const defaultEnvMode = options?.envMode === undefined ? resolveDefaultEnvMode() : null;
+      const defaultEnvMode = options?.envMode === undefined ? await resolveDefaultEnvMode() : null;
       const initialEnvMode = options?.envMode ?? defaultEnvMode?.envMode ?? "local";
       setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
         threadId,

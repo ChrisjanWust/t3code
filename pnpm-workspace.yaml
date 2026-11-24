@@ -119,6 +119,9 @@ overrides:
   "@pierre/diffs": 1.7.0-beta.4
   "@react-native-menu/menu": 2.0.0
   "@react-navigation/native-stack": 7.21.0
+  # The web editor pins tiptap; these reach it through @tiptap/react and must match @tiptap/core.
+  "@tiptap/extension-bubble-menu": 3.31.3
+  "@tiptap/extension-floating-menu": 3.31.3
   dbus-next: 0.10.2
   node-pty: 1.2.0-beta.15
   react-native-gesture-handler: 3.5.0
