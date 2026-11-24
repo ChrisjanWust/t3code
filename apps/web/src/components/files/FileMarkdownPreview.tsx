@@ -8,7 +8,7 @@ import { maskMarkdownFrontmatter } from "@t3tools/shared/markdownFrontmatter";
 export function markdownImageBaseDir(cwd: string, relativePath: string): string {
   const lastSeparator = Math.max(relativePath.lastIndexOf("/"), relativePath.lastIndexOf("\\"));
   return lastSeparator >= 0
-    ? resolvePathLinkTarget(relativePath.slice(0, lastSeparator), cwd)
+    ? resolvePathLinkTarget(relativePath.slice(0, lastSeparator + 1), cwd)
     : cwd;
 }
 
@@ -18,6 +18,10 @@ export function FileMarkdownPreview(props: {
   readonly text: string;
   readonly threadRef: ScopedThreadRef;
   readonly workspaceMutationId: string | null;
+  readonly className?: string;
+  readonly onTaskListChange?:
+    | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
+    | undefined;
 }) {
   return (
     <ChatMarkdown
@@ -26,8 +30,9 @@ export function FileMarkdownPreview(props: {
       imageBaseDir={markdownImageBaseDir(props.cwd, props.relativePath)}
       threadRef={props.threadRef}
       workspaceMutationId={props.workspaceMutationId}
-      className="chat-markdown-document"
+      className={props.className ?? "chat-markdown-document"}
       wideTables
+      onTaskListChange={props.onTaskListChange}
     />
   );
 }

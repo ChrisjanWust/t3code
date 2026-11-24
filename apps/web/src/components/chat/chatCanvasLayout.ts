@@ -26,6 +26,7 @@ export function resolveChatCanvasLayout({
   preview,
   padding = 48,
   maxChatWidth = 768,
+  maxHtmlPreviewWidth = maxChatWidth,
   minChatWidth = 640,
   composerHeight = 0,
   detailsCard = null,
@@ -35,6 +36,7 @@ export function resolveChatCanvasLayout({
   preview: ChatCanvasPreview | null;
   padding?: number;
   maxChatWidth?: number;
+  maxHtmlPreviewWidth?: number;
   minChatWidth?: number;
   composerHeight?: number;
   detailsCard?: PreviewMiniPlayerObstacles["detailsCard"];
@@ -176,8 +178,24 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
+  const laneEnd = frame ? Math.min(laneRight, frame.x - GAP) : laneRight;
   // Wide tables grow evenly past both lane edges, short of the padding, the card, and the player.
-  const freeRight = Math.min(laneRight, frame ? frame.x - GAP : laneRight) - chat.left - chat.width;
-  const tableGutter = Math.max(0, Math.floor(Math.min(chat.left - padding, freeRight)));
-  return { chat, frame, overlapsChat, overlapsDetailsCard, tableGutter };
+  const tableGutter = Math.max(
+    0,
+    Math.floor(Math.min(chat.left - padding, laneEnd - chat.left - chat.width)),
+  );
+  // A wider HTML preview stays centered on the chat column while that fits, and
+  // clear of the details card and a mini player the chat column sits beside.
+  const htmlPreviewWidth = overlapsChat ? 0 : Math.min(maxHtmlPreviewWidth, laneEnd - padding);
+  const htmlPreview =
+    htmlPreviewWidth > chat.width
+      ? {
+          left: Math.max(
+            padding,
+            Math.min(chat.left + (chat.width - htmlPreviewWidth) / 2, laneEnd - htmlPreviewWidth),
+          ),
+          width: htmlPreviewWidth,
+        }
+      : { left: chat.left, width: chat.width };
+  return { chat, htmlPreview, frame, overlapsChat, overlapsDetailsCard, tableGutter };
 }
