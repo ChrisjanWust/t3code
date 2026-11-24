@@ -1325,10 +1325,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {isWorktreeRow ? (
         <>
-          <FolderGit2Icon aria-hidden className="size-3.5 shrink-0 text-icon-muted" />
-          <span className={cn("min-w-0 truncate", props.environmentLabel === null && "flex-1")}>
-            {worktreeTabCountLabel(props.worktreeTabCount ?? 0, messages)}
-          </span>
           {props.environmentLabel !== null ? (
             <>
               <EnvironmentMachineIcon
@@ -1336,9 +1332,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 kind={props.environmentMachine}
                 className="size-3.5 shrink-0 text-icon-muted"
               />
-              <span className="min-w-0 flex-1 truncate">{props.environmentLabel}</span>
+              <span className="min-w-0 truncate">{props.environmentLabel}</span>
             </>
           ) : null}
+          <FolderGit2Icon aria-hidden className="size-3.5 shrink-0 text-icon-muted" />
+          <span className="min-w-0 flex-1 truncate">
+            {worktreeTabCountLabel(props.worktreeTabCount ?? 0, messages)}
+          </span>
         </>
       ) : props.environmentLabel !== null ? (
         <>
