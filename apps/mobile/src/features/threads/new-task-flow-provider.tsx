@@ -2,6 +2,10 @@ import { ActiveNewTaskContext } from "../../state/active-new-task";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { msg, useMessages } from "gt-react-native";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+import {
+  rotateDefaultModelSelection,
+  worktreeProviderInstanceId,
+} from "@t3tools/shared/modelRotation";
 import { useNowMinuteMs } from "../../lib/clock";
 import { m, type MessageResolver } from "../../i18n/messages";
 import * as Dialog from "../../components/ui/Dialog";
@@ -464,7 +468,19 @@ export function NewTaskFlowProvider(
   );
   const projectDefaultModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
-    projectSettings.settings.defaultModelSelection,
+    selectedEnvironmentServerConfig && selectedProject
+      ? rotateDefaultModelSelection({
+          selection: projectSettings.settings.defaultModelSelection,
+          settings: selectedEnvironmentServerConfig.settings,
+          providers: selectedEnvironmentServerConfig.providers,
+          projectId: selectedProject.id,
+          worktreeInstanceId: worktreeProviderInstanceId(threads, {
+            environmentId: selectedProject.environmentId,
+            worktreePath: workspaceMode === "local" ? selectedWorktreePath : null,
+          }),
+          now: modelSelectionNow,
+        })
+      : projectSettings.settings.defaultModelSelection,
     selectedProject?.id ?? null,
   );
   const stickyModelSelection = resolveDefaultableModelSelection(

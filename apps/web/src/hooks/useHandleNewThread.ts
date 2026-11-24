@@ -54,6 +54,10 @@ import { useThreadRouteTarget } from "./useThreadRouteTarget";
 import { readUnloadedThreadCount } from "../state/olderSettledShelf";
 import { resolveProjectDefaultProviderModelSelection } from "../providerInstances";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+import {
+  rotateDefaultModelSelection,
+  worktreeProviderInstanceId,
+} from "@t3tools/shared/modelRotation";
 
 export const LAST_USED_PROJECT_STORAGE_KEY = "t3code:last-used-project:v1";
 export const lastUsedProjectKeySchema = Schema.NullOr(Schema.String);
@@ -170,7 +174,17 @@ export function createNewThreadHandler(router: AnyRouter) {
       project?.id ?? null,
       project,
     );
-    const configuredDefaultModelSelection = projectSettings.settings.defaultModelSelection ?? null;
+    const configuredDefaultModelSelection = rotateDefaultModelSelection({
+      selection: projectSettings.settings.defaultModelSelection ?? null,
+      settings: targetServerSettings,
+      providers: environmentServerConfigs.get(projectRef.environmentId)?.providers ?? [],
+      projectId: projectRef.projectId,
+      worktreeInstanceId: worktreeProviderInstanceId(readThreadShells(), {
+        environmentId: projectRef.environmentId,
+        worktreePath: options?.worktreePath ?? null,
+      }),
+      now: Date.now(),
+    });
     const fallbackResolution = resolveNewThreadModelSelection({
       defaultSelection:
         configuredDefaultModelSelection ??
@@ -386,6 +400,15 @@ export function createNewThreadHandler(router: AnyRouter) {
         hasStartFromOriginOption
       ) {
         setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
+      }
+      // A draft moved into a worktree takes the account that worktree runs on.
+      const movedDraftModel =
+        hasWorktreePathOption &&
+        !hasExplicitComposerModelSelection(getComposerDraft(currentRouteTarget.draftId))
+          ? resolveModelSelectionOverride(currentRouteTarget.draftId)
+          : null;
+      if (movedDraftModel) {
+        setModelSelection(currentRouteTarget.draftId, movedDraftModel, { replaceOptions: true });
       }
       setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
         threadId: latestActiveDraftThread.threadId,

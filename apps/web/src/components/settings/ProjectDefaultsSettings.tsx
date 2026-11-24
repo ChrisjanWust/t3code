@@ -23,6 +23,8 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
 import { TraitsPicker } from "../chat/TraitsPicker";
+import { Button } from "../ui/button";
+import { Menu, MenuCheckboxItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
@@ -350,6 +352,86 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     />
   ) : null;
 
+  const mixedRotation = useScopedSettingsMixed(["defaultModelRotation"]);
+  const rotationPartners = selection
+    ? entries.filter(
+        (entry) =>
+          entry.enabled &&
+          entry.instanceId !== selection.instanceId &&
+          entry.driverKind === activeEntry?.driverKind,
+      )
+    : [];
+  const rotatingPartners =
+    selection && settings.defaultModelRotation.includes(selection.instanceId)
+      ? rotationPartners.filter((entry) => settings.defaultModelRotation.includes(entry.instanceId))
+      : [];
+  const setRotation = (partners: ReadonlyArray<(typeof rotationPartners)[number]>) =>
+    updateSettings({
+      defaultModelRotation:
+        selection && partners.length > 0
+          ? [selection.instanceId, ...partners.map((entry) => entry.instanceId)]
+          : [],
+    });
+  const rotationRow =
+    // Rotation needs a saved default, and it scores only Claude's limit windows.
+    !isProjectScope &&
+    !mixedModel &&
+    settings.defaultModelSelection !== null &&
+    activeEntry?.driverKind === "claudeAgent" &&
+    selection &&
+    rotationPartners.length > 0 ? (
+      <SettingsRow
+        serverScoped
+        settingKeys={["defaultModelRotation"]}
+        mixed={mixedRotation}
+        {...searchableSetting("rotate-accounts")}
+        description={gt(
+          "New threads start on whichever account has the most usage left. Threads in a worktree stay on its account.",
+        )}
+        resetAction={
+          mixedRotation || settings.defaultModelRotation.length > 0 ? (
+            <SettingResetButton
+              ariaLabel={gt("Turn off account rotation")}
+              onClick={() => setRotation([])}
+            />
+          ) : null
+        }
+        control={
+          <Menu>
+            <MenuTrigger
+              render={<Button variant="outline" size="sm" />}
+              aria-label={gt("Accounts to rotate with")}
+            >
+              {mixedRotation
+                ? gt("Mixed", { $context: "values differ across targets" })
+                : rotatingPartners.length === 0
+                  ? gt("Off", { $context: "account rotation is off" })
+                  : gt("With {accounts}", {
+                      accounts: rotatingPartners.map((entry) => entry.displayName).join(", "),
+                    })}
+            </MenuTrigger>
+            <MenuPopup align="end">
+              {rotationPartners.map((entry) => (
+                <MenuCheckboxItem
+                  key={entry.instanceId}
+                  checked={rotatingPartners.includes(entry)}
+                  onCheckedChange={(checked) =>
+                    setRotation(
+                      checked
+                        ? [...rotatingPartners, entry]
+                        : rotatingPartners.filter((partner) => partner !== entry),
+                    )
+                  }
+                >
+                  {entry.displayName}
+                </MenuCheckboxItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        }
+      />
+    ) : null;
+
   return (
     <SettingsSection
       id={category === "source-control" ? "source-control-defaults" : "project-defaults"}
@@ -358,12 +440,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       {category === "project" ? (
         <>
           {modelRow}
+          {rotationRow}
           {fallbackRow}
           {workspaceRow}
         </>
       ) : category === "general" ? (
         <>
           {modelRow}
+          {rotationRow}
           {fallbackRow}
           <SettingsRow
             serverScoped
