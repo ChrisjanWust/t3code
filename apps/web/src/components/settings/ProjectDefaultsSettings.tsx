@@ -373,7 +373,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           : [],
     });
   const rotationRow =
-    !isProjectScope && !mixedModel && selection && rotationPartners.length > 0 ? (
+    // Rotation needs a saved default, and it scores only Claude's limit windows.
+    !isProjectScope &&
+    !mixedModel &&
+    settings.defaultModelSelection !== null &&
+    activeEntry?.driverKind === "claudeAgent" &&
+    selection &&
+    rotationPartners.length > 0 ? (
       <SettingsRow
         serverScoped
         settingKeys={["defaultModelRotation"]}

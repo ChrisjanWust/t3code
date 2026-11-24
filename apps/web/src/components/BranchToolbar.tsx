@@ -44,6 +44,7 @@ import {
   BranchToolbarBranchSelector,
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
+import { seedDraftModelSelection } from "../lib/seedDraftModelSelection";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { openAddProjectToMachine } from "./AddProjectToMachineDialog";
 import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
@@ -684,6 +685,9 @@ export const BranchToolbar = memo(function BranchToolbar({
       envMode: "worktree",
       projectRef: activeProjectRef,
     });
+    if (draftId) {
+      seedDraftModelSelection(draftId, activeProjectRef, previousWorktreeSeed.worktreePath);
+    }
   };
 
   useImperativeHandle(
