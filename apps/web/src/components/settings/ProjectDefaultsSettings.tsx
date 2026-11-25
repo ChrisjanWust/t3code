@@ -385,9 +385,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         settingKeys={["defaultModelRotation"]}
         mixed={mixedRotation}
         {...searchableSetting("rotate-accounts")}
-        description={gt(
-          "New threads start on whichever account has the most usage left. Threads in a worktree stay on its account.",
-        )}
+        description={gt("New threads start on whichever account has the most usage left.")}
         resetAction={
           mixedRotation || settings.defaultModelRotation.length > 0 ? (
             <SettingResetButton

@@ -42,7 +42,6 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
-import { seedDraftModelSelection } from "../lib/seedDraftModelSelection";
 import { THREAD_DETAILS_PANEL_ICON_CLASS } from "./chat/threadDetailsPanelStyles";
 import { ThreadDetailsThreadPrRows } from "./chat/ThreadDetailsPrRows";
 import { ThreadDetailsIssueRows } from "./chat/ThreadDetailsIssueRows";
@@ -254,13 +253,6 @@ export function BranchToolbarBranchSelector({
       environmentSelection: automatic ? (draftThread?.environmentSelection ?? "auto") : "manual",
       projectRef: scopeProjectRef(environmentId, activeProject.id),
     });
-    if (draftId && worktreePath !== activeWorktreePath) {
-      seedDraftModelSelection(
-        draftId,
-        scopeProjectRef(environmentId, activeProject.id),
-        worktreePath,
-      );
-    }
     return true;
   };
 

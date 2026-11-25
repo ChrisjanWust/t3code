@@ -1,8 +1,6 @@
 import {
-  type EnvironmentId,
   type ModelSelection,
   type ProjectId,
-  type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderUsageWindow,
   type ServerSettings,
@@ -57,16 +55,15 @@ function usageStanding(provider: ServerProvider, model: string, now: number) {
 }
 
 /**
- * A worktree keeps its instance; otherwise a weekly limit about to reset with room goes first, then
- * the most room under the tightest limit, the default's instance on ties. With no usable instance
- * the selection is unchanged, so the fallback model can take over.
+ * A weekly limit about to reset with room goes first, then the most room under the tightest limit,
+ * the default's instance on ties. With no usable instance the selection is unchanged, so the
+ * fallback model can take over.
  */
 export function rotateDefaultModelSelection(input: {
   readonly selection: ModelSelection | null;
   readonly settings: ServerSettings;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly projectId: ProjectId | null;
-  readonly worktreeInstanceId?: ProviderInstanceId | null;
   readonly now: number;
 }): ModelSelection | null {
   const { selection } = input;
@@ -92,52 +89,22 @@ export function rotateDefaultModelSelection(input: {
     const standing = usageStanding(provider, selection.model, input.now);
     return standing.remaining !== null && standing.remaining <= 0 ? [] : [{ provider, standing }];
   });
-  let picked = candidates.find(
-    ({ provider }) => provider.instanceId === input.worktreeInstanceId,
-  )?.provider;
-  if (!picked) {
-    let soonest = Infinity;
-    let best = -Infinity;
-    let roomiest: ServerProvider | undefined;
-    for (const { provider, standing } of candidates) {
-      if (standing.expiresAt !== null && standing.expiresAt < soonest) {
-        soonest = standing.expiresAt;
-        picked = provider;
-      }
-      if ((standing.remaining ?? -1) > best) {
-        best = standing.remaining ?? -1;
-        roomiest = provider;
-      }
+  let picked: ServerProvider | undefined;
+  let soonest = Infinity;
+  let best = -Infinity;
+  let roomiest: ServerProvider | undefined;
+  for (const { provider, standing } of candidates) {
+    if (standing.expiresAt !== null && standing.expiresAt < soonest) {
+      soonest = standing.expiresAt;
+      picked = provider;
     }
-    picked ??= roomiest;
+    if ((standing.remaining ?? -1) > best) {
+      best = standing.remaining ?? -1;
+      roomiest = provider;
+    }
   }
+  picked ??= roomiest;
   return picked && picked.instanceId !== selection.instanceId
     ? { ...selection, instanceId: picked.instanceId }
     : selection;
-}
-
-/** The instance a worktree's most recently updated thread runs on. */
-export function worktreeProviderInstanceId(
-  threads: Iterable<{
-    readonly environmentId: EnvironmentId;
-    readonly worktreePath: string | null;
-    readonly providerInstanceId: ProviderInstanceId;
-    readonly updatedAt: string;
-  }>,
-  target: { readonly environmentId: EnvironmentId; readonly worktreePath: string | null },
-): ProviderInstanceId | null {
-  if (target.worktreePath === null) return null;
-  let latest: {
-    readonly providerInstanceId: ProviderInstanceId;
-    readonly updatedAt: string;
-  } | null = null;
-  for (const thread of threads) {
-    if (
-      thread.environmentId === target.environmentId &&
-      thread.worktreePath === target.worktreePath &&
-      (latest === null || thread.updatedAt > latest.updatedAt)
-    )
-      latest = thread;
-  }
-  return latest?.providerInstanceId ?? null;
 }
