@@ -111,6 +111,19 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const index =
     imageCount > 0 ? (((preview.index + imageOffset) % imageCount) + imageCount) % imageCount : 0;
   const item = preview.images[index];
+  // An image from a message the timeline has not rendered carries only its asset.
+  const lazyAsset =
+    item?.type !== "video" && item?.src === null ? item.actionsSource?.asset : undefined;
+  const lazyAssetUrl = useAssetUrlState(
+    lazyAsset?.environmentId ?? null,
+    lazyAsset?.resource ?? null,
+  );
+  const imageSrc =
+    lazyAsset === undefined
+      ? (item?.src ?? null)
+      : lazyAssetUrl._tag === "Success"
+        ? lazyAssetUrl.url + (item?.srcFragment ?? "")
+        : null;
   const source: MediaActionSource = item?.actionsSource ?? {
     kind: item?.type === "video" ? "video" : "image",
     name: item?.name ?? gt("Media"),
@@ -232,7 +245,13 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
                   className="h-[min(var(--media-height),40rem)] w-[min(var(--media-width),42rem)] transition-opacity duration-140 ease-out starting:opacity-0 rounded-lg border border-border/70 bg-background p-4 text-xs leading-5 shadow-2xl motion-reduce:transition-none"
                 />
               ) : null
-            ) : item.src === null || failedImageSrc === item.src ? (
+            ) : lazyAsset !== undefined && lazyAssetUrl._tag === "Loading" ? (
+              <span
+                role="status"
+                aria-label={gt("Loading image")}
+                className={EXPANDED_MEDIA_STATE_CLASS_NAME}
+              />
+            ) : imageSrc === null || failedImageSrc === imageSrc ? (
               <ExpandedMediaFailure>
                 <p>
                   {openOriginalLink
@@ -244,11 +263,11 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
             ) : (
               <ZoomableImage
                 ref={zoomableImageRef}
-                key={`${index}:${item.src}`}
-                src={item.src}
+                key={`${index}:${imageSrc}`}
+                src={imageSrc}
                 name={item.name}
                 mimeType={itemMimeType(item)}
-                onError={() => setFailedImageSrc(item.src)}
+                onError={() => setFailedImageSrc(imageSrc)}
               />
             )}
             <div className="mt-2 flex max-w-[var(--media-width)] items-center justify-center gap-1.5 text-xs text-white/80 max-sm:px-10">
