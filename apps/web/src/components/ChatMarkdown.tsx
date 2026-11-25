@@ -1968,6 +1968,7 @@ interface MarkdownGalleryContext {
   readonly cwd: string | undefined;
   readonly threadRef: ScopedThreadRef | undefined;
   readonly resolvedTheme: "light" | "dark";
+  readonly hostImageUrl: ((path: string) => string) | null;
 }
 
 /**
@@ -1996,7 +1997,7 @@ export function markdownGalleryImages(
 
 function markdownGalleryImage(
   properties: HastProperties,
-  { cwd, threadRef, resolvedTheme }: MarkdownGalleryContext,
+  { cwd, threadRef, resolvedTheme, hostImageUrl }: MarkdownGalleryContext,
 ): ExpandedImageItem | null {
   if (typeof properties.src === "string" && parseComposerContextHref(properties.src)) return null;
   const classifiedSrc = chatMarkdownImageSource(properties, resolvedTheme)?.classifiedSrc;
@@ -2029,7 +2030,12 @@ function markdownGalleryImage(
       },
     };
   }
-  if (imageSource._tag !== "WorkspaceFile" || !threadRef) return null;
+  if (imageSource._tag !== "WorkspaceFile") return null;
+  if (hostImageUrl) {
+    const src = hostImageUrl(imageSource.path);
+    return { src, name, actionsSource: { kind: "image", name: alt || "image", src } };
+  }
+  if (!threadRef) return null;
   const srcFragment = markdownImageSourceFragment(classifiedSrc);
   return {
     src: null,

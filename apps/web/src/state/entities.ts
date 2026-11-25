@@ -347,6 +347,11 @@ export function waitForProjectRemoval(ref: ScopedProjectRef, timeoutMs = 5_000):
 }
 
 /** The thread's loaded timeline, for a handler that reads it once instead of subscribing. */
+/** A streaming assistant message's current text; timeline rows hold it while only text grows. */
+export function readAssistantMessageText(ref: ScopedThreadRef, itemId: string): string | null {
+  return appAtomRegistry.get(environmentThreadDetails.assistantMessageTextAtom(ref, itemId));
+}
+
 export function readThreadTurnItems(ref: ScopedThreadRef) {
   return (
     appAtomRegistry.get(environmentThreadDetails.quietThreadAtom(ref))?.projection

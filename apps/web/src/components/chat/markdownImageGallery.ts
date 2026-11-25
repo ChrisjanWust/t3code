@@ -69,16 +69,23 @@ export function threadImageGallery(
   const selected = preview.images[preview.index];
   const selectedIdentity = selected ? imageIdentity(selected) : null;
   if (!selected || selectedIdentity === null) return preview;
+  // A message can show the same image twice; find the occurrence that was clicked.
+  let earlier = preview.images
+    .slice(0, preview.index)
+    .filter((image) => imageIdentity(image) === selectedIdentity).length;
   const images: ExpandedImageItem[] = [];
   let index = -1;
   for (const message of messages) {
     for (const image of message.images) {
       if (index < 0 && message.id === clickedId && imageIdentity(image) === selectedIdentity) {
-        index = images.length;
-        images.push(selected);
-      } else {
-        images.push(image);
+        if (earlier === 0) {
+          index = images.length;
+          images.push(selected);
+          continue;
+        }
+        earlier -= 1;
       }
+      images.push(image);
     }
   }
   return index < 0 ? preview : { images, index };
