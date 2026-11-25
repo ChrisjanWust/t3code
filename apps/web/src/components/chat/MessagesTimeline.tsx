@@ -71,6 +71,8 @@ import { Skeleton } from "../ui/skeleton";
 import { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { markdownGalleryImages } from "../ChatMarkdown";
 import { threadImageGallery } from "./markdownImageGallery";
+import { HostImageUrlContext } from "./hostImageUrl";
+import { readAssistantMessageText } from "../../state/entities";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
   readTimelinePosition,
@@ -775,21 +777,28 @@ const ConversationTimeline = memo(function ConversationTimeline({
     revealedMessageId,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
+  const hostImageUrl = use(HostImageUrlContext);
   const onAgentImageExpand = useStableCallback((rowId: string, preview: ExpandedImagePreview) => {
-    const context = { cwd: markdownCwd, threadRef: citationThreadRef ?? undefined, resolvedTheme };
-    const messages = rows.flatMap((row) =>
-      row.kind === "sent-message" || (row.kind === "message" && row.message.role === "assistant")
-        ? [
-            {
-              id: row.id,
-              images: markdownGalleryImages(
-                row.kind === "sent-message" ? row.text : row.message.text,
-                context,
-              ),
-            },
-          ]
-        : [],
-    );
+    const context = {
+      cwd: markdownCwd,
+      threadRef: citationThreadRef ?? undefined,
+      resolvedTheme,
+      hostImageUrl,
+    };
+    const messageText = (row: TimelineRow) => {
+      if (row.kind === "sent-message") return row.text;
+      if (row.kind !== "message" || row.message.role !== "assistant") return null;
+      const itemId = row.projectedItem?.item.id;
+      const liveText =
+        row.message.streaming && citationThreadRef && itemId
+          ? readAssistantMessageText(citationThreadRef, itemId)
+          : null;
+      return liveText ?? row.message.text;
+    };
+    const messages = rows.flatMap((row) => {
+      const text = messageText(row);
+      return text === null ? [] : [{ id: row.id, images: markdownGalleryImages(text, context) }];
+    });
     onImageExpand(threadImageGallery(messages, rowId, preview));
   });
   const matchedApprovalRequestIds = new Set<string>();
