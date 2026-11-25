@@ -90,6 +90,21 @@ const make = Effect.gen(function* () {
     return worktreeTitleExcerpts(messages, runs);
   });
 
+  // Worktrees in one project often share a subject; a regenerated title should stand apart.
+  const otherWorktreeTitles = Effect.fn("WorktreeTitleService.otherWorktreeTitles")(function* (
+    titles: ReadonlyArray<ProjectWorktreeTitle>,
+    worktreePath: string,
+  ) {
+    // Titles outlive their worktrees; only ones with active threads still show.
+    const active = new Set(
+      (yield* projections.getThreadWorktreePaths()).map((binding) => binding.worktreePath),
+    );
+    return titles
+      .filter((entry) => entry.worktreePath !== worktreePath && active.has(entry.worktreePath))
+      .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .flatMap((entry) => entry.manual ?? entry.generated ?? []);
+  });
+
   const generate = Effect.fn("WorktreeTitleService.generate")(function* (input: {
     readonly projectId: ProjectId;
     readonly worktreePath: string;
@@ -142,6 +157,11 @@ const make = Effect.gen(function* () {
       message: formatWorktreeTitleContext(sources),
       ...(input.mode === "refresh" && entry?.generated != null
         ? { previousTitle: entry.generated }
+        : {}),
+      ...(input.mode === "regenerate"
+        ? {
+            nearbyTitles: yield* otherWorktreeTitles(row.value.worktreeTitles, input.worktreePath),
+          }
         : {}),
       instructions: WORKTREE_TITLE_INSTRUCTIONS,
       // Worktree context mixes several threads, so their links say little about the shared work.

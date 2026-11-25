@@ -41,7 +41,7 @@ const adapter = {
   openSession: () => Effect.die("provider execution is disabled in worktree title tests"),
 } as ProviderAdapter.ProviderAdapterV2["Service"];
 
-function makeHarness() {
+function makeHarness(initialTitles: ReadonlyArray<ProjectWorktreeTitle> = []) {
   const layerDatabase = SqlitePersistence.layerMemory;
   const layerOrchestrator = ProviderReplayHarness.layerWithRegistry(
     { name: "worktree-title" },
@@ -54,7 +54,7 @@ function makeHarness() {
     Layer.provide(layerServerSettings),
     Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
   );
-  let titles: ReadonlyArray<ProjectWorktreeTitle> = [];
+  let titles = initialTitles;
   const generateThreadTitle = vi.fn((_input: TextGeneration.ThreadTitleGenerationInput) =>
     Effect.succeed({ title: "Pairing token expiry" }),
   );
@@ -62,6 +62,7 @@ function makeHarness() {
     Effect.sync(() => {
       if (input.change.type !== "generated") return;
       titles = [
+        ...titles.filter((entry) => entry.worktreePath !== input.worktreePath),
         {
           worktreePath: input.worktreePath,
           generated: input.change.title,
@@ -113,7 +114,7 @@ function makeHarness() {
   };
 }
 
-const startWorktreeThread = (id: string, text: string) =>
+const startWorktreeThread = (id: string, text: string, path = worktreePath) =>
   Effect.gen(function* () {
     const threads = yield* ThreadManagement.ThreadManagementService;
     const threadId = ThreadId.make(id);
@@ -127,7 +128,7 @@ const startWorktreeThread = (id: string, text: string) =>
       runtimeMode: "full-access",
       interactionMode: "default",
       branch: "t3/pairing",
-      worktreePath,
+      worktreePath: path,
       createdBy: "user",
       creationSource: "web",
     });
@@ -175,6 +176,36 @@ describe("WorktreeTitleService", () => {
         assert.equal(regenerated?.generated, "Pairing token expiry");
         const change = harness.updateWorktreeTitle.mock.calls[1]![0].change;
         assert.isTrue(change.type === "generated" && change.replaceManual);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("regenerates apart from the titles of the project's other open worktrees", () =>
+    Effect.gen(function* () {
+      const entry = (path: string, generated: string, manual: string | null, day: number) => ({
+        worktreePath: `/repo/.t3/worktrees/${path}`,
+        generated,
+        manual,
+        sourceThreadIds: [],
+        updatedAt: `2026-01-0${day}T00:00:00.000Z`,
+      });
+      const harness = makeHarness([
+        entry("pairing", "Pairing token expiry", null, 4),
+        entry("qr", "Pairing QR layout", null, 1),
+        entry("removed", "Removed worktree", null, 3),
+        entry("code", "Pairing work", "Pairing code entry", 2),
+      ]);
+      yield* Effect.gen(function* () {
+        const service = yield* WorktreeTitleService.WorktreeTitleService;
+        yield* startWorktreeThread("thread:pairing", "Fix pairing token expiry");
+        yield* startWorktreeThread("thread:qr", "Lay out the QR", "/repo/.t3/worktrees/qr");
+        yield* startWorktreeThread("thread:code", "Accept codes", "/repo/.t3/worktrees/code");
+
+        yield* service.regenerate({ projectId, worktreePath });
+        assert.deepEqual(harness.generateThreadTitle.mock.calls[0]?.[0].nearbyTitles, [
+          "Pairing code entry",
+          "Pairing QR layout",
+        ]);
       }).pipe(Effect.provide(harness.layer));
     }),
   );

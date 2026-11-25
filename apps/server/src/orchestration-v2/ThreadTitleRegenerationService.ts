@@ -3,6 +3,7 @@ import { isAttachmentOnlyBootstrapPrompt } from "@t3tools/shared/composerContext
 import {
   CommandId,
   type ChatAttachment,
+  isListedThreadLineage,
   type MessageId,
   type OrchestrationV2AppThread,
   type OrchestrationV2ConversationMessage,
@@ -14,7 +15,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import type * as DateTime from "effect/DateTime";
+import * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -151,6 +152,26 @@ const make = Effect.gen(function* () {
       : { title, history: context.message };
   });
 
+  // Tabs in one worktree often share a subject; the new title should stand apart from theirs.
+  const nearbyTitles = Effect.fn("ThreadTitleRegenerationService.nearbyTitles")(function* (
+    thread: OrchestrationV2AppThread,
+  ) {
+    const { threads: shells } = yield* threads.getShellSnapshot({
+      location: "active",
+      projectId: thread.projectId,
+      ...(thread.worktreePath === null ? {} : { worktreePath: thread.worktreePath }),
+    });
+    return shells
+      .filter(
+        (shell) =>
+          shell.id !== thread.id &&
+          isListedThreadLineage(shell.lineage) &&
+          (thread.worktreePath !== null || shell.worktreePath === null),
+      )
+      .toSorted((a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt))
+      .map((shell) => shell.title);
+  });
+
   const execute: ThreadTitleRegenerationService["Service"]["execute"] = Effect.fn(
     "ThreadTitleRegenerationService.execute",
   )(function* (input) {
@@ -225,7 +246,12 @@ const make = Effect.gen(function* () {
         message: context.message,
         projectTitle: project.value.title,
         attachments: context.attachments,
-        ...(input.kind.type === "regenerate" ? { previousTitle: projection.thread.title } : {}),
+        ...(input.kind.type === "regenerate"
+          ? {
+              previousTitle: projection.thread.title,
+              nearbyTitles: yield* nearbyTitles(projection.thread),
+            }
+          : {}),
         ...(inherited === undefined ? {} : { forkSource: inherited }),
         instructions: settings.threadTitleInstructions,
         modelSelection: settings.textGenerationModelSelection,

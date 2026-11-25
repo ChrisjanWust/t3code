@@ -167,12 +167,56 @@ export const threadTitleEvaluationCases = [
     rubric:
       'Use the user\'s "Owner: what it does (model effort)" shape with all three parts, even past the default 8-word, 40-character limit. A bare short title fails.',
   },
+  {
+    id: "nearby-worktree-tabs",
+    source:
+      "Fork maintainer report: regenerated tab titles read like the other tabs in the worktree",
+    request:
+      "Review image viewer paging, then fix the open image jumping and guest images vanishing.",
+    previousTitle: "Review Image Viewer Paging",
+    nearbyTitles: [
+      "Image Viewer Thread Paging",
+      "Image Viewer Paging Fixes",
+      "Image Viewer Paging Tests",
+    ],
+    messages: [
+      {
+        role: "user",
+        text: "Review the image viewer paging change. Does it keep guest images and live replies in place?",
+      },
+      {
+        role: "assistant",
+        text: "Two problems: paging rebuilds the list on every live reply, so the open image jumps when a reply arrives, and guest images are dropped because their URLs are filtered out as remote.",
+      },
+      { role: "user", text: "Fix both." },
+    ],
+    rubric:
+      "Name what sets this thread apart, such as the open image jumping on live replies or guest images vanishing, not image viewer paging in general. A title that reads like the nearby titles fails.",
+  },
+  {
+    id: "nearby-unrelated-control",
+    source:
+      "Control for nearby-worktree-tabs: unrelated nearby titles should not move an accurate title",
+    request: "Make onboarding one shared wizard across computers.",
+    previousTitle: "Shared Onboarding Wizard",
+    nearbyTitles: ["Pairing Token Expiry", "Relay Reconnect Backoff"],
+    messages: [
+      { role: "user", text: "Make onboarding one shared wizard across computers." },
+      {
+        role: "assistant",
+        text: "The wizard now handles pairing, agent selection, and project import.",
+      },
+    ],
+    rubric:
+      "Keep the shared onboarding wizard subject. Unrelated nearby titles are no reason to change or narrow it.",
+  },
 ] satisfies ReadonlyArray<{
   id: string;
   source: string;
   request: string;
   projectTitle?: string;
   previousTitle: string;
+  nearbyTitles?: ReadonlyArray<string>;
   instructions?: string;
   messages: ReadonlyArray<ThreadTitleMessage>;
   rubric: string;
