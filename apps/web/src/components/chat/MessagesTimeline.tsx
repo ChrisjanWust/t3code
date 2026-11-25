@@ -69,6 +69,8 @@ import {
 } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
 import { ExpandedImagePreview } from "./ExpandedImagePreview";
+import { markdownGalleryImages } from "../ChatMarkdown";
+import { threadImageGallery } from "./markdownImageGallery";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
   readTimelinePosition,
@@ -773,6 +775,23 @@ const ConversationTimeline = memo(function ConversationTimeline({
     revealedMessageId,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
+  const onAgentImageExpand = useStableCallback((rowId: string, preview: ExpandedImagePreview) => {
+    const context = { cwd: markdownCwd, threadRef: citationThreadRef ?? undefined, resolvedTheme };
+    const messages = rows.flatMap((row) =>
+      row.kind === "sent-message" || (row.kind === "message" && row.message.role === "assistant")
+        ? [
+            {
+              id: row.id,
+              images: markdownGalleryImages(
+                row.kind === "sent-message" ? row.text : row.message.text,
+                context,
+              ),
+            },
+          ]
+        : [],
+    );
+    onImageExpand(threadImageGallery(messages, rowId, preview));
+  });
   const matchedApprovalRequestIds = new Set<string>();
   for (const row of pendingApprovalRequestIds.size > 0 ? rows : []) {
     const entries =
@@ -1136,6 +1155,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onRunShellCommand,
     findActive,
     onImageExpand,
+    onAgentImageExpand,
     onFileOpen,
     onUseArtifactTemplate,
     onSendAppMessage,

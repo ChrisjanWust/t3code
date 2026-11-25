@@ -48,6 +48,42 @@ export function markdownImageGallery(
   return index < 0 ? { images: [selected], index: 0 } : { images, index };
 }
 
+function imageIdentity(item: ExpandedImageItem): string | null {
+  const asset = item.actionsSource?.asset;
+  return asset ? JSON.stringify([asset.environmentId, asset.resource]) : item.src;
+}
+
+/**
+ * Widens the preview of an image in one agent message to the images all its messages show, in
+ * order. Built from the messages' text: the timeline is virtualized, so most rows are not in the
+ * DOM. A preview the clicked message does not show inline, such as a linked file, stays as is.
+ */
+export function threadImageGallery(
+  messages: ReadonlyArray<{
+    readonly id: string;
+    readonly images: ReadonlyArray<ExpandedImageItem>;
+  }>,
+  clickedId: string,
+  preview: ExpandedImagePreview,
+): ExpandedImagePreview {
+  const selected = preview.images[preview.index];
+  const selectedIdentity = selected ? imageIdentity(selected) : null;
+  if (!selected || selectedIdentity === null) return preview;
+  const images: ExpandedImageItem[] = [];
+  let index = -1;
+  for (const message of messages) {
+    for (const image of message.images) {
+      if (index < 0 && message.id === clickedId && imageIdentity(image) === selectedIdentity) {
+        index = images.length;
+        images.push(selected);
+      } else {
+        images.push(image);
+      }
+    }
+  }
+  return index < 0 ? preview : { images, index };
+}
+
 /**
  * Widens the single-image preview of an image in an expanded tool row to the images its group
  * viewed. Built from the group's entries: its thumbnail strip can be virtualized out of the DOM.

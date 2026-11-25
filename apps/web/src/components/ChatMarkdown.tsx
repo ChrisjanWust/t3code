@@ -100,6 +100,7 @@ import {
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import {
   resolveMarkdownMediaPreview,
+  type ExpandedImageItem,
   type ExpandedImagePreview,
 } from "./chat/ExpandedImagePreview";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -203,7 +204,7 @@ import {
   renderHastWithIslands,
   withProperties,
 } from "./chat/markdownIslands";
-import type { Element as HastElement } from "hast";
+import type { Element as HastElement, Properties as HastProperties, Root as HastRoot } from "hast";
 import { matchInlineSkills } from "@t3tools/shared/inlineSkills";
 import { collectComposerModelMentions } from "@t3tools/client-runtime/composer-model-mentions";
 import { splitMarkdownBlocks } from "./chat/markdownStreamBlocks";
@@ -211,6 +212,7 @@ import { MarkdownMermaidCodeBlock } from "./chat/MarkdownMermaidCodeBlock";
 import { MarkdownTable } from "./chat/MarkdownTable";
 import { MarkdownDetails } from "./chat/MarkdownDetails";
 import {
+  assetMediaActionsSource,
   authoredImageSizeStyle,
   ChatMarkdownAssetImage,
   ChatMarkdownImage,
@@ -1958,6 +1960,95 @@ function markdownRenderer(markdown: WordsHastOptions) {
     markdownRenderers.set(markdown, renderer);
   }
   return renderer;
+}
+
+const GALLERY_PARSE_FLAGS = { math: false, breaks: false, escapeHtml: false, insights: false };
+
+interface MarkdownGalleryContext {
+  readonly cwd: string | undefined;
+  readonly threadRef: ScopedThreadRef | undefined;
+  readonly resolvedTheme: "light" | "dark";
+}
+
+/**
+ * The images `text` shows that open the image preview, in order, without rendering it. Mirrors
+ * the `img` renderer above; the thread gallery finds the clicked image among these.
+ */
+export function markdownGalleryImages(
+  text: string,
+  context: MarkdownGalleryContext,
+): ExpandedImageItem[] {
+  if (!text.includes("![") && !/<img[\s>]/i.test(text)) return [];
+  const { tree } = markdownRenderer(wordsOptions(NO_EXTENSIONS, GALLERY_PARSE_FLAGS)).parse(text);
+  const images: ExpandedImageItem[] = [];
+  const visit = (node: HastRoot | HastElement) => {
+    for (const child of node.children) {
+      // An image inside a link opens the link instead.
+      if (child.type !== "element" || child.tagName === "a") continue;
+      const item = child.tagName === "img" ? markdownGalleryImage(child.properties, context) : null;
+      if (item) images.push(item);
+      visit(child);
+    }
+  };
+  visit(tree);
+  return images;
+}
+
+function markdownGalleryImage(
+  properties: HastProperties,
+  { cwd, threadRef, resolvedTheme }: MarkdownGalleryContext,
+): ExpandedImageItem | null {
+  if (typeof properties.src === "string" && parseComposerContextHref(properties.src)) return null;
+  const classifiedSrc = chatMarkdownImageSource(properties, resolvedTheme)?.classifiedSrc;
+  if (!classifiedSrc) return null;
+  const imageSource = classifyMarkdownImageSource(classifiedSrc, cwd);
+  const mediaKind = mediaKindFromPath(classifiedSrc);
+  if (
+    mediaKind === "audio" ||
+    mediaKind === "video" ||
+    shouldRenderMarkdownImageAsFileLink(imageSource, mediaKind)
+  ) {
+    return null;
+  }
+  const alt = typeof properties.alt === "string" ? properties.alt : "";
+  const name = alt.trim() || "image";
+  if (imageSource._tag === "Direct") {
+    const src = resolveProtocolRelativeMediaUrl(imageSource.uri);
+    const reference = mediaUrlReference(imageSource.uri);
+    return {
+      src,
+      name,
+      ...(resolveExternalWebLinkHost(imageSource.uri) !== null
+        ? { originalUrl: imageSource.uri }
+        : {}),
+      actionsSource: {
+        kind: "image",
+        name: alt || "image",
+        src,
+        ...(reference ? { reference } : {}),
+      },
+    };
+  }
+  if (imageSource._tag !== "WorkspaceFile" || !threadRef) return null;
+  const srcFragment = markdownImageSourceFragment(classifiedSrc);
+  return {
+    src: null,
+    name,
+    ...(srcFragment ? { srcFragment } : {}),
+    actionsSource: assetMediaActionsSource({
+      environmentId: threadRef.environmentId,
+      resource: {
+        _tag: "media-file",
+        threadId: threadRef.threadId,
+        path: imageSource.path,
+        ...(imageSource.relative ? { hostOnly: true as const } : {}),
+      },
+      kind: "image",
+      name: alt || "image",
+      src: null,
+      workspaceRoot: cwd,
+    }),
+  };
 }
 
 type ChatMarkdownComponentState = ReturnType<typeof useChatMarkdownState>["componentState"];

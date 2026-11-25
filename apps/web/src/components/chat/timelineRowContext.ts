@@ -73,6 +73,8 @@ export interface TimelineRowSharedState {
   onRunShellCommand: ((command: string) => void) | undefined;
   findActive: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  /** Opens an image an agent message shows, paging through every agent message's images. */
+  onAgentImageExpand: (rowId: string, preview: ExpandedImagePreview) => void;
   displayThreadKey?: string;
   onOpenToolDiff: ((target: ToolCallDiffTarget) => void) | undefined;
   /**

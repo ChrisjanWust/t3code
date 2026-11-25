@@ -66,7 +66,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
               wideTables
               onUseArtifactTemplate={ctx.onUseArtifactTemplate}
               onRunShellCommand={ctx.onRunShellCommand}
-              onImageExpand={ctx.onImageExpand}
+              onImageExpand={(preview) => ctx.onAgentImageExpand(row.id, preview)}
             />
           </AssistantCitationSource>
         </div>
@@ -117,7 +117,7 @@ export function SentMessageTimelineRow({
           headingLevelOffset={MESSAGE_HEADING_LEVEL}
           onUseArtifactTemplate={ctx.onUseArtifactTemplate}
           onRunShellCommand={ctx.onRunShellCommand}
-          onImageExpand={ctx.onImageExpand}
+          onImageExpand={(preview) => ctx.onAgentImageExpand(row.id, preview)}
         />
       </AssistantCitationSource>
     </div>

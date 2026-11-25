@@ -51,6 +51,7 @@ import {
   deriveTimelineEntriesFromVisibleTurnItems,
 } from "../../session-logic";
 import { ViewedImagesTimelineRow } from "./TimelineWorkEntryRow";
+import { ExpandedImageDialog } from "./ExpandedImageDialog";
 import { THOUGHT_PREVIEW_MAX_LENGTH, thoughtPreviewMarkdown } from "./TimelineWorkEntryRow.logic";
 import { wordsHast } from "~/markdown/wordsHast";
 import { TimelineRowCtx } from "./timelineRowContext";
@@ -2005,6 +2006,40 @@ describe("MessagesTimeline attachments", () => {
         ),
       }),
     );
+  });
+
+  it("pages an agent's image through every agent message's images", async () => {
+    stubbedAsset.url =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    onTestFinished(() => {
+      stubbedAsset.url = "";
+    });
+    const onImageExpand = vi.fn<ComponentProps<typeof MessagesTimeline>["onImageExpand"]>();
+    await using screen = await renderTimeline(
+      [
+        message("Build 1\n\n![Frame one](/repo/one.png)", { role: "assistant" }, "agent-1"),
+        message("Looks good\n\n![My sketch](/repo/sketch.png)", {}, "user-1"),
+        message("Build 2\n\n![Frame two](/repo/two.png)", { role: "assistant" }, "agent-2"),
+      ],
+      { onImageExpand, markdownCwd: "/repo" },
+    );
+    await click(await vi.waitFor(() => screen.button("Preview Frame two")));
+    const preview = onImageExpand.mock.lastCall?.[0];
+    expect(preview).toEqual(
+      expect.objectContaining({
+        index: 1,
+        images: ["Frame one", "Frame two"].map((name) => expect.objectContaining({ name })),
+      }),
+    );
+
+    await using _dialog = await render(
+      <ExpandedImageDialog preview={preview!} onClose={() => {}} />,
+    );
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(page.getByText("Frame one (1/2)")).toBeVisible();
+    await expect
+      .element(page.getByRole("dialog").getByRole("img", { name: "Frame one" }))
+      .toHaveAttribute("src", stubbedAsset.url);
   });
 });
 
