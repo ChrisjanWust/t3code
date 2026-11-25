@@ -68,6 +68,8 @@ export interface ThreadTitleGenerationInput {
   projectTitle?: string | undefined;
   previousTitle?: string | undefined;
   forkSource?: ThreadTitleForkSource | undefined;
+  /** Titles the user sees beside this one, most relevant first; only the first few are used. */
+  nearbyTitles?: ReadonlyArray<string> | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   instructions?: string | undefined;
   modelSelection: ModelSelection;

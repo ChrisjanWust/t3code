@@ -105,6 +105,7 @@ await Effect.runPromise(
           message,
           ...("projectTitle" in fixture ? { projectTitle: fixture.projectTitle } : {}),
           ...("instructions" in fixture ? { instructions: fixture.instructions } : {}),
+          ...("nearbyTitles" in fixture ? { nearbyTitles: fixture.nearbyTitles } : {}),
           previousTitle: values.initial ? undefined : fixture.previousTitle,
           attachments,
           linkedContext,

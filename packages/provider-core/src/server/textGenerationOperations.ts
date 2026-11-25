@@ -167,6 +167,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
         projectTitle: input.projectTitle,
         previousTitle: input.previousTitle,
         forkSource: input.forkSource,
+        nearbyTitles: input.nearbyTitles,
         linkedContext: input.linkedContext,
         attachments: input.attachments,
         instructions: input.instructions,

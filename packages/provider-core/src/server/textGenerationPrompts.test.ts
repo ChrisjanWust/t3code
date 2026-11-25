@@ -34,4 +34,20 @@ describe("buildThreadTitlePrompt", () => {
       "3-8 words, fewer than 40 characters.",
     );
   });
+
+  it("lists up to eight distinct nearby titles to stand apart from", () => {
+    const nearbyTitles = ["Login Redirect Bug", " Login Redirect Bug ", "", "a", "b", "c", "d"];
+    const { prompt } = buildThreadTitlePrompt({
+      message: "Fix login",
+      previousTitle: "Login Fix",
+      nearbyTitles: [...nearbyTitles, "e", "f", "g", "Ninth"],
+    });
+    expect(prompt).toContain("these others, which may share its subject");
+    expect(prompt).toContain('- "Login Redirect Bug"\n- "a"');
+    expect(prompt).toContain('- "g"\nMake the title easy to tell apart');
+    expect(prompt).toContain("replace it.");
+    expect(buildThreadTitlePrompt({ message: "Fix login", nearbyTitles: [] }).prompt).not.toContain(
+      "these others",
+    );
+  });
 });

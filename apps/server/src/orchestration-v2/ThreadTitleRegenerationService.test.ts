@@ -125,6 +125,7 @@ function makeHarness(
 function createThread(input: {
   readonly command: string;
   readonly thread: string;
+  readonly title?: string;
   readonly worktreePath?: string;
 }) {
   return Effect.gen(function* () {
@@ -135,7 +136,7 @@ function createThread(input: {
       commandId: CommandId.make(input.command),
       threadId,
       projectId,
-      title: "Seed title",
+      title: input.title ?? "Seed title",
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -653,6 +654,44 @@ describe("ThreadTitleRegenerationService", () => {
         }
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("regenerates apart from the newest other titles in the same worktree", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      yield* Effect.gen(function* () {
+        const titleRegeneration = yield* ThreadTitleRegeneration.ThreadTitleRegenerationService;
+        const seed = (title: string, worktreePath?: string) =>
+          createThread({
+            command: `command:title:nearby:${title}`,
+            thread: `thread:title:nearby:${title}`,
+            title,
+            ...(worktreePath === undefined ? {} : { worktreePath }),
+          });
+        const worktreeThread = yield* seed("Login redirect", "/repo-worktrees/login");
+        yield* seed("Login older", "/repo-worktrees/login");
+        yield* TestClock.adjust(1);
+        yield* seed("Login newer", "/repo-worktrees/login");
+        yield* seed("Elsewhere", "/repo-worktrees/other");
+        const rootThread = yield* seed("Root thread");
+        yield* seed("Root sibling");
+
+        for (const threadId of [worktreeThread, rootThread]) {
+          yield* dispatchUserMessage({
+            command: `${threadId}:message`,
+            threadId,
+            text: "Fix the login redirect",
+          });
+          const requestId = yield* armRegeneration({ command: `${threadId}:request`, threadId });
+          yield* titleRegeneration.execute({ threadId, requestId, kind: { type: "regenerate" } });
+        }
+
+        assert.deepEqual(
+          harness.generateThreadTitle.mock.calls.map((args) => args[0]?.nearbyTitles),
+          [["Login newer", "Login older"], ["Root sibling"]],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
   );
 
   it.effect.each([
