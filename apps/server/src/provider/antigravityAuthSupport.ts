@@ -228,7 +228,8 @@ function antigravityEnvironment(
       ? { SSL_CERT_FILE: profile.caBundlePath }
       : {}),
     // The 1.5 CLI ignores AGY_ACP_FORCE_FILE_STORAGE and keeps Google sign-ins in one OS keyring
-    // entry for every profile, unless it believes it runs over SSH. Sign-in then uses `--login`.
+    // entry for every profile. Over SSH, `--login` stores the sign-in in the profile instead, but a
+    // profile without one still runs on the shared keyring entry.
     ...(auth.authMethod === "oauth-personal"
       ? { SSH_CONNECTION: baseEnv.SSH_CONNECTION || "127.0.0.1 0 127.0.0.1 0" }
       : {}),
