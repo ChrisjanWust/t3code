@@ -23,12 +23,15 @@ Threads don't require a project. Pick **No project** from the project menu above
 
 ## Move a thread
 
-On web and desktop, right-click a thread, or its tab when worktrees are shown as tabs, and use **Move to worktree** or **Move to project** to change where it works. The conversation comes along, and the agent picks up in the new folder with your next message. A thread has to be idle to move.
+On web and desktop, right-click a thread, or its tab when worktrees are shown as tabs, and use **Move to worktree** or **Move to project** to change where it works. The conversation and the thread's side chats come along, and the agent picks up in the new folder with your next message. A thread has to be idle to move.
 
-- **Move to worktree › New worktree** gives the thread a worktree of its own, on a new branch from the commit its folder is on. **Main** moves it back to the project's own checkout, and the rest are the project's other open worktrees.
-- **Move to project** moves the thread into another project's own checkout. Restore points from turns before the move don't work there.
+- **Move to worktree › New worktree** gives the thread a worktree of its own on a new branch, named the way the project names a new thread's branch. Out of the project's own checkout it starts where a new thread's worktree would, so from the remote branch when **new worktrees start from origin** is on. Split out of a worktree it shares, it starts from that worktree's commit, so unpushed commits come along.
+- **Main** moves it back to the project's own checkout, and the rest are the project's other open worktrees.
+- **Move to project** moves the thread into another project, where a new thread there would start: a new worktree when the project starts new threads in one, otherwise its own checkout. Restore points from turns before the move don't work there.
 
-Files never move with a thread. Uncommitted changes stay in the old folder, so commit them first if the thread needs them; T3 Code asks before moving when there are any.
+Files stay where they are, with one exception: a thread that is alone in its folder takes that folder's uncommitted changes into a **New worktree**, which then starts from the commit they were made on. In every other move, uncommitted changes stay in the old folder, and the agent may go back there for them, so commit first if the thread needs them. T3 Code tells you which it will be before moving.
+
+When the last thread leaves a worktree that has no uncommitted changes, T3 Code offers to delete the worktree. In a project with several repositories it doesn't, since it can't check them all.
 
 ## Sidebar layout and organization
 

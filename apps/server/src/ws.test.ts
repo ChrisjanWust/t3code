@@ -67,6 +67,8 @@ import { Headers, HttpRouter, HttpServer } from "effect/http";
 import * as Context from "effect/Context";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
+import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstallationGate from "./provider/ProviderInstallationGate.ts";
 import * as Ws from "./ws.ts";
 import { RpcGroup, RpcMessage, RpcServer } from "effect/rpc";
@@ -880,6 +882,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ProjectStore.ProjectStoreV2)({}),
   Layer.mock(WorktreeTitleService.WorktreeTitleService)({}),
   Layer.mock(ThreadMoveService.ThreadMoveService)({}),
+  Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+  Layer.mock(TextGeneration.TextGeneration)({}),
   Layer.mock(ProviderAuthService.ProviderAuthService)({}),
   Layer.mock(ProviderInstallation.ProviderInstallation)({}),
   Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({}),
