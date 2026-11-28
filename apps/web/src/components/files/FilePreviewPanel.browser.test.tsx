@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   browserAssetMints: 0,
   openedBrowserUrls: [] as string[],
   diffWorkersReady: true,
+  canWrite: true,
 }));
 
 vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
@@ -39,12 +40,16 @@ vi.mock(import("~/state/projects"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
   const granted = Atom.make(true);
+  const denied = Atom.make(false);
   const { projectEnvironment } = actual;
   return {
     ...actual,
     projectEnvironment: {
       ...projectEnvironment,
-      writeFile: { ...projectEnvironment.writeFile, permissionAtom: () => granted },
+      writeFile: {
+        ...projectEnvironment.writeFile,
+        permissionAtom: () => (state.canWrite ? granted : denied),
+      },
     },
   };
 });
@@ -207,6 +212,7 @@ function setup() {
   state.assetResources = [];
   state.openedBrowserUrls = [];
   state.diffWorkersReady = true;
+  state.canWrite = true;
   let mints = 0;
   state.mintUrl.mockReset().mockImplementation(async () => `/assets/report.docx?mint=${++mints}`);
   state.writeFile.mockReset().mockResolvedValue(AsyncResult.success(undefined));
@@ -498,7 +504,8 @@ describe("source file scroll", () => {
       (_, i) =>
         `Line ${i + 1}. ${"Notes that wrap across the preview. ".repeat(2 + ((i * 7) % 9))}`,
     ).join("\n");
-    // A file outside the workspace is read-only, which CodeView renders.
+    // Without write access the file is read-only, which CodeView renders.
+    state.canWrite = false;
     const hostFile = (reveal: { line: number; requestId: number } | null) => {
       const relativePath = "/outside/notes.txt";
       state.file = { relativePath, contents, byteLength: contents.length, truncated: false };
@@ -910,6 +917,8 @@ describe("rendered Markdown select all", () => {
   it("copies the whole chunked file with its own line endings", async () => {
     using _settings = setup();
     const contents = `first\r\r# ${"x\r\r# ".repeat(2_000)}end`;
+    // Writable Markdown opens in the editor; the chunked preview is the read-only view.
+    state.canWrite = false;
     await using _screen = await render(
       <div style={{ height: 600, display: "flex", flexDirection: "column" }}>
         {markdownPreview(false, contents, "cr.md")}
@@ -998,6 +1007,7 @@ describe("rendered Markdown scroll position", () => {
   it("restores each file's reading position after the preview remounts", async () => {
     using _settings = setup();
     using _style = withAppCss();
+    state.canWrite = false;
     const preview = (relativePath: string) => sized(markdownPreview(false, sections, relativePath));
 
     let saved: ReturnType<typeof readingPosition>;

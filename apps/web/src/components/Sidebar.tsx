@@ -1700,9 +1700,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 lastVisitedAtById[threadShellKey(thread)],
               ),
           );
-    const navigation = navigateToThread(tab ? scopeThreadRef(tab.environmentId, tab.id) : rowRef);
-    setSelectionAnchor(scopedThreadKey(rowRef));
-    return navigation;
+    return navigateToThread(tab ? scopeThreadRef(tab.environmentId, tab.id) : rowRef);
   };
   // With tabs, the open thread is one of its row's worktree threads.
   const readRouteRowKey = () => {
@@ -1864,9 +1862,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const isMac = isMacPlatform(navigator.platform);
     const isModClick = isMac ? event.metaKey : event.ctrlKey;
     const threadKey = scopedThreadKey(threadRef);
+    // With tabs, the open row is the route thread's worktree row.
     const openThreadKey =
-      routeRowThreadKey !== null && orderedThreadKeysRef.current.includes(routeRowThreadKey)
-        ? routeRowThreadKey
+      routeThreadRowKey !== null && orderedThreadKeysRef.current.includes(routeThreadRowKey)
+        ? routeThreadRowKey
         : null;
     if (isModClick) {
       event.preventDefault();

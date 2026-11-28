@@ -77,7 +77,10 @@ function makeHarness(initialTitles: ReadonlyArray<ProjectWorktreeTitle> = []) {
     Layer.provide(
       Layer.mergeAll(
         layerOrchestrator,
-        ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+        ProjectionStore.layer.pipe(
+          Layer.provide(NodeCrypto.layerDigest),
+          Layer.provide(layerDatabase),
+        ),
         Layer.mock(ProjectStore.ProjectStoreV2)({
           get: () =>
             Effect.succeedSome({

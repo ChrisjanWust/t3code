@@ -140,7 +140,8 @@ describe("FileBrowserPanel", () => {
     await expect.element(copyPath).toBeVisible();
     expect(download.query()).toBeNull();
     await userEvent.click(copyPath);
-    await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith("/repo/src"));
+    // The shared file menu copies the workspace-relative path, as a file tab does.
+    await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith("src"));
 
     await openRowMenu("README.md");
     const copyMention = page.getByRole("menuitem", { name: "Copy mention", exact: true });

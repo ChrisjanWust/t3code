@@ -2672,6 +2672,7 @@ it("grows top-level assistant tables into the canvas margins and scrolls them in
   await using screen = await render(
     <ChatCanvas
       store={createChatCanvasStore()}
+      rightPanelOpen={false}
       threadRef={null}
       preview={null}
       composerOverlayElement={null}

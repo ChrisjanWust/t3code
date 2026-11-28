@@ -528,6 +528,11 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "thread.pin": msg("Thread: Pin"),
   "thread.regenerateTitle": msg("Thread: Regenerate Title"),
   "thread.undo": msg("Thread: Undo"),
+  "tab.new": msg("Tab: New"),
+  "tab.close": msg("Tab: Close"),
+  "tab.next": msg("Tab: Next"),
+  "tab.previous": msg("Tab: Previous"),
+  "file.newScratch": msg("File: New Scratch File"),
 };
 
 // Whole labels: search titles keep the encoded message, which cannot nest another one.
