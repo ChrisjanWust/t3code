@@ -10,6 +10,22 @@ import type { Project } from "../types";
 import type { ThreadMoveDestination } from "./threadMoveMenu.logic";
 import { worktreeLabel } from "./threadTabs/threadTabs.logic";
 
+/** Whether another open thread works in the thread's folder. Its own side chats do not count. */
+export function threadSharesFolder(
+  thread: EnvironmentThreadShell,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): boolean {
+  return threads.some(
+    (other) =>
+      other.id !== thread.id &&
+      other.environmentId === thread.environmentId &&
+      other.projectId === thread.projectId &&
+      other.archivedAt === null &&
+      isListedThreadLineage(other.lineage) &&
+      other.worktreePath === thread.worktreePath,
+  );
+}
+
 /**
  * A new worktree first, unless the thread already has one to itself, then the project's own
  * checkout and the worktrees that still have open threads, newest first.

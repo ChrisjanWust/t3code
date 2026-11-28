@@ -6,6 +6,7 @@ import type { Project, SidebarThreadSummary } from "../types";
 import {
   resolveProjectDestinations,
   resolveWorktreeDestinations,
+  threadSharesFolder,
 } from "./threadMoveDestinations.logic";
 import { buildThreadMoveMenuItems, threadMoveDestination } from "./threadMoveMenu.logic";
 
@@ -78,6 +79,19 @@ describe("resolveWorktreeDestinations", () => {
     );
 
     expect(destinations.map(({ label, detail }) => [label, detail])).toEqual([["Main", null]]);
+  });
+});
+
+describe("threadSharesFolder", () => {
+  it("counts only other open threads, not the thread's own side chats or archived ones", () => {
+    const moving = thread("moving");
+    const sideChat = thread("side-chat", {
+      lineage: { relationshipToParent: "fork", parentThreadId: "moving", sideChat: true },
+    } as never);
+    const archived = thread("archived", { archivedAt: "2026-11-27T12:00:00.000Z" });
+
+    expect(threadSharesFolder(moving, [moving, sideChat, archived] as never)).toBe(false);
+    expect(threadSharesFolder(moving, [moving, thread("neighbour")] as never)).toBe(true);
   });
 });
 

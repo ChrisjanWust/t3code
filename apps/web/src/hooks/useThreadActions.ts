@@ -33,8 +33,8 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
-import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { useRemoveWorktree } from "./useRemoveWorktree";
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { announce } from "../lib/announce";
@@ -354,9 +354,7 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
-  const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
-    reportFailure: false,
-  });
+  const removeEmptiedWorktree = useRemoveWorktree();
   const loadSessionState = useAtomQueryRunner(environmentSession.sessionStateAtom, {
     reportFailure: false,
   });
@@ -367,9 +365,6 @@ export function useThreadActions() {
   const loadThreadFamily = useAtomQueryRunner(orchestrationEnvironment.threadFamily, {
     reportFailure: false,
     refresh: true,
-  });
-  const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, {
-    reportFailure: false,
   });
   const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
@@ -687,64 +682,12 @@ export function useThreadActions() {
       return deleteResult;
     }
 
-    const removeResult = readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
-      ? await removeWorktree({
-          environmentId: threadRef.environmentId,
-          input: {
-            cwd: threadProject.workspaceRoot,
-            path: orphanedWorktreePath,
-            force: true,
-          },
-        })
-      : AsyncResult.failure(
-          Cause.fail(
-            new EnvironmentAuthorizationError({
-              message: m(msg("This connection can no longer remove worktrees.")),
-              requiredScope: AuthSourceControlWriteScope,
-            }),
-          ),
-        );
-    const refreshResult =
-      removeResult._tag === "Success"
-        ? await refreshVcsStatus({
-            environmentId: threadRef.environmentId,
-            input: { cwd: threadProject.workspaceRoot },
-          })
-        : null;
-    const cleanupFailure =
-      removeResult._tag === "Failure"
-        ? removeResult
-        : refreshResult?._tag === "Failure"
-          ? refreshResult
-          : null;
-    if (cleanupFailure) {
-      const removalFailed = removeResult._tag === "Failure";
-      const error = squashAtomCommandFailure(cleanupFailure);
-      const message = thrownErrorMessage(error, m) ?? m(msg("An error occurred."));
-      console.error("Worktree cleanup failed after thread deletion", {
-        threadId: threadRef.threadId,
-        projectCwd: threadProject.workspaceRoot,
-        worktreePath: orphanedWorktreePath,
-        error,
-      });
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: removalFailed
-            ? m(msg("Failed to delete worktree"))
-            : m(msg("Worktree deleted, but Git status refresh failed")),
-          description: removalFailed
-            ? m(
-                msg("Could not remove {path}. {message}", {
-                  path: displayWorktreePath ?? orphanedWorktreePath,
-                  message,
-                }),
-              )
-            : message,
-        }),
-      );
-      // Cleanup has its own toast; reporting its failure would falsely imply deletion failed.
-    }
+    // Cleanup has its own toast; reporting its failure would falsely imply deletion failed.
+    await removeEmptiedWorktree({
+      environmentId: threadRef.environmentId,
+      projectCwd: threadProject.workspaceRoot,
+      worktreePath: orphanedWorktreePath,
+    });
     return deleteResult;
   };
 

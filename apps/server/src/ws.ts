@@ -244,6 +244,7 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as WorktreeTitleService from "./project/WorktreeTitleService.ts";
 import * as ThreadMoveService from "./project/ThreadMoveService.ts";
+import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
@@ -3253,7 +3254,7 @@ export const layerWsRpc = (
         [WS_METHODS.projectsRegenerateWorktreeTitle]: (input) => worktreeTitles.regenerate(input),
         [WS_METHODS.projectsMoveThread]: (input) =>
           threadMove
-            .move(input)
+            .move(input, { projectCommands })
             .pipe(
               Effect.mapError(
                 (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
@@ -3988,7 +3989,7 @@ export const layer = Layer.unwrap(
                 Layer.succeed(IssueTrackerConnections.IssueTrackerConnections, issueTrackers),
               ),
               Layer.provide(OtlpEndpointCheck.layer),
-              Layer.provide(ThreadMoveService.layer),
+              Layer.provide(ThreadMoveService.layer.pipe(Layer.provide(T3ProjectFileLoader.layer))),
               Layer.provide(
                 Layer.succeed(
                   PullRequestReviewGuideService.PullRequestReviewGuideService,

@@ -10,13 +10,18 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
-import { isListedThreadLineage, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  AuthSourceControlWriteScope,
+  isListedThreadLineage,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { msg } from "gt-react";
 
 import { orderItemsByPreferredIds, sortSidebarV2ProjectGroups } from "../components/Sidebar.logic";
 import {
   resolveProjectDestinations,
   resolveWorktreeDestinations,
+  threadSharesFolder,
 } from "../components/threadMoveDestinations.logic";
 import type { ThreadMoveDestination, ThreadMoveMenu } from "../components/threadMoveMenu.logic";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -32,12 +37,16 @@ import {
   readThreadShells,
 } from "../state/entities";
 import { readPrimaryEnvironmentId } from "../state/environments";
+import { orchestrationEnvironment } from "../state/orchestration";
 import { projectEnvironment } from "../state/projects";
 import { environmentServerConfigsAtom } from "../state/server";
+import { readEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { vcsEnvironment } from "../state/vcs";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
+import { useRemoveWorktree } from "./useRemoveWorktree";
 import { getClientSettings } from "./useSettings";
 
 /** The sidebar's project order, read when a menu opens rather than kept live in every tab. */
@@ -105,16 +114,22 @@ export function useThreadMove() {
   const refreshLocalStatus = useAtomCommand(vcsEnvironment.refreshLocalStatusForPicker, {
     reportFailure: false,
   });
+  const loadWorktreeThreadIds = useAtomQueryRunner(orchestrationEnvironment.worktreeThreadIds, {
+    reportFailure: false,
+    refresh: true,
+  });
+  const removeEmptiedWorktree = useRemoveWorktree();
 
   return async (threadRef: ScopedThreadRef, destination: ThreadMoveDestination) => {
     const api = readLocalApi();
     const thread = readThreadShell(threadRef);
     if (!api || !thread) return;
-    const source =
-      thread.worktreePath ??
-      readProject({ environmentId: threadRef.environmentId, projectId: thread.projectId })
-        ?.workspaceRoot ??
-      null;
+    const project = readProject({
+      environmentId: threadRef.environmentId,
+      projectId: thread.projectId,
+    });
+    const source = thread.worktreePath ?? project?.workspaceRoot ?? null;
+    const shared = threadSharesFolder(thread, readThreadShells());
     const status =
       source === null
         ? null
@@ -125,6 +140,9 @@ export function useThreadMove() {
     const destinationName = destination.detail
       ? `${destination.label} (${destination.detail})`
       : destination.label;
+    const hasChanges = status?._tag === "Success" && status.value.hasWorkingTreeChanges;
+    // The server brings them only into a new worktree, where they are sure to apply.
+    const changesComeAlong = destination.to._tag === "newWorktree" && !shared;
     const notes = [
       ...(destination.to._tag === "project"
         ? [
@@ -135,13 +153,19 @@ export function useThreadMove() {
             ),
           ]
         : []),
-      ...(source !== null && status?._tag === "Success" && status.value.hasWorkingTreeChanges
+      ...(source !== null && hasChanges
         ? [
-            m(
-              msg("Uncommitted changes in {folder} stay there.", {
-                folder: formatWorktreePathForDisplay(source),
-              }),
-            ),
+            changesComeAlong
+              ? m(
+                  msg("Uncommitted changes in {folder} come along.", {
+                    folder: formatWorktreePathForDisplay(source),
+                  }),
+                )
+              : m(
+                  msg("Uncommitted changes in {folder} stay there.", {
+                    folder: formatWorktreePathForDisplay(source),
+                  }),
+                ),
           ]
         : []),
     ];
@@ -167,24 +191,66 @@ export function useThreadMove() {
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, to: destination.to },
     });
-    if (result._tag === "Success") {
-      toastManager.add({
-        type: "success",
-        title:
-          destination.to._tag === "newWorktree"
-            ? m(msg("Moved to a new worktree"))
-            : m(msg("Moved to {destination}", { destination: destination.label })),
-        description: thread.title,
-      });
-    } else if (!isAtomCommandInterrupted(result)) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: m(msg("Could not move thread")),
-          description:
-            thrownErrorMessage(squashAtomCommandFailure(result), m) ?? m(msg("An error occurred.")),
-        }),
-      );
+    if (result._tag !== "Success") {
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: m(msg("Could not move thread")),
+            description:
+              thrownErrorMessage(squashAtomCommandFailure(result), m) ??
+              m(msg("An error occurred.")),
+          }),
+        );
+      }
+      return;
     }
+    toastManager.add({
+      type: "success",
+      title:
+        destination.to._tag === "newWorktree"
+          ? m(msg("Moved to a new worktree"))
+          : m(msg("Moved to {destination}", { destination: destination.label })),
+      description: thread.title,
+    });
+
+    // The thread left a worktree to itself. One that still holds changes was just said to keep
+    // them, so only a clean one is offered for removal; a failed read keeps it too.
+    const emptied = thread.worktreePath;
+    const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
+    if (
+      emptied === null ||
+      shared ||
+      status?._tag !== "Success" ||
+      hasChanges ||
+      !project ||
+      isScratchProject(project, config?.scratchWorkspaceRoot) ||
+      !readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
+    ) {
+      return;
+    }
+    // The client's list leaves out threads it has not loaded, so the server's decides.
+    const occupants = await loadWorktreeThreadIds({
+      environmentId: threadRef.environmentId,
+      input: { worktreePath: emptied },
+    });
+    if (occupants._tag !== "Success" || occupants.value.threadIds.length > 0) return;
+    const remove = await settlePromise(() =>
+      api.dialogs.confirm(
+        [
+          m(msg("This thread was the only one linked to this worktree:")),
+          formatWorktreePathForDisplay(emptied),
+          "",
+          m(msg("Delete the worktree too?")),
+        ].join("\n"),
+        { variant: "destructive" },
+      ),
+    );
+    if (remove._tag === "Failure" || !remove.value) return;
+    await removeEmptiedWorktree({
+      environmentId: threadRef.environmentId,
+      projectCwd: project.workspaceRoot,
+      worktreePath: emptied,
+    });
   };
 }
