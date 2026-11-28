@@ -1615,7 +1615,6 @@ export function PullRequestsPage() {
               if (rightPanelRef !== null)
                 useRightPanelStore.getState().moveSurface(rightPanelRef, surfaceId, toIndex);
             }}
-            onCopyFilePath={() => undefined}
             onAddBrowser={() => undefined}
             onAddBrowserInProfile={() => undefined}
             onAddTerminal={() => undefined}

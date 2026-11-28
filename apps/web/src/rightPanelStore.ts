@@ -245,6 +245,8 @@ interface RightPanelStoreState {
     folderTrail: string,
     keepSource?: boolean,
   ) => void;
+  /** File tabs follow an entry moved to `to`; when `to` is null it was deleted and they show its folder. */
+  followEntryMove: (ref: ScopedThreadRef, from: string, to: string | null) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
@@ -1119,6 +1121,33 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : [surface];
             });
             return { ...current, isOpen: true, activeSurfaceId: target.id, surfaces };
+          }),
+        ),
+      followEntryMove: (ref, from, to) =>
+        set((state) =>
+          automaticUpdate(state, ref, (current) => {
+            const folder = from.slice(0, Math.max(0, from.lastIndexOf("/")));
+            let activeSurfaceId = current.activeSurfaceId;
+            let moved = false;
+            const seen = new Set<string>();
+            const surfaces = current.surfaces.flatMap((surface) => {
+              let next = surface;
+              if (
+                surface.kind === "file" &&
+                surface.attachment === undefined &&
+                (surface.relativePath === from || surface.relativePath.startsWith(`${from}/`))
+              ) {
+                const path = to === null ? folder : to + surface.relativePath.slice(from.length);
+                next = path === "" ? singletonSurface("files") : fileSurface(path, null, 1);
+                moved = true;
+                if (surface.id === current.activeSurfaceId) activeSurfaceId = next.id;
+              }
+              // Tabs that now show the same path merge into the first.
+              if (seen.has(next.id)) return [];
+              seen.add(next.id);
+              return [next];
+            });
+            return moved ? { ...current, activeSurfaceId, surfaces } : current;
           }),
         ),
       openAttachment: (ref, attachment) =>

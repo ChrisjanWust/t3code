@@ -1,4 +1,5 @@
-import { EnvironmentId, type ProjectEntry } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ThreadId, type ProjectEntry } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -8,6 +9,7 @@ import { dismissContextMenu } from "~/contextMenuFallback";
 import { isMacPlatform } from "~/lib/utils";
 import { act, render } from "../../../test/render";
 import FileBrowserPanel from "./FileBrowserPanel";
+import { FileMenuProvider } from "./fileMenu";
 import { dispatchPreviewAction } from "../preview/previewActionBus";
 import { writeExpandedDirectories } from "./fileTreeExpansion";
 
@@ -95,16 +97,23 @@ function withDirectoryListing(listing: readonly ProjectEntry[]): Disposable {
 
 describe("FileBrowserPanel", () => {
   it("copies with the pointer and returns to the row after keyboard dismissal", async () => {
+    const environmentId = EnvironmentId.make("env-files");
     await using _screen = await render(
-      <FileBrowserPanel
-        environmentId={EnvironmentId.make("env-files")}
+      <FileMenuProvider
+        environmentId={environmentId}
         cwd="/repo"
-        projectName="repo"
-        selectedPath={null}
-        selectedPathRevealId={0}
-        onOpenFile={() => {}}
-        workspaceMutationId={null}
-      />,
+        threadRef={scopeThreadRef(environmentId, ThreadId.make("thread"))}
+      >
+        <FileBrowserPanel
+          environmentId={environmentId}
+          cwd="/repo"
+          projectName="repo"
+          selectedPath={null}
+          selectedPathRevealId={0}
+          onOpenFile={() => {}}
+          workspaceMutationId={null}
+        />
+      </FileMenuProvider>,
     );
     using _menu = { [Symbol.dispose]: () => dismissContextMenu() };
     using clipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);

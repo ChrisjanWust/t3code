@@ -101,6 +101,7 @@ import { PreviewImage } from "./PreviewImage";
 import FileBrowserPanel from "./FileBrowserPanel";
 import { FileExplorerPane } from "./FileExplorerPane";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
+import { fileViewMutationId, useFileMenu } from "./fileMenu";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { ChunkedMarkdown } from "./ChunkedMarkdown";
 import { splitMarkdown } from "@t3tools/shared/markdownChunks";
@@ -1283,8 +1284,10 @@ export default function FilePreviewPanel({
   folderTrail,
   onPendingChange,
   selectedFilePending,
-  workspaceMutationId,
+  workspaceMutationId: workspaceMutationIdProp,
 }: FilePreviewPanelProps) {
+  // Entries changed from the file menu are workspace mutations too, so views read them again.
+  const workspaceMutationId = fileViewMutationId(workspaceMutationIdProp, useFileMenu()?.revision);
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
   const draft = typeof composerDraftTarget === "string";
@@ -1629,6 +1632,7 @@ export default function FilePreviewPanel({
           >
             <div className="flex h-full w-max min-w-full items-center text-xs">
               <FileBreadcrumbs
+                currentKind={isFolder ? "directory" : "file"}
                 cwd={cwd}
                 environmentId={environmentId}
                 onNavigateFolder={navigateToFolder}
@@ -1959,7 +1963,6 @@ export default function FilePreviewPanel({
                 }
                 selectedPathRevealId={revealRequestId}
                 onOpenFile={onOpenFile}
-                onSelectedPathReplaced={(path) => onNavigateFolder(path, path, false)}
                 answersPanelFind={!previewPath}
                 workspaceMutationId={workspaceMutationId}
                 {...(previewPath && !isMedia && !isPdf

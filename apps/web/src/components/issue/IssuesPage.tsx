@@ -825,7 +825,6 @@ export function IssuesPage() {
             onMoveSurface={(surfaceId, toIndex) =>
               useRightPanelStore.getState().moveSurface(rightPanelRef, surfaceId, toIndex)
             }
-            onCopyFilePath={() => undefined}
             onAddBrowser={() => undefined}
             onAddBrowserInProfile={() => undefined}
             onAddTerminal={() => undefined}

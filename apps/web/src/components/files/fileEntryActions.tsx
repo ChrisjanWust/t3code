@@ -51,7 +51,12 @@ export function isFileEntryActionId(id: string): id is FileEntryActionId {
 }
 
 type NameRequest =
-  | { readonly mode: "create"; readonly kind: ProjectEntryKind; readonly directory: string }
+  | {
+      readonly mode: "create";
+      readonly kind: ProjectEntryKind;
+      readonly directory: string;
+      readonly onCreatedDirectory: ((relativePath: string) => void) | undefined;
+    }
   | { readonly mode: "rename"; readonly entry: FileEntryTarget };
 
 export function parentDirectory(path: string): string {
@@ -83,23 +88,24 @@ function normalizeEnteredPath(value: string): string {
 export function useFileEntryActions(props: {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
-  /** False where entries are not workspace-relative, such as a host folder. */
   readonly enabled: boolean;
-  readonly selectedPath: string | null;
   readonly onOpenFile: (relativePath: string) => void;
-  readonly onCreatedDirectory: (relativePath: string) => void;
   readonly onChanged: () => void;
-  readonly onSelectedFileChanged: () => void;
-  /** The open path moved or is gone; show `path` in its place, not beside it. */
-  readonly onSelectedPathReplaced: (path: string) => void;
+  /** `from` moved to `to`, or was deleted when `to` is null. */
+  readonly onMoved: (from: string, to: string | null) => void;
 }) {
-  const { environmentId, cwd, selectedPath } = props;
+  const { environmentId, cwd } = props;
   const gt = useGT();
   const mutateEntry = useAtomCommand(projectEnvironment.mutateEntry, { reportFailure: false });
   const permitted = useAtomValue(projectEnvironment.mutateEntry.permissionAtom(environmentId));
   const enabled = permitted && props.enabled;
   const [nameRequest, setNameRequest] = useState<NameRequest | null>(null);
-  const [copiedEntry, setCopiedEntry] = useState<FileEntryTarget | null>(null);
+  // Paths are relative to one workspace, so a copy pastes only where it was made.
+  const scope = JSON.stringify([environmentId, cwd]);
+  const [copied, setCopied] = useState<{ scope: string; entry: FileEntryTarget } | null>(null);
+  const copiedEntry = copied?.scope === scope ? copied.entry : null;
+  const setCopiedEntry = (entry: FileEntryTarget | null) =>
+    setCopied(entry === null ? null : { scope, entry });
 
   /** Resolves to the entry's new path, or to the reason it failed. */
   const run = async (
@@ -142,10 +148,7 @@ export function useFileEntryActions(props: {
     if (copiedEntry !== null && pathAfterMove(copiedEntry.path, entry.path, "") !== null) {
       setCopiedEntry(null);
     }
-    // Left open, the editor would write the deleted file back on the next keystroke.
-    if (selectedPath !== null && pathAfterMove(selectedPath, entry.path, "") !== null) {
-      props.onSelectedPathReplaced(parentDirectory(entry.path));
-    }
+    props.onMoved(entry.path, null);
   };
 
   const copyInto = async (source: FileEntryTarget, directory: string) => {
@@ -168,10 +171,8 @@ export function useFileEntryActions(props: {
       const result = await run(path, { type: "create", kind: request.kind });
       if (result === null) return null;
       if ("error" in result) return result.error;
-      // Creating the file an open tab already points at leaves the path unchanged, so reload it.
-      if (result.path === selectedPath) props.onSelectedFileChanged();
-      else if (request.kind === "file") props.onOpenFile(result.path);
-      else props.onCreatedDirectory(result.path);
+      if (request.kind === "file") props.onOpenFile(result.path);
+      else request.onCreatedDirectory?.(result.path);
       return null;
     }
     const source = request.entry.path;
@@ -184,9 +185,7 @@ export function useFileEntryActions(props: {
       const copiedPath = pathAfterMove(copiedEntry.path, source, result.path);
       if (copiedPath !== null) setCopiedEntry({ ...copiedEntry, path: copiedPath });
     }
-    const movedSelection =
-      selectedPath === null ? null : pathAfterMove(selectedPath, source, result.path);
-    if (movedSelection !== null) props.onSelectedPathReplaced(movedSelection);
+    props.onMoved(source, result.path);
     return null;
   };
 
@@ -230,7 +229,11 @@ export function useFileEntryActions(props: {
             ],
           }
         : { create: [], change: [] },
-    activate: (id: FileEntryActionId, entry: FileEntryTarget): Promise<void> | void => {
+    activate: (
+      id: FileEntryActionId,
+      entry: FileEntryTarget,
+      onCreatedDirectory?: (relativePath: string) => void,
+    ): Promise<void> | void => {
       if (!enabled) return;
       switch (id) {
         case "new-file":
@@ -239,6 +242,7 @@ export function useFileEntryActions(props: {
             mode: "create",
             kind: id === "new-file" ? "file" : "directory",
             directory: directoryOf(entry),
+            onCreatedDirectory,
           });
           return;
         case "copy-entry":
@@ -255,8 +259,12 @@ export function useFileEntryActions(props: {
           return deleteEntry(entry);
       }
     },
-    startCreate: (kind: ProjectEntryKind, directory: string) => {
-      if (enabled) setNameRequest({ mode: "create", kind, directory });
+    startCreate: (
+      kind: ProjectEntryKind,
+      directory: string,
+      onCreatedDirectory?: (relativePath: string) => void,
+    ) => {
+      if (enabled) setNameRequest({ mode: "create", kind, directory, onCreatedDirectory });
     },
     dialog:
       nameRequest === null ? null : (
