@@ -31,7 +31,7 @@ On web and desktop, right-click a thread, or its tab when worktrees are shown as
 
 Files stay where they are, with one exception: a thread that is alone in its folder takes that folder's uncommitted changes into a **New worktree**, which then starts from the commit they were made on. In every other move, uncommitted changes stay in the old folder, and the agent may go back there for them, so commit first if the thread needs them. T3 Code tells you which it will be before moving.
 
-When the last thread leaves a worktree that has no uncommitted changes, T3 Code offers to delete the worktree.
+When the last thread leaves a worktree that has no uncommitted changes, T3 Code offers to delete the worktree. In a project with several repositories it doesn't, since it can't check them all.
 
 ## Sidebar layout and organization
 

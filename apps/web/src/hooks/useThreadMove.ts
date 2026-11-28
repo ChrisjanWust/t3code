@@ -215,7 +215,8 @@ export function useThreadMove() {
     });
 
     // The thread left a worktree to itself. One that still holds changes was just said to keep
-    // them, so only a clean one is offered for removal; a failed read keeps it too.
+    // them, so only a clean one is offered for removal; a failed read keeps it too. A task
+    // folder's other repositories are not in that read, so one is never offered.
     const emptied = thread.worktreePath;
     const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
     if (
@@ -223,7 +224,9 @@ export function useThreadMove() {
       shared ||
       status?._tag !== "Success" ||
       hasChanges ||
+      !status.value.isRepo ||
       !project ||
+      (project.trackedFolders?.length ?? 0) > 0 ||
       isScratchProject(project, config?.scratchWorkspaceRoot) ||
       !readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
     ) {

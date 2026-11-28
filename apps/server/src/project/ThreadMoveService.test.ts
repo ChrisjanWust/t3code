@@ -159,6 +159,7 @@ const makeHarness = (options: {
               workingTree: { files: [], insertions: 0, deletions: 0 },
             }),
           listLocalBranchNames: () => Effect.succeed(["main", "fix-the-image-viewer"]),
+          resolveDefaultBranchName: () => Effect.succeed("main"),
           createWorktree: createWorktree as never,
           removeWorktree: removeWorktree as never,
           deleteLocalBranch: deleteLocalBranch as never,

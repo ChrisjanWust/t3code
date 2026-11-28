@@ -253,6 +253,19 @@ const make = Effect.gen(function* () {
       Effect.ignoreCause({ log: true }),
     );
 
+  // A new thread's worktree starts from the default branch when it is checked out locally.
+  const defaultLocalBranch = (cwd: string) =>
+    gitWorkflow.resolveDefaultBranchName(cwd, "origin").pipe(
+      Effect.flatMap((name) =>
+        name === null
+          ? Effect.succeed(null)
+          : gitWorkflow
+              .listLocalBranchNames(cwd)
+              .pipe(Effect.map((names) => (names.includes(name) ? name : null))),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+
   const projectSettings = (projectId: ProjectId) =>
     serverSettings.getSettings.pipe(
       Effect.map((settings) => resolveProjectSettings(settings, projectId).settings),
@@ -352,11 +365,13 @@ const make = Effect.gen(function* () {
         return yield* refuse("The thread's folder has no branch checked out. Check one out first.");
       }
       startRef = source.refName;
+      // Moved in from another project, the thread has no work on whatever Main has checked out.
+      if (!options.bringChanges) startRef = (yield* defaultLocalBranch(root)) ?? startRef;
     }
     const settings = yield* projectSettings(project.id);
     const bringChanges =
       options.bringChanges &&
-      taskPlan === null &&
+      projectIsRepository &&
       source.hasWorkingTreeChanges &&
       !(yield* sharesFolder(thread));
     // Uncommitted changes only apply to the commit they were made on, and a split keeps the
