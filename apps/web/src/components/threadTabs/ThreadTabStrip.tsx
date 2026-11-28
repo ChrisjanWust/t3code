@@ -579,7 +579,12 @@ function ThreadTab(
         {...listeners}
         className={cn(
           "group/tab flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 text-xs",
-          props.vertical ? "w-full" : split ? "max-w-96 min-w-24" : "max-w-52 min-w-24",
+          // Tabs share up to half the strip, each capped between 13rem and 28rem.
+          props.vertical
+            ? "w-full"
+            : split
+              ? "max-w-96 min-w-24"
+              : "max-w-[clamp(13rem,50cqi/var(--thread-tab-count),28rem)] min-w-24",
           isElectron && "[-webkit-app-region:no-drag]",
           isDragging || (active && !ancestor)
             ? "bg-accent text-foreground"
@@ -949,6 +954,7 @@ function ThreadTabList(props: ThreadTabListProps & { readonly vertical: boolean 
         role="tablist"
         aria-label={gt("Thread tabs")}
         aria-orientation={vertical ? "vertical" : "horizontal"}
+        style={{ "--thread-tab-count": listedTabs.length } as CSSProperties}
         className={cn(
           "flex gap-1",
           vertical ? "flex-col items-start p-2" : "h-full w-max items-center",

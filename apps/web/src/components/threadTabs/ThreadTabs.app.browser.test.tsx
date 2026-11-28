@@ -214,6 +214,30 @@ it("drags a tab either way to reorder the strip, and closing and new tabs follow
   );
 });
 
+it("gives a long title more room the fewer tabs share the strip, never less than before", async () => {
+  const longTitle = (name: string) =>
+    `${name} has a title too long for any tab to show whole, however wide the window`;
+  const longTitled = (name: string): FakeThread => ({
+    ...threadWithHistory(name, 2),
+    title: longTitle(name),
+    worktreePath: "/workspace/render-worktrees/long-titles",
+    branch: "long-titles",
+  });
+  using _environment = setup([longTitled("long-a")]);
+  const { screen } = await mountApp("long-a");
+  await using _screen = screen;
+  const width = () =>
+    tab(longTitle("long-a")).element().closest("[data-thread-tab]")!.getBoundingClientRect().width;
+
+  await vi.waitFor(() => expect(width()).toBe(448));
+  addServerThread(longTitled("long-b"));
+  await vi.waitFor(() => expect(width()).toBeLessThan(448));
+  expect(width()).toBeGreaterThan(208);
+  addServerThread(longTitled("long-c"));
+  addServerThread(longTitled("long-d"));
+  await vi.waitFor(() => expect(width()).toBe(208));
+});
+
 it("lists the tabs newest first in a side panel, leaving only the open tab in the top bar", async () => {
   using _environment = setup();
   const { screen, router } = await mountApp("tab-a");
