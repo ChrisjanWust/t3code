@@ -3,6 +3,11 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../i18n/messages";
+import {
+  buildThreadMoveMenuItems,
+  type ThreadMoveMenu,
+  type ThreadMoveMenuId,
+} from "./threadMoveMenu.logic";
 
 export type ThreadActionMenuId =
   | "find"
@@ -31,7 +36,8 @@ export type ThreadActionMenuId =
   | "copy-thread"
   | "copy-thread-id"
   | "archive"
-  | "delete";
+  | "delete"
+  | ThreadMoveMenuId;
 
 export type DraftActionMenuId =
   | "copy"
@@ -132,6 +138,7 @@ export interface ThreadActionMenuState {
   readonly worktreeTitle?: { readonly isManual: boolean } | null;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  readonly move?: ThreadMoveMenu | null;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -277,16 +284,16 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    ...(!worktree && state.canTurnIntoProject
-      ? [
-          {
-            id: "turn-into-project" as const,
-            label: resolve(msg("Turn into project")),
-            icon: "folder-plus",
-            disabled: state.isRunning,
-          },
-        ]
-      : []),
+    ...threadOnly(
+      buildThreadMoveMenuItems(
+        {
+          menu: state.move ?? null,
+          canTurnIntoProject: state.canTurnIntoProject === true,
+          isRunning: state.isRunning,
+        },
+        resolve,
+      ),
+    ),
     ...(!worktree && state.supports.autoSettleOptOut
       ? [
           {
