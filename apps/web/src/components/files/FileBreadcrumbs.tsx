@@ -1,11 +1,12 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectEntryKind } from "@t3tools/contracts";
 import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
 import { T, useGT, useMessages, Var } from "gt-react";
 import { useState } from "react";
 
 import { PierreEntryIcon } from "~/components/chat/PierreEntryIcon";
+import { contextMenuSourceOf } from "~/contextMenuSource";
 import {
   Menu,
   MenuGroup,
@@ -29,9 +30,12 @@ import {
   fileBreadcrumbs,
   isListableHostFolder,
 } from "./filePath";
+import { useFileMenu } from "./fileMenu";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
 
 interface FileBreadcrumbsProps {
+  /** Whether the current path is a file or a folder. */
+  readonly currentKind: ProjectEntryKind;
   readonly cwd: string;
   readonly environmentId: EnvironmentId;
   /** Navigates to a folder; an empty path is the workspace root. */
@@ -313,6 +317,7 @@ export function FileBreadcrumbs(props: FileBreadcrumbsProps) {
   const currentPath = breadcrumbPathOf(props.relativePath);
   const currentIndex = breadcrumbs.findIndex((crumb) => crumb.path === currentPath);
   const gt = useGT();
+  const fileMenu = useFileMenu();
 
   return (
     <nav aria-label={gt("File path")} className="flex h-full">
@@ -325,6 +330,23 @@ export function FileBreadcrumbs(props: FileBreadcrumbsProps) {
               className="flex min-w-0 shrink-0 items-center"
               data-file-crumb
               data-current-file-crumb={current}
+              onContextMenu={(event) => {
+                if (!fileMenu) return;
+                event.preventDefault();
+                void fileMenu.show(
+                  {
+                    path: crumb.path,
+                    // A crumb past the current one ends the retained trail, which may be a file.
+                    ...(current && crumb.path !== ""
+                      ? { kind: props.currentKind }
+                      : crumb.kind === "file"
+                        ? {}
+                        : { kind: "directory" }),
+                  },
+                  { x: event.clientX, y: event.clientY },
+                  contextMenuSourceOf(event),
+                );
+              }}
             >
               {current ? (
                 <span aria-current="page">

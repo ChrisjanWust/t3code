@@ -54,6 +54,7 @@ import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnviron
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
+import { FileMenuProvider } from "./files/fileMenu";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { resolveWorktreeRepositorySelection } from "@t3tools/client-runtime/state/thread-repositories";
@@ -2634,7 +2635,6 @@ export default function ChatView(props: ChatViewProps) {
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,
-    copyRightPanelFilePathStable,
     createBrowserSurface,
     createBrowserSurfaceStable,
     duplicateBrowserSurfaceStable,
@@ -2667,8 +2667,6 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelMaximized,
     supportsPullRequests,
     pullRequestsSurfaceAvailable: linkedItemsSurfaceAvailable,
-    gitCwd,
-    activeProjectCwd,
     onDiffPanelOpen,
     closeRightPanelSurface,
   });
@@ -4364,69 +4362,74 @@ export default function ChatView(props: ChatViewProps) {
       </div>
 
       {rightPanelPresent && activeThreadRef && !embedded ? (
-        <ChatRightPanel
-          sheet={shouldUsePlanSidebarSheet}
-          workspaceLayoutElement={workspaceLayoutElement}
-          widthStorageKey={`t3code:preview-panel-width:${rightPanelKey(activeThreadRef)}`}
-          sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
-          onCloseSheet={closePreviewPanelStable}
-          open={rightPanelOpen}
-          keybindings={keybindings}
-          getShortcutContext={getShortcutContextStable}
-          maximized={rightPanelMaximized}
-          layoutControls={
-            rightPanelOpen ? (
-              <div className="mr-px flex items-center gap-1">
-                <RightPanelMaximizeControl
-                  maximized={rightPanelMaximized}
-                  onToggle={toggleRightPanelMaximizedStable}
-                />
-                {panelToggleControls}
-              </div>
-            ) : null
-          }
-          surfaces={renderedRightPanelSurfaces}
+        <FileMenuProvider
           environmentId={activeThreadRef.environmentId}
-          activeSurfaceId={renderedRightPanelSurface?.id ?? null}
-          pendingSurfaceIds={pendingFileSurfaceIds}
-          previewSessions={panelPreviewSessions}
-          desktopByTabId={panelDesktopByTabId}
-          previewRuntimeTabId={resolvePreviewRuntimeTabId}
-          terminalLabelsById={panelTerminalLabelsById}
-          onActivate={activateRightPanelSurfaceStable}
-          onCloseSurface={closeRightPanelSurfaceStable}
-          onOpenInMainView={openSurfaceInMainView}
-          onRenameDevice={(surfaceId, title) => {
-            if (activeThreadRef)
-              useRightPanelStore.getState().renameDevice(activeThreadRef, surfaceId, title);
-          }}
-          onCloseOtherSurfaces={closeOtherRightPanelSurfacesStable}
-          onCloseSurfacesToRight={closeRightPanelSurfacesToRightStable}
-          onCloseAllSurfaces={closeAllRightPanelSurfacesStable}
-          onMoveSurface={moveRightPanelSurfaceStable}
-          onCopyFilePath={copyRightPanelFilePathStable}
-          onAddBrowser={() => createBrowserSurface()}
-          onAddBrowserInProfile={createBrowserSurfaceStable}
-          onDuplicateBrowser={duplicateBrowserSurfaceStable}
-          onAddTerminal={addTerminalSurfaceStable}
-          onAddDiff={addDiffSurfaceStable}
-          onAddFiles={addFilesSurfaceStable}
-          onAddPullRequest={addPullRequestSurfaceStable}
-          onAddPullRequests={addPullRequestsSurfaceStable}
-          onAddDevice={addDeviceSurfaceStable}
-          onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
-          browserAvailable={canOperatePreview && browserAvailable}
-          terminalAvailable={activeProject !== null && canOperateTerminal}
-          diffAvailable={isServerThread && diffAvailable}
-          filesAvailable={activeProject !== null}
-          pullRequestAvailable={pullRequestSurfaceAvailable}
-          pullRequestsAvailable={linkedItemsSurfaceAvailable}
-          deviceAvailable={activeThreadRef !== null}
-          sideChatAvailable={sideChat.available}
-          sideChatDisabledReason={sideChatDisabledReason}
+          cwd={activeWorkspaceRoot}
+          threadRef={activeThreadRef}
         >
-          {rightPanelContent}
-        </ChatRightPanel>
+          <ChatRightPanel
+            sheet={shouldUsePlanSidebarSheet}
+            workspaceLayoutElement={workspaceLayoutElement}
+            widthStorageKey={`t3code:preview-panel-width:${rightPanelKey(activeThreadRef)}`}
+            sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
+            onCloseSheet={closePreviewPanelStable}
+            open={rightPanelOpen}
+            keybindings={keybindings}
+            getShortcutContext={getShortcutContextStable}
+            maximized={rightPanelMaximized}
+            layoutControls={
+              rightPanelOpen ? (
+                <div className="mr-px flex items-center gap-1">
+                  <RightPanelMaximizeControl
+                    maximized={rightPanelMaximized}
+                    onToggle={toggleRightPanelMaximizedStable}
+                  />
+                  {panelToggleControls}
+                </div>
+              ) : null
+            }
+            surfaces={renderedRightPanelSurfaces}
+            environmentId={activeThreadRef.environmentId}
+            activeSurfaceId={renderedRightPanelSurface?.id ?? null}
+            pendingSurfaceIds={pendingFileSurfaceIds}
+            previewSessions={panelPreviewSessions}
+            desktopByTabId={panelDesktopByTabId}
+            previewRuntimeTabId={resolvePreviewRuntimeTabId}
+            terminalLabelsById={panelTerminalLabelsById}
+            onActivate={activateRightPanelSurfaceStable}
+            onCloseSurface={closeRightPanelSurfaceStable}
+            onOpenInMainView={openSurfaceInMainView}
+            onRenameDevice={(surfaceId, title) => {
+              if (activeThreadRef)
+                useRightPanelStore.getState().renameDevice(activeThreadRef, surfaceId, title);
+            }}
+            onCloseOtherSurfaces={closeOtherRightPanelSurfacesStable}
+            onCloseSurfacesToRight={closeRightPanelSurfacesToRightStable}
+            onCloseAllSurfaces={closeAllRightPanelSurfacesStable}
+            onMoveSurface={moveRightPanelSurfaceStable}
+            onAddBrowser={() => createBrowserSurface()}
+            onAddBrowserInProfile={createBrowserSurfaceStable}
+            onDuplicateBrowser={duplicateBrowserSurfaceStable}
+            onAddTerminal={addTerminalSurfaceStable}
+            onAddDiff={addDiffSurfaceStable}
+            onAddFiles={addFilesSurfaceStable}
+            onAddPullRequest={addPullRequestSurfaceStable}
+            onAddPullRequests={addPullRequestsSurfaceStable}
+            onAddDevice={addDeviceSurfaceStable}
+            onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
+            browserAvailable={canOperatePreview && browserAvailable}
+            terminalAvailable={activeProject !== null && canOperateTerminal}
+            diffAvailable={isServerThread && diffAvailable}
+            filesAvailable={activeProject !== null}
+            pullRequestAvailable={pullRequestSurfaceAvailable}
+            pullRequestsAvailable={linkedItemsSurfaceAvailable}
+            deviceAvailable={activeThreadRef !== null}
+            sideChatAvailable={sideChat.available}
+            sideChatDisabledReason={sideChatDisabledReason}
+          >
+            {rightPanelContent}
+          </ChatRightPanel>
+        </FileMenuProvider>
       ) : null}
 
       <RevertConfirmHost

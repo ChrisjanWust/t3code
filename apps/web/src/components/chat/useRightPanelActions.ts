@@ -1,11 +1,9 @@
 import { msg } from "gt-react";
-import { errorDisplayMessage, thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import type { ToolCallDiffTarget } from "../../diffPanelStore";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { ThreadPreviewState } from "../../previewStateStore";
-import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
-import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type ScopedThreadRef, type PreviewSessionSnapshot } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -64,8 +62,6 @@ interface RightPanelActionsInput {
   readonly rightPanelMaximized: boolean;
   readonly supportsPullRequests: boolean;
   readonly pullRequestsSurfaceAvailable: boolean;
-  readonly gitCwd: string | null;
-  readonly activeProjectCwd: string | null;
   readonly onDiffPanelOpen: (() => void) | undefined;
   readonly closeRightPanelSurface: (surface: RightPanelSurface) => void;
 }
@@ -97,8 +93,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     rightPanelMaximized,
     supportsPullRequests,
     pullRequestsSurfaceAvailable,
-    gitCwd,
-    activeProjectCwd,
     onDiffPanelOpen,
   } = input;
 
@@ -283,33 +277,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       useRightPanelStore.getState().moveSurface(activeThreadRef, surfaceId, toIndex);
   };
   const moveRightPanelSurfaceStable = useStableCallback(moveRightPanelSurface);
-  const copyRightPanelFilePath = (relativePath: string) => {
-    if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: m(msg("Failed to copy path")),
-          description: m(msg("Clipboard API unavailable.")),
-        }),
-      );
-      return;
-    }
-
-    const clipboardPath = formatFilePathForClipboard(
-      relativePath,
-      resolvePathLinkTarget(relativePath, gitCwd ?? activeProjectCwd ?? ""),
-    );
-    void navigator.clipboard.writeText(clipboardPath).then(undefined, (error) => {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: m(msg("Failed to copy path")),
-          description: thrownErrorMessage(error, m) ?? m(msg("An error occurred.")),
-        }),
-      );
-    });
-  };
-  const copyRightPanelFilePathStable = useStableCallback(copyRightPanelFilePath);
   const addPullRequestSurface = () => {
     if (!supportsPullRequests || activeThreadRef === null || pullRequestPanelTarget === null)
       return;
@@ -355,7 +322,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,
-    copyRightPanelFilePathStable,
     createBrowserSurface,
     createBrowserSurfaceStable,
     duplicateBrowserSurfaceStable,

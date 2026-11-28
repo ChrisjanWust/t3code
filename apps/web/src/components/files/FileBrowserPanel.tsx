@@ -1,6 +1,4 @@
-import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { contextMenuSourceOf } from "../../contextMenuSource";
-import { m } from "~/i18n/messages";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
@@ -8,25 +6,16 @@ import type {
 } from "@pierre/trees";
 import type { ContextMenuSource, EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
-import { settlePromise } from "@t3tools/client-runtime/state/runtime";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
-import * as Cause from "effect/Cause";
 import { T, useGT, useMessages } from "gt-react";
 import { ChevronsDownUpIcon, ChevronsUpDownIcon, FilePlusIcon, FolderPlusIcon } from "lucide-react";
 import { type Ref, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
-import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { useComposerHandleContext } from "~/composerHandleContext";
-import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
-import { useFileContextMenu, type FileContextMenuAction } from "~/fileContextMenu";
-import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import {
   PIERRE_TREE_UNSAFE_CSS,
@@ -34,7 +23,8 @@ import {
   titleClippedPierreTreeRow,
 } from "~/pierre-tree-theme";
 
-import { isFileEntryActionId, parentDirectory, useFileEntryActions } from "./fileEntryActions";
+import { parentDirectory } from "./fileEntryActions";
+import { useFileMenu } from "./fileMenu";
 import { joinHostPath } from "./filePath";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import {
@@ -62,7 +52,6 @@ interface FileBrowserPanelProps {
    * loaded folders. */
   hostFolder?: boolean;
   onRefreshSelectedFile?: () => void;
-  onSelectedPathReplaced?: (path: string) => void;
   workspaceMutationId: string | null;
   answersPanelFind?: boolean;
 }
@@ -175,7 +164,6 @@ export default function FileBrowserPanel({
   selectedPathRevealId,
   onOpenFile,
   onRefreshSelectedFile,
-  onSelectedPathReplaced,
   workspaceMutationId,
   hostFolder = false,
   answersPanelFind = false,
@@ -185,8 +173,7 @@ export default function FileBrowserPanel({
   const gt = useGT();
   const messages = useMessages();
   const { resolvedTheme } = useTheme();
-  const composerRef = useComposerHandleContext();
-  const fileContextMenu = useFileContextMenu(environmentId);
+  const fileMenu = useFileMenu();
   const {
     entries: directoryEntries,
     load,
@@ -208,33 +195,22 @@ export default function FileBrowserPanel({
     buildTreeEntries(directoryEntries, pathSearch.entries, pathSearch.isPending, query);
   const entryKindsRef = useRef(entryKinds);
   const pendingDirectoryRevealRef = useRef<string | null>(null);
-  const entryActions = useFileEntryActions({
-    environmentId,
-    cwd,
-    enabled: !hostFolder,
-    selectedPath,
-    onOpenFile,
-    onCreatedDirectory: (path) => {
-      pendingDirectoryRevealRef.current = path;
-      // The trailing segment stands in for a file, so the new folder itself is listed too.
-      void loadFileAncestors(`${path}/.`, load, { signal: new AbortController().signal });
-    },
-    onChanged: () => {
-      refresh();
-      if (query.trim()) pathSearch.refresh();
-    },
-    onSelectedFileChanged: () => onRefreshSelectedFile?.(),
-    onSelectedPathReplaced: (path) => onSelectedPathReplaced?.(path),
-  });
+  const canCreateEntries = fileMenu?.canEditEntries === true && !hostFolder;
+  const revealCreatedDirectory = (path: string) => {
+    pendingDirectoryRevealRef.current = path;
+    // The trailing segment stands in for a file, so the new folder itself is listed too.
+    void loadFileAncestors(`${path}/.`, load, { signal: new AbortController().signal });
+  };
   // New entries start in the open folder, beside the open file, or at the project root.
   const startCreate = (kind: "file" | "directory") =>
-    entryActions.startCreate(
+    fileMenu?.startCreate(
       kind,
       selectedPath === null
         ? ""
         : entryKindsRef.current.get(selectedPath) === "directory"
           ? selectedPath
           : parentDirectory(selectedPath),
+      { onCreatedDirectory: revealCreatedDirectory },
     );
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
@@ -254,98 +230,27 @@ export default function FileBrowserPanel({
 
   const showEntryContextMenu = useStableCallback(
     (item: TreeContextMenuItem, context: TreeContextMenuOpenContext) => {
-      const api = readLocalApi();
-      if (!api) {
+      if (!fileMenu) {
         context.close();
         return;
       }
-      const relativePath = item.path.replace(/\/$/, "");
-      const mention = serializeComposerFileLink(panelPath(relativePath));
       const pointer = contextMenuPointerRef.current;
       const pointerIsFresh = pointer !== null && performance.now() - pointer.at < 1000;
       const anchorRect = context.anchorElement.getBoundingClientRect();
       const position = pointerIsFresh
         ? { x: pointer.x, y: pointer.y }
         : { x: anchorRect.left, y: anchorRect.bottom };
-      const fileTarget = {
-        environmentId,
-        filePath: relativePath,
-        workspaceRoot: cwd,
-        isDirectory: item.kind === "directory",
-      };
-      const fileMenuItems = fileContextMenu.buildItems(fileTarget);
-      const entry = {
-        path: relativePath,
-        kind: item.path.endsWith("/") ? ("directory" as const) : ("file" as const),
-      };
-      const entryMenu = entryActions.menuItems();
-      const otherItems = [
-        ...fileMenuItems,
-        { id: "copy-mention", label: gt("Copy mention") },
-        { id: "add-to-chat", label: gt("Add to chat") },
-        ...entryMenu.change,
-      ];
       // The app menu owns focus; the tree's outside-click handler would dismiss it before click.
       context.close({ restoreFocus: !pointerIsFresh });
-      void settlePromise(async () => {
-        const clicked = await api.contextMenu.show(
-          [
-            ...entryMenu.create,
-            ...otherItems.map((menuItem, index) =>
-              index === 0 && entryMenu.create.length > 0
-                ? { ...menuItem, separatorBefore: true }
-                : menuItem,
-            ),
-          ],
-          position,
-          pointerIsFresh ? pointer.source : undefined,
-        );
-        if (clicked === null) return;
-        // Open-with submenu ids are absent from the top-level item list.
-        const isFileMenuAction =
-          fileMenuItems.some((entry) => entry.id === clicked) || clicked.startsWith("editor:");
-        if (isFileMenuAction) {
-          await fileContextMenu.activate(clicked as FileContextMenuAction, fileTarget);
-          return;
-        }
-        if (isFileEntryActionId(clicked)) {
-          await entryActions.activate(clicked, entry);
-          return;
-        }
-        if (clicked === "copy-mention") {
-          try {
-            await writeTextToClipboard(mention);
-          } catch (error) {
-            toastManager.add({
-              type: "error",
-              title: gt("Failed to copy mention"),
-              description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
-            });
-          }
-          return;
-        }
-        if (clicked === "add-to-chat") {
-          const composer = composerRef?.current;
-          if (!composer) {
-            toastManager.add({
-              type: "error",
-              title: gt("Unable to add to chat"),
-              description: gt("Open a chat for this project and try again."),
-            });
-            return;
-          }
-          const inserted = composer.insertTextAtEnd(`${mention} `, { ensureLeadingBoundary: true });
-          if (!inserted) {
-            toastManager.add({
-              type: "error",
-              title: gt("Unable to add to chat"),
-              description: gt("The chat isn't ready to accept input right now."),
-            });
-          }
-        }
-      }).then((result) => {
-        if (!AsyncResult.isSuccess(result)) throw Cause.squash(result.cause);
-      });
+      void fileMenu.show(
+        {
+          path: panelPath(item.path.replace(/\/$/, "")),
+          kind: item.path.endsWith("/") ? "directory" : "file",
+        },
+        position,
+        pointerIsFresh ? pointer.source : undefined,
+        { onCreatedDirectory: revealCreatedDirectory },
+      );
     },
   );
 
@@ -658,7 +563,7 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
-        {entryActions.enabled ? (
+        {canCreateEntries ? (
           <>
             <Tooltip>
               <TooltipTrigger
@@ -804,7 +709,6 @@ export default function FileBrowserPanel({
           onPointerOver={titleClippedPierreTreeRow}
         />
       )}
-      {entryActions.dialog}
     </div>
   );
 }

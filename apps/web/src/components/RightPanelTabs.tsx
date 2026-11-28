@@ -113,6 +113,7 @@ import { previewBridge } from "./preview/previewBridge";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
 import { preventThumbButtonFocus, takeThumbButtonNavigation } from "./preview/thumbButtons";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
+import { useFileMenu } from "./files/fileMenu";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
@@ -148,7 +149,6 @@ export interface RightPanelTabsProps {
   onCloseSurfacesToRight: (surface: RightPanelSurface) => void;
   onCloseAllSurfaces: () => void;
   onMoveSurface?: (surfaceId: string, toIndex: number) => void;
-  onCopyFilePath: (relativePath: string) => void;
   onDuplicateBrowser?: (surface: RightPanelSurface) => void;
   onAddBrowser: () => void;
   /** Keep separate from the DOM click handler so a MouseEvent cannot become a profile id. */
@@ -228,7 +228,6 @@ const SURFACE_UNAVAILABLE_HINTS = {
 type TabContextMenuAction =
   | "open-in-main-view"
   | "rename"
-  | "copy-path"
   | "duplicate"
   | "toggle-mute"
   | "close"
@@ -1130,6 +1129,7 @@ function RightPanelTab(
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const gt = useGT();
   const messages = useMessages();
+  const fileMenu = useFileMenu();
   const focusedSurface = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
   const browserProfiles = useBrowserDefaults().profiles;
@@ -1299,15 +1299,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     const surfaceIndex = props.surfaces.findIndex((entry) => entry.id === surface.id);
     if (surfaceIndex < 0) return;
 
+    // A file tab offers the file's own menu above its tab actions.
+    const fileTarget =
+      surface.kind === "file" && surface.attachment === undefined && fileMenu
+        ? { path: surface.relativePath }
+        : null;
+    const fileItems = fileTarget && fileMenu ? fileMenu.items(fileTarget) : [];
     const items: ContextMenuItem<TabContextMenuAction>[] = [];
     if ((surface.kind === "thread" || surface.kind === "linked-thread") && props.onOpenInMainView) {
       items.push({ id: "open-in-main-view", label: gt("Open in main view") });
     }
     if (surface.kind === "device" && props.onRenameDevice)
       items.push({ id: "rename", label: gt("Rename") });
-    if (surface.kind === "file" && surface.attachment === undefined) {
-      items.push({ id: "copy-path", label: gt("Copy path") });
-    }
     const menuPreviewTabId = previewTabIdOf(surface, props.previewSessions);
     const menuOverlay = menuPreviewTabId ? (props.desktopByTabId[menuPreviewTabId] ?? null) : null;
     const menuMuted = menuOverlay?.audioMuted ?? false;
@@ -1329,7 +1332,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       });
     }
     items.push(
-      { id: "close", label: gt("Close") },
+      { id: "close", label: gt("Close"), separatorBefore: fileItems.length > 0 },
       {
         id: "close-others",
         label: gt("Close others"),
@@ -1347,11 +1350,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       },
     );
 
-    const action = await api.contextMenu.show(
-      items,
+    const clicked = await api.contextMenu.show<string>(
+      [...fileItems, ...items],
       { x: event.clientX, y: event.clientY },
       contextMenuSourceOf(event),
     );
+    if (clicked !== null && fileTarget && fileMenu?.activate(clicked, fileTarget)) return;
+    const action = clicked as TabContextMenuAction | null;
     switch (action) {
       case "open-in-main-view":
         if (surface.kind === "thread" || surface.kind === "linked-thread") {
@@ -1360,11 +1365,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         break;
       case "rename":
         setRenamingDevice(surface.id);
-        break;
-      case "copy-path":
-        if (surface.kind === "file" && surface.attachment === undefined) {
-          props.onCopyFilePath(surface.relativePath);
-        }
         break;
       case "duplicate":
         props.onDuplicateBrowser?.(surface);

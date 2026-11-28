@@ -1,12 +1,15 @@
 import "~/index.css";
 
-import { EnvironmentId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
+import { dismissContextMenu } from "~/contextMenuFallback";
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { render, stubGlobal } from "../../test/render";
+import { FileMenuProvider } from "./files/fileMenu";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import { RightPanelTabs, type RightPanelTabsProps } from "./RightPanelTabs";
 import { subscribePreviewAction } from "./preview/previewActionBus";
@@ -102,7 +105,6 @@ describe("RightPanelTabs", () => {
           onCloseOtherSurfaces={noop}
           onCloseSurfacesToRight={noop}
           onCloseAllSurfaces={noop}
-          onCopyFilePath={noop}
           onAddBrowser={noop}
           onAddBrowserInProfile={noop}
           onAddTerminal={noop}
@@ -175,7 +177,6 @@ function panel(activeSurface: RightPanelSurface) {
     onCloseOtherSurfaces: noop,
     onCloseSurfacesToRight: noop,
     onCloseAllSurfaces: noop,
-    onCopyFilePath: noop,
     onAddBrowser: noop,
     onAddBrowserInProfile: noop,
     onAddTerminal: noop,
@@ -290,5 +291,41 @@ describe("device tab rename", () => {
     await userEvent.fill(input, "日本語");
     await userEvent.keyboard("{Enter}");
     expect(onRenameDevice).toHaveBeenCalledExactlyOnceWith(DEVICE_SURFACE.id, "日本語");
+  });
+});
+
+const FILE_SURFACE: RightPanelSurface = {
+  id: "file:README.md",
+  kind: "file",
+  relativePath: "README.md",
+  revealLine: null,
+  revealRequestId: 1,
+};
+
+describe("file tab menu", () => {
+  it("is the file's own menu, followed by the tab's actions", async () => {
+    const environmentId = EnvironmentId.make("environment-local");
+    const props = panel(FILE_SURFACE).props as RightPanelTabsProps;
+    await using screen = await render(
+      <FileMenuProvider
+        environmentId={environmentId}
+        cwd="/repo"
+        threadRef={scopeThreadRef(environmentId, ThreadId.make("thread"))}
+      >
+        <RightPanelTabs {...props} surfaces={[FILE_SURFACE]}>
+          {null}
+        </RightPanelTabs>
+      </FileMenuProvider>,
+    );
+    using _menu = { [Symbol.dispose]: () => dismissContextMenu() };
+    using clipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    screen
+      .getByRole("button", { name: "README.md", exact: true })
+      .element()
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+
+    await expect.element(page.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+    await userEvent.click(page.getByRole("menuitem", { name: "Copy mention", exact: true }));
+    await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith("[README.md](README.md)"));
   });
 });
