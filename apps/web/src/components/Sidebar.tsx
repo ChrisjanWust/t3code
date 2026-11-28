@@ -192,6 +192,8 @@ import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
+import { isThreadMoveAction, threadMoveDestination } from "./threadMoveMenu.logic";
+import { readThreadMoveMenu, useThreadMove } from "../hooks/useThreadMove";
 import {
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
@@ -1084,6 +1086,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectEnvironment.regenerateWorktreeTitle,
     { reportFailure: false },
   );
+  const moveThread = useThreadMove();
   // Read only when a row menu opens, so a ref is enough.
   const regeneratingWorktreeKeysRef = useRef(new Set<string>());
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
@@ -2966,6 +2969,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const threadMoveMenu = worktreeMembers === undefined ? readThreadMoveMenu(threadRef) : null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2996,6 +3000,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              move: threadMoveMenu,
               canRename: !fromSearch,
               supports: {
                 settlement: configLoaded,
@@ -3032,6 +3037,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   thread.environmentId,
                 );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (isThreadMoveAction(clicked.value)) {
+          const destination =
+            threadMoveMenu && threadMoveDestination(threadMoveMenu, clicked.value);
+          if (destination) await moveThread(threadRef, destination);
           return;
         }
         switch (clicked.value) {

@@ -52,6 +52,8 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
+import { readThreadMoveMenu, useThreadMove } from "./useThreadMove";
+import { isThreadMoveAction, threadMoveDestination } from "../components/threadMoveMenu.logic";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -97,6 +99,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const moveThread = useThreadMove();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -139,6 +142,7 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const move = readThreadMoveMenu(threadRef);
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -156,6 +160,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        move,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position, source));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -185,6 +190,11 @@ export function useThreadActionMenu(input: {
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           failureToast(m(msg("Failed to snooze thread")), squashAtomCommandFailure(result));
         }
+        return;
+      }
+      if (isThreadMoveAction(action)) {
+        const destination = move && threadMoveDestination(move, action);
+        if (destination) await moveThread(threadRef, destination);
         return;
       }
       const reportFailure = async (

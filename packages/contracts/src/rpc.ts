@@ -494,6 +494,7 @@ import {
   ProjectRegenerateWorktreeTitleInput,
   ProjectWorktreeTitle,
 } from "./project.ts";
+import { ThreadMoveInput, ThreadMoveResult } from "./threadMove.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -507,6 +508,7 @@ export const WS_METHODS = {
   projectsSuggestScratchFile: "projects.suggestScratchFile",
   projectsMutate: "projects.mutate",
   projectsRegenerateWorktreeTitle: "projects.regenerateWorktreeTitle",
+  projectsMoveThread: "projects.moveThread",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
@@ -1705,6 +1707,12 @@ const WsProjectsRegenerateWorktreeTitleRpc = Rpc.make(WS_METHODS.projectsRegener
   error: Schema.Union([ProjectRegenerateWorktreeTitleError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsMoveThreadRpc = Rpc.make(WS_METHODS.projectsMoveThread, {
+  payload: ThreadMoveInput,
+  success: ThreadMoveResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsEnsureScratchRpc = Rpc.make(WS_METHODS.projectsEnsureScratch, {
   payload: Schema.Struct({}),
   success: ProjectEnsureScratchResult,
@@ -2664,6 +2672,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSuggestScratchFileRpc,
   WsProjectsMutateRpc,
   WsProjectsRegenerateWorktreeTitleRpc,
+  WsProjectsMoveThreadRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsWorkspaceListFoldersRpc,

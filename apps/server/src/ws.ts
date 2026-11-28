@@ -240,6 +240,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as WorktreeTitleService from "./project/WorktreeTitleService.ts";
+import * as ThreadMoveService from "./project/ThreadMoveService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
@@ -1493,6 +1494,7 @@ export const layerWsRpc = (
       const projectStore = yield* ProjectStore.ProjectStoreV2;
       const projectService = yield* ProjectService.ProjectService;
       const worktreeTitles = yield* WorktreeTitleService.WorktreeTitleService;
+      const threadMove = yield* ThreadMoveService.ThreadMoveService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
@@ -3197,6 +3199,14 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.projectsRegenerateWorktreeTitle]: (input) => worktreeTitles.regenerate(input),
+        [WS_METHODS.projectsMoveThread]: (input) =>
+          threadMove
+            .move(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+              ),
+            ),
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
         [WS_METHODS.filesystemGetMetadata]: (input) => workspaceFileSystem.getMetadata(input),
         [WS_METHODS.filesystemBrowse]: (input) =>
@@ -3916,6 +3926,7 @@ export const layer = Layer.unwrap(
                 Layer.succeed(IssueTrackerConnections.IssueTrackerConnections, issueTrackers),
               ),
               Layer.provide(OtlpEndpointCheck.layer),
+              Layer.provide(ThreadMoveService.layer),
               Layer.provide(
                 Layer.succeed(
                   PullRequestReviewGuideService.PullRequestReviewGuideService,

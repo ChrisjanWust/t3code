@@ -42,8 +42,9 @@ folder, so the files the agent wrote stay until you delete them. Branch, worktre
 these folders are not Git repositories. This is unavailable when the data
 directory itself sits inside a Git checkout.
 
-When the work grows into something real, pick **Turn into project** from the
-thread's menu. The thread's folder becomes a project where it is, so nothing
+When the work grows into something real, pick **Move to project › New project**
+from the thread's menu (**Turn into project** on mobile). The thread's folder
+becomes a project where it is, so nothing
 moves and the agent keeps working in the same place. Other threads in that folder
 move with it. Rename the project in its settings, and use **Initialize Git** to
 get branch and diff controls.
@@ -59,6 +60,23 @@ To send the same prompt to several models on web or desktop, **Shift-click** mod
 in a new thread's model picker to add or remove them. A regular click returns to a
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
+
+## Move a thread
+
+On web and desktop, right-click a thread, or its tab when worktrees are shown as
+tabs, and use **Move to worktree** or **Move to project** to change where it works.
+The conversation comes along, and the agent picks up in the new folder with your
+next message. A thread has to be idle to move.
+
+- **Move to worktree › New worktree** gives the thread a worktree of its own, on a
+  new branch from the commit its folder is on. **Main** moves it back to the
+  project's own checkout, and the rest are the project's other open worktrees.
+- **Move to project** moves the thread into another project's own checkout. Restore
+  points from turns before the move don't work there.
+
+Files never move with a thread. Uncommitted changes stay in the old folder, so
+commit them first if the thread needs them; T3 Code asks before moving when there
+are any.
 
 ## Pin and reorder threads
 

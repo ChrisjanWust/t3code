@@ -203,6 +203,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       label: "environment-data:projects:regenerate-worktree-title",
       tag: WS_METHODS.projectsRegenerateWorktreeTitle,
     }),
+    moveThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:move-thread",
+      tag: WS_METHODS.projectsMoveThread,
+      scheduler: projectScheduler,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
     // Finds or creates the environment's Scratch project and resolves once the
     // project is in the client store, since drafts key off its stored path.
     openScratch: createEnvironmentCommand(runtime, {
