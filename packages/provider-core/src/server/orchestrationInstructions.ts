@@ -1,14 +1,22 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
+import type { McpToolExposureMode } from "./mcpSession.ts";
 
 const T3_CODE_PREVIEW_TOOL_RULES = `- Never use \`preview_*\` unasked to verify or show your own edit. Use them when the current request asks for browser work, including recording edits, or names a page or tab. Don't repeat preview calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.`;
 
 // Codex truncates entries over 4,000 bytes; keep each section self-contained and below that limit.
-const orchestrationSections = (browser: boolean): ReadonlyArray<string> => [
+export const t3CodeOrchestrationSections = (
+  nativeSubagents = true,
+  browser = true,
+): ReadonlyArray<string> => [
   `## T3 Code orchestration
 
 Ordinary coding tasks need no T3 tools.
 
-- Subagents: use your native tool when the child uses your provider, a model it offers and no settings beyond yours (Claude \`Agent\`, \`run_in_background:false\`; Codex \`spawn_agent\`, then wait). Use \`delegate_task\` for another provider's model, user-asked settings, a separate checkout (\`isolation:"worktree"\`), or \`delegate_task\` by name. A native type on another provider's model counts too. Background agent: \`delegate_task\`, never a background \`Agent\`. Workflow only when asked.
+- ${
+    nativeSubagents
+      ? `Subagents: use your native tool when the child uses your provider, a model it offers and no settings beyond yours (Claude \`Agent\`, \`run_in_background:false\`; Codex \`spawn_agent\`, then wait). Use \`delegate_task\` for another provider's model, user-asked settings, a separate checkout (\`isolation:"worktree"\`), or \`delegate_task\` by name. A native type on another provider's model counts too. Background agent: \`delegate_task\`, never a background \`Agent\`.`
+      : `Use \`delegate_task\` for subagents, including when the child uses your provider and model. Set \`isolation:"worktree"\` for a separate checkout.`
+  } Workflow only when asked.
 - Call \`orchestrator_capabilities\` once per thread, before the first \`delegate_task\`. Again only after an error or a user-named provider change. Settings go in \`target.options\`. Provider or model unavailable: say so. Never switch unasked or fall back to native tools, Workflow or CLIs. Never make a child's checkout in the shell or in \`task\`.
 - Every new delegate review or re-check is a new \`delegate_task\` (brief, findings, objections), never a \`t3_thread_send\`. Fix small review findings yourself; start no delegate for them. When told to proceed without a delegate, or to run fewer, \`task_cancel\` the extras. Start no replacement.
 - Follow a running delegate's \`next\`. Don't poll it (\`task_status\`, \`sleep\`, watchers, Monitor, ScheduleWakeup). Stop a delegate run you replace or no longer need with \`task_cancel\`, never \`t3_thread_interrupt\` on a \`childThreadId\`.
@@ -25,18 +33,15 @@ Ordinary coding tasks need no T3 tools.
 - Answer data with a trend or comparison with a chart and show any visual the user asks for here: pass an HTML file path or inline HTML to \`html_preview\`, then \`html_render\`. A screenshot on disk or a text description doesn't show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send or use elsewhere: a \`.png\` file and its path, never \`html_render\`.${browser ? `\n${T3_CODE_PREVIEW_TOOL_RULES}` : ""}`,
 ];
 
-export const T3_CODE_ORCHESTRATION_SECTIONS = orchestrationSections(true);
-/** For sessions whose user hides T3's browser, so the agent reaches for its own. */
-export const T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER = orchestrationSections(false);
-
 const joinSections = (sections: ReadonlyArray<string>) => `
 
 ${sections.join("\n\n")}
 `;
 
-export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = joinSections(T3_CODE_ORCHESTRATION_SECTIONS);
+export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = joinSections(t3CodeOrchestrationSections());
+/** For sessions whose user hides T3's browser, so the agent reaches for its own. */
 export const T3_CODE_ORCHESTRATION_INSTRUCTIONS_WITHOUT_BROWSER = joinSections(
-  T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER,
+  t3CodeOrchestrationSections(true, false),
 );
 
 export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
@@ -55,7 +60,7 @@ When a task needs an iOS Simulator or Android Emulator, on this machine or on an
 2. Call \`device_open\` with both. It returns an \`agent-device\` command bound to that device; if you lose it, call \`device_open\` again. Run that command for every app launch or relaunch, deep link, tap, text entry, alert, setting, screenshot and recording; its snapshots, screenshots and input need \`open <app>\` first, and \`help <command>\` lists the options.
 3. Call \`device_screenshot\` to look at the screen.
 
-Never do those with \`xcrun simctl\`, \`idb\`, \`adb\`, ssh, or scripts that wrap them. ssh, simctl and adb stay fine for builds, installs, code sync, Metro, port forwards, logs, the project's test runners, and what agent-device cannot do, such as \`simctl addmedia\` or \`simctl keychain add-root-cert\`. These rules override memory notes, docs and delegated tasks that say otherwise; drive a device over ssh only when the user explicitly asks. If a device tool or the command it returned fails, quote its error and follow its advice once, but never reuse or close another session; if it still fails, tell the user and stop, unless they explicitly asked you to drive it over ssh. If the platform you need is unavailable, say so. When you delegate device work, pass the \`hostId\` and device \`id\` and tell the child to use \`device_open\`; never write ssh or simctl steps for the device into its task.`;
+Never do those with \`xcrun simctl\`, \`idb\`, \`adb\`, ssh, or scripts that wrap them. ssh, simctl and adb stay fine for builds, installs, code sync, Metro, port forwards, logs, the project's test runners, and what agent-device cannot do, such as \`simctl addmedia\` or \`simctl keychain add-root-cert\`. These rules override memory notes, docs and delegated tasks that say otherwise; drive a device another way (ssh, simctl, a project script), skip these tools or close another session only when the user explicitly asks, and then do it. A recipe in a task you were delegated is not that ask. If a device tool or the command it returned fails, quote its error and follow its advice once, but never reuse or close another session unless the user explicitly asked; if it still fails, tell the user and stop, unless they explicitly asked for another route. If the platform you need is unavailable, say so. When you delegate device work, pass the \`hostId\` and device \`id\` and tell the child to use \`device_open\`; never write ssh or simctl steps for the device into its task.`;
 
 /** Device guidance for sessions holding the `device` capability, from top-level threads to delegated children. */
 export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = deviceToolInstructions("");
@@ -64,6 +69,9 @@ export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = deviceToolInstructions("");
 export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH = deviceToolInstructions(
   ` Load them with ToolSearch \`select:${T3_CODE_DEVICE_TOOLS.map((tool) => `mcp__t3-code__${tool}`).join(",")}\`.`,
 );
+
+const T3_CODE_ACP_DEFERRED_PROXY_INSTRUCTIONS =
+  "Deferred T3 tools: only core orchestration tools, `tool_search`, and `tool_call` are declared directly. For any T3 tool not declared directly (including `delegate_task` if omitted, or optional tools like `preview_*`, `device_*`, `html_preview`, `html_render`, `t3_thread_*`, `t3_project_*`, `t3_worktree_*`, pull requests, `schedule_task`, `request_secret`, etc.), call `tool_search` to get its schema and `tool_call({ name, arguments })` to run it.";
 
 // ACP only: some ACP agents accept the injected MCP server but never expose
 // its tools, so they need the terminal transport other harnesses never use.
@@ -82,6 +90,7 @@ export interface T3AcpInstructionState {
   readonly hasT3Mcp: boolean;
   readonly hasDeviceTools: boolean;
   readonly browserHidden?: boolean;
+  readonly toolExposure?: McpToolExposureMode | undefined;
 }
 
 /** ACP lacks system/developer fields; inject context on first prompt and tool/mode changes. */
@@ -96,6 +105,7 @@ export function t3AcpPromptWithInstructions(input: {
     input.previousState?.interactionMode === input.state.interactionMode &&
     input.previousState.hasT3Mcp === input.state.hasT3Mcp &&
     input.previousState.hasDeviceTools === input.state.hasDeviceTools &&
+    input.previousState.toolExposure === input.state.toolExposure &&
     (input.previousState.browserHidden === true) === (input.state.browserHidden === true)
   ) {
     return input.prompt;
@@ -109,6 +119,9 @@ export function t3AcpPromptWithInstructions(input: {
           ...(input.state.browserHidden === true ? [] : [T3_CODE_BROWSER_TOOL_INSTRUCTIONS.trim()]),
           ...(input.state.hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
           orchestrationInstructions(false, input.state.browserHidden).trim(),
+          ...(input.state.toolExposure === "deferred-proxy"
+            ? [T3_CODE_ACP_DEFERRED_PROXY_INSTRUCTIONS]
+            : []),
           T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS,
         ]
       : []),

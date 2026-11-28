@@ -257,6 +257,7 @@ export interface FakeThread {
   /** The first is the thread's active provider thread. */
   readonly providerThreads?: ReadonlyArray<OrchestrationV2ProviderThread>;
   readonly issues?: OrchestrationV2ThreadShell["issues"];
+  readonly pullRequests?: OrchestrationV2ThreadShell["pullRequests"];
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
   /** The project checkout when absent. */
@@ -372,6 +373,7 @@ function baseShellOf(
     ...(thread.creatingWorktree === undefined ? {} : { creatingWorktree: thread.creatingWorktree }),
     activeProviderThreadId: thread.providerThreads?.[0]?.id ?? null,
     ...(thread.issues === undefined ? {} : { issues: thread.issues }),
+    ...(thread.pullRequests === undefined ? {} : { pullRequests: thread.pullRequests }),
     lineage: {
       rootThreadId: rootThreadIdOf(thread),
       parentThreadId: parentOf(thread) ?? null,
@@ -813,16 +815,6 @@ export function answerRpc(method: string, handler: (input: never) => unknown): D
   };
 }
 
-export async function emitTerminalMetadata(event: TerminalMetadataStreamEvent): Promise<void> {
-  if (terminalMetadataSubscriber === null) throw new Error("No terminal metadata subscription");
-  await Effect.runPromise(Queue.offer(terminalMetadataSubscriber, event));
-}
-
-/** Whether the app holds a live subscription to the thread, so events reach it. */
-export function isThreadSubscribed(threadId: ThreadId): boolean {
-  return threadSubscribers.has(threadId);
-}
-
 /** Delivers one domain event, such as a run or turn-item update, to the thread's subscription. */
 export async function emitThreadEvent(
   threadId: ThreadId,
@@ -856,19 +848,4 @@ export function updateServerThread(threadId: ThreadId, patch: Partial<FakeThread
   threads = threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
   const updated = threads.find((thread) => thread.id === threadId);
   if (updated) publishShell(updated);
-}
-
-export function runningRun(threadId: ThreadId, id: string, ordinal: number, userMessageId: string) {
-  return {
-    ...run(threadId, RunId.make(id), ordinal, userMessageId),
-    status: "running" as const,
-    completedAt: null,
-  };
-}
-
-export { userItem };
-
-export async function emitVcsStatus(event: VcsStatusStreamEvent): Promise<void> {
-  if (vcsStatusSubscriber === null) throw new Error("No VCS status subscription");
-  await Effect.runPromise(Queue.offer(vcsStatusSubscriber, event));
 }

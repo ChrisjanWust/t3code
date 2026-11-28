@@ -30,6 +30,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 
 import { isFileEntryActionId, parentDirectory, useFileEntryActions } from "./fileEntryActions";
+import { useFileDownload } from "./useFileDownload";
 
 export interface FileMenuTarget {
   /** Workspace-relative, with "" for the workspace root, or an absolute host path. */
@@ -117,6 +118,7 @@ export function FileMenuProvider(props: {
   const gt = useGT();
   const composerRef = useComposerHandleContext();
   const fileContextMenu = useFileContextMenu(environmentId);
+  const downloadFile = useFileDownload(environmentId);
   const [revision, setRevision] = useState(0);
   const entryActions = useFileEntryActions({
     environmentId,
@@ -147,6 +149,9 @@ export function FileMenuProvider(props: {
         ...(root
           ? []
           : [
+              ...(downloadFile && target.kind !== "directory"
+                ? [{ id: "download", label: gt("Download", { $context: "verb, saves a file" }) }]
+                : []),
               { id: "copy-path", label: gt("Copy path") },
               { id: "copy-mention", label: gt("Copy mention") },
               { id: "add-to-chat", label: gt("Add to chat") },
@@ -209,6 +214,15 @@ export function FileMenuProvider(props: {
       return true;
     }
     switch (id) {
+      case "download": {
+        if (!isHostPath(target.path)) {
+          downloadFile?.(cwd, target.path);
+          return true;
+        }
+        const cut = Math.max(target.path.lastIndexOf("/"), target.path.lastIndexOf("\\"));
+        downloadFile?.(target.path.slice(0, Math.max(cut, 1)), target.path.slice(cut + 1));
+        return true;
+      }
       case "copy-path":
         void copy(
           formatFilePathForClipboard(target.path, resolvePathLinkTarget(target.path, cwd)),

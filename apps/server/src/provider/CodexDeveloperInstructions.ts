@@ -5,8 +5,7 @@ import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeI
 import {
   T3_CODE_BROWSER_TOOL_INSTRUCTIONS,
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS,
-  T3_CODE_ORCHESTRATION_SECTIONS,
-  T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER,
+  t3CodeOrchestrationSections,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
 /** Codex silently truncates additionalContext values over 1,000 tokens, counted as UTF-8 bytes / 4. */
@@ -17,6 +16,7 @@ export interface T3CodeToolAvailability {
   /** Not even the shared orchestration text names T3's browser. */
   readonly browserHidden?: boolean;
   readonly device: boolean;
+  readonly nativeSubagents?: boolean;
 }
 
 const normalizeAvailability = (
@@ -25,15 +25,13 @@ const normalizeAvailability = (
   typeof availability === "boolean" ? { browser: availability, device: false } : availability;
 
 /** Instructions for unavailable tools would steer the model away from its remaining automation. */
-const toolInstructions = (availability: boolean | T3CodeToolAvailability): string => {
-  const tools = normalizeAvailability(availability);
-  return [
+const toolInstructions = (tools: T3CodeToolAvailability): string =>
+  [
     tools.browser ? T3_CODE_BROWSER_TOOL_INSTRUCTIONS : "",
     tools.device ? T3_CODE_DEVICE_TOOL_INSTRUCTIONS : "",
   ]
     .filter(Boolean)
     .join("\n\n");
-};
 
 export interface CodexRuntimeInfo {
   readonly agentFeedback?: AgentFeedbackMode;
@@ -47,15 +45,15 @@ export function buildCodexAdditionalContext(
   runtime: CodexRuntimeInfo,
   toolsAvailable: boolean | T3CodeToolAvailability = true,
 ): Record<string, V2TurnStartParams__AdditionalContextEntry> {
-  const tools = toolInstructions(toolsAvailable);
-  const sections =
-    normalizeAvailability(toolsAvailable).browserHidden === true
-      ? T3_CODE_ORCHESTRATION_SECTIONS_WITHOUT_BROWSER
-      : T3_CODE_ORCHESTRATION_SECTIONS;
+  const availability = normalizeAvailability(toolsAvailable);
+  const tools = toolInstructions(availability);
   // Split values to fit per-entry caps; number keys because Codex emits them in key order.
   return {
     ...Object.fromEntries(
-      sections.map((section, index) => [
+      t3CodeOrchestrationSections(
+        availability.nativeSubagents,
+        availability.browserHidden !== true,
+      ).map((section, index) => [
         `t3_code_orchestration_${String(index + 1).padStart(2, "0")}`,
         { kind: "application" as const, value: section },
       ]),

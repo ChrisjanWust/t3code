@@ -28,10 +28,8 @@ export function RightPanelResizeHandle({
       {...separatorProps}
       className={cn(
         // no-drag: the desktop title bar would otherwise turn the handle's top into a window drag.
-        "group absolute inset-y-0 z-40 w-1 cursor-col-resize touch-none select-none [-webkit-app-region:no-drag] any-pointer-coarse:w-4",
-        edge === "left"
-          ? "left-0 any-pointer-coarse:-left-2"
-          : "right-0 any-pointer-coarse:-right-2",
+        "group absolute inset-y-0 z-40 w-1 cursor-col-resize touch-none select-none [-webkit-app-region:no-drag] any-pointer-coarse:w-2",
+        edge === "left" ? "left-0" : "right-0",
         className,
       )}
       {...handlers}
@@ -40,9 +38,7 @@ export function RightPanelResizeHandle({
         aria-hidden
         className={cn(
           "pointer-events-none absolute inset-y-0 w-px bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60",
-          edge === "left"
-            ? "left-0 -translate-x-1/2 any-pointer-coarse:left-2"
-            : "right-0 translate-x-1/2 any-pointer-coarse:right-2",
+          edge === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
         )}
       />
     </div>
