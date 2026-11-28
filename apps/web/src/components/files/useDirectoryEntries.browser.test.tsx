@@ -242,6 +242,13 @@ it("refreshes the root, and another folder only once one of its rows is on scree
   expect(state.calls).toHaveLength(8); // The second refresh reads the root once more; `docs` is never read.
   expect(state.view.entries.map((entry) => entry.path)).toEqual(["src", "src/ui", "docs"]);
   expect(state.view.isPending).toBe(false);
+
+  // Revealing an entry in a folder the refresh left stale reads that folder once more.
+  await act(async () => void state.view.load("docs"));
+  await state.settle(8, [{ path: "docs/new.md", kind: "file" }]);
+  await act(async () => void state.view.load("docs"));
+  expect(state.calls).toHaveLength(9);
+  expect(state.view.entries.map((entry) => entry.path)).toContain("docs/new.md");
 });
 
 it("does not start a queued follow-up after unmount", async () => {

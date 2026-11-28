@@ -214,15 +214,9 @@ export function FileMenuProvider(props: {
       return true;
     }
     switch (id) {
-      case "download": {
-        if (!isHostPath(target.path)) {
-          downloadFile?.(cwd, target.path);
-          return true;
-        }
-        const cut = Math.max(target.path.lastIndexOf("/"), target.path.lastIndexOf("\\"));
-        downloadFile?.(target.path.slice(0, Math.max(cut, 1)), target.path.slice(cut + 1));
+      case "download":
+        downloadFile?.(cwd, target.path);
         return true;
-      }
       case "copy-path":
         void copy(
           formatFilePathForClipboard(target.path, resolvePathLinkTarget(target.path, cwd)),

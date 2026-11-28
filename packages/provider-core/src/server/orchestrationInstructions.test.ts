@@ -108,7 +108,12 @@ describe("T3 device instructions", () => {
 
 describe("T3 browser instructions", () => {
   it("never name T3's browser to an agent whose user hides it", () => {
-    const state = { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: true } as const;
+    const state = {
+      interactionMode: "default",
+      hasT3Mcp: true,
+      hasDeviceTools: true,
+      toolExposure: "deferred-proxy",
+    } as const;
     const shown = [
       t3OrchestrationSystemPrompt(true, true),
       t3OrchestrationPrompt({

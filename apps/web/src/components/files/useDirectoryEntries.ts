@@ -157,10 +157,13 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       }
       return followUp;
     }
-    if (!refresh && loaded.current.has(directoryPath)) return Promise.resolve();
+    const listed = loaded.current.has(directoryPath);
+    // A listing a refresh left stale is read again, so a reveal finds entries added since.
+    if (!refresh && listed && !stale.current.delete(directoryPath)) return Promise.resolve();
+    const reread = refresh || listed;
     setPending((count) => count + 1);
-    if (!refresh) setLoadingDirectories((previous) => new Set(previous).add(directoryPath));
-    return startRequest(directoryPath, refresh);
+    if (!reread) setLoadingDirectories((previous) => new Set(previous).add(directoryPath));
+    return startRequest(directoryPath, reread);
   };
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the root directory read on mount and marks the hook inactive so late reads are ignored

@@ -1,6 +1,10 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
-import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
+import {
+  selectThreadRightPanelState,
+  surfaceOwnerRef,
+  useRightPanelStore,
+} from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { focusTerminal, type TerminalFocusOwner } from "./terminalFocus";
 
@@ -41,14 +45,16 @@ export function cycleThreadTerminal(
   if (terminalId === undefined) return false;
   if (owner === "drawer") {
     drawer.setActiveTerminal(threadRef, terminalId);
-  } else {
-    const surface = panelState.surfaces.find(
-      (surface) => surface.kind === "terminal" && surface.terminalIds.includes(terminalId),
-    );
-    if (!surface) return false;
-    panels.activateTerminal(threadRef, surface.id, terminalId);
-    panels.activateSurface(threadRef, surface.id);
+    focusTerminal(threadRef, terminalId);
+    return true;
   }
-  focusTerminal(threadRef, terminalId);
+  const surface = panelState.surfaces.find(
+    (surface) => surface.kind === "terminal" && surface.terminalIds.includes(terminalId),
+  );
+  if (!surface) return false;
+  panels.activateTerminal(threadRef, surface.id, terminalId);
+  panels.activateSurface(threadRef, surface.id);
+  // The shared panel's terminals take focus as the thread that opened them.
+  focusTerminal(surfaceOwnerRef(surface, threadRef), terminalId);
   return true;
 }
