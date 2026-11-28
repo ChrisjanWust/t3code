@@ -691,31 +691,24 @@ describe("Antigravity subscription limits", () => {
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
-  it.effect("reads a Gemini Enterprise keyring sign-in and reports when it has expired", () =>
+  it.effect("reads the shared keyring sign-in and reports when it has expired", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")));
       const keyringSecret = (expiry: string) =>
         JSON.stringify({ token: { access_token: "access-token", refresh_token: "r", expiry } });
-      // Google account instances keep their own sign-in; the shared entry belongs to another app.
-      const personal = yield* fixture({
-        missingToken: true,
-        keyringSecret: keyringSecret("2026-10-09T14:00:00Z"),
-      });
-      expect((yield* personal.probe).unavailable?.message).toBe(
-        "Sign in with Google to see Antigravity limits.",
-      );
-      expect(personal.requests).toEqual([]);
-
-      const signedIn = yield* fixture({
-        authMethod: "oauth-business",
-        missingToken: true,
-        userId: "google-user-1",
-        keyringSecret: keyringSecret("2026-10-09T14:00:00.123456789+01:00"),
-      });
-      const limits = yield* signedIn.probe;
-      expect(limits.unavailable).toBeUndefined();
-      expect(limits.windows).toHaveLength(4);
-      expect(signedIn.requests.some((request) => request.url.endsWith("/token"))).toBe(false);
+      // Without a sign-in in the profile, the CLI runs on the shared keyring entry.
+      for (const authMethod of ["oauth-personal", "oauth-business"] as const) {
+        const signedIn = yield* fixture({
+          authMethod,
+          missingToken: true,
+          userId: "google-user-1",
+          keyringSecret: keyringSecret("2026-10-09T14:00:00.123456789+01:00"),
+        });
+        const limits = yield* signedIn.probe;
+        expect(limits.unavailable).toBeUndefined();
+        expect(limits.windows).toHaveLength(4);
+        expect(signedIn.requests.some((request) => request.url.endsWith("/token"))).toBe(false);
+      }
 
       const expired = yield* fixture({
         authMethod: "oauth-business",
@@ -776,9 +769,16 @@ describe("Antigravity subscription limits", () => {
 
   it.effect("does not make network requests for API keys or missing sign-ins", () =>
     Effect.gen(function* () {
-      for (const options of [{ authMethod: "gemini-api-key" as const }, { missingToken: true }]) {
+      const cases = [
+        { options: { authMethod: "gemini-api-key" as const }, message: undefined },
+        {
+          options: { missingToken: true },
+          message: "Sign in with Google to see Antigravity limits.",
+        },
+      ];
+      for (const { options, message } of cases) {
         const { probe, requests } = yield* fixture(options);
-        expect((yield* probe).unavailable?.reason).toBe("unsupported");
+        expect((yield* probe).unavailable).toEqual({ reason: "unsupported", message });
         expect(requests).toEqual([]);
       }
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
